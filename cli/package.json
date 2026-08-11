@@ -1,0 +1,39 @@
+{
+  "name": "@barrel/site-audit-cli",
+  "version": "1.0.0",
+  "description": "CLI for auditing Shopify store code quality, performance, and site health",
+  "type": "module",
+  "bin": {
+    "barrel-audit": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.115.0",
+    "@barrel/site-audit-shared": "workspace:*",
+    "@google-analytics/data": "^7.0.0",
+    "@inquirer/prompts": "^8.5.2",
+    "@octokit/auth-oauth-device": "^8.0.4",
+    "@octokit/rest": "^22.0.1",
+    "@shopify/theme-check-node": "^3.21.0",
+    "@vercel/blob": "^2.6.1",
+    "axe-core": "^4.10.2",
+    "chalk": "^5.3.0",
+    "cheerio": "^1.0.0",
+    "chrome-launcher": "^1.1.2",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.5",
+    "lighthouse": "^12.2.1",
+    "nanoid": "^5.0.7",
+    "ora": "^8.1.1",
+    "puppeteer-core": "^25.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

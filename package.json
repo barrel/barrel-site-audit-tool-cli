@@ -1,0 +1,16 @@
+{
+  "name": "barrel-site-audit",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Reusable CLI + web report tool for auditing Shopify store code, performance, and site health.",
+  "scripts": {
+    "build": "pnpm --filter ./cli build && pnpm --filter ./web build",
+    "barrel-audit": "node cli/dist/index.js",
+    "web:dev": "pnpm --filter ./web dev",
+    "web:deploy": "pnpm --filter ./web exec vercel deploy --prod"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.13.1+sha512.b2fc7683b8a6525414e7d13e1ba28caaddde96bf66ec540bfaeb7e702b81f3e0be4d1f295edf7f9fe0396740a8dce4509c582ddf79891f4543fea32d37645f25"
+}

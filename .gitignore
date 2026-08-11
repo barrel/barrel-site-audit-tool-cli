@@ -1,0 +1,28 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.next/
+out/
+
+# vercel
+.vercel/
+
+# env
+.env
+.env.local
+.env*.local
+
+# per-store theme code (pulled fresh per run, not versioned in this repo)
+stores/*/theme/
+
+# logs / os
+*.log
+.DS_Store
+
+# lighthouse / chrome tmp
+.lighthouseci/
+*.tsbuildinfo

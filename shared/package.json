@@ -1,0 +1,14 @@
+{
+  "name": "@barrel/site-audit-shared",
+  "version": "1.0.0",
+  "description": "Shared report types/schema and scoring helpers used by both the CLI and web app",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
