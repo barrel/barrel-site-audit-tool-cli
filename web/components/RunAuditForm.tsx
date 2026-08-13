@@ -84,7 +84,7 @@ function useLocalAgent() {
     saveToken("");
   }
 
-  return { port, token, detected, checking, savePort, saveToken, clearToken, recheck: () => check(port) };
+  return { port, token, detected, checking, savePort, saveToken, clearToken, check, recheck: () => check(port) };
 }
 
 export function RunAuditForm() {
@@ -267,8 +267,13 @@ export function RunAuditForm() {
               <button
                 type="button"
                 onClick={() => {
-                  agent.savePort(portInput.trim() || DEFAULT_PORT);
+                  const p = portInput.trim() || DEFAULT_PORT;
+                  agent.savePort(p);
                   agent.saveToken(tokenInput.trim());
+                  // Explicit — setPort() above is a no-op when the port didn't actually change
+                  // (the common case, since most users only ever touch the token field), so the
+                  // effect that re-checks on port change never fires on its own in that case.
+                  agent.check(p);
                   setShowAgentSettings(false);
                 }}
                 className="text-sm font-medium text-white bg-[#1A1A1A] hover:bg-black px-3 py-1.5 rounded-lg transition-colors"
