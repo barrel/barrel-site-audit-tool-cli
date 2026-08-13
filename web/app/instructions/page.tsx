@@ -279,13 +279,28 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Getting AI to draft an actual code fix
+          </h3>
+          <p className="text-sm text-[#6B6B6B]">
+            On the Dev To-Do list, any item that points at a specific theme file shows a
+            "Suggest fix" button. Clicking it (needs the same local agent set up above) asks
+            Claude to draft a fix for just that one item and shows you the change before anything
+            happens — nothing is written or sent anywhere until you review it. If it looks right,
+            "Approve &amp; open PR" opens a pull request on GitHub for someone to review and merge
+            normally — this never merges anything itself, and nothing runs for more than the one
+            item you clicked.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Tracking progress over multiple audits
           </h3>
           <p className="text-sm text-[#6B6B6B]">
             Running the same store more than once — e.g. before/during/after a build — just
             works: re-run <span className="font-mono text-[#1A1A1A]">pnpm barrel-audit run</span>{" "}
-            against the same slug or URL any time. The "Progress" link on the landing page and on
-            every report shows every store's score trend over time, and any run can be marked the
+            against the same slug or URL any time. The "Baseline & Reporting" link on the landing
+            page and on every report shows every store's score trend over time, and any run can be marked the
             baseline (a "Set baseline" button on its row) so later runs show a clear improved/
             regressed delta against it — with no baseline set, the earliest run is used
             automatically.

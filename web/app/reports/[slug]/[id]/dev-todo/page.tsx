@@ -23,7 +23,14 @@ export default async function DevTodoPage({
 
   return (
     <ReportSection id="dev-todo" number="—" title="Dev To-Do">
-      <DevTodoList items={items} markdown={markdown} csv={csv} csvFilename={csvFilename} />
+      <DevTodoList
+        items={items}
+        markdown={markdown}
+        csv={csv}
+        csvFilename={csvFilename}
+        storeSlug={report.storeSlug}
+        reportUrl={`/reports/${report.storeSlug}/${report.id}`}
+      />
     </ReportSection>
   );
 }

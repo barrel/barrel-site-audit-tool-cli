@@ -93,3 +93,12 @@ export async function getGithubToken(): Promise<string> {
   writeCachedToken(clientId, token);
   return token;
 }
+
+/** The read-and-validate half of getGithubToken(), without its device-flow fallback — safe to
+ * call from a non-interactive context (an HTTP handler) where triggering an interactive login
+ * prompt mid-request would silently hang the request on a device code nobody's watching. */
+export async function hasCachedValidGithubToken(): Promise<boolean> {
+  if (!process.env.GITHUB_OAUTH_CLIENT_ID) return false;
+  const cached = readCachedToken(process.env.GITHUB_OAUTH_CLIENT_ID);
+  return Boolean(cached) && (await isTokenValid(cached!));
+}

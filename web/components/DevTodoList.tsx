@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { RoadmapItem } from "@/lib/findings";
+import { SuggestFixPanel } from "@/components/SuggestFixPanel";
 
 const EFFORT_COLOR: Record<RoadmapItem["effort"], string> = {
   Trivial: "#10B981",
@@ -23,13 +24,20 @@ export function DevTodoList({
   markdown,
   csv,
   csvFilename,
+  storeSlug,
+  reportUrl,
 }: {
   items: RoadmapItem[];
   markdown: string;
   csv: string;
   csvFilename: string;
+  storeSlug: string;
+  reportUrl: string;
 }) {
   const [copied, setCopied] = useState(false);
+  // The one-at-a-time selection gate — picking a new item replaces any previous selection, and
+  // there is no multi-select or bulk action anywhere in this component.
+  const [activeItem, setActiveItem] = useState<RoadmapItem | null>(null);
 
   async function handleCopy() {
     await navigator.clipboard.writeText(markdown);
@@ -106,7 +114,7 @@ export function DevTodoList({
             </thead>
             <tbody className="divide-y divide-[#E5E5E5]">
               {items.map((item) => (
-                <tr key={item.priority} className="hover:bg-[#fafafa]">
+                <tr key={item.id} className="hover:bg-[#fafafa]">
                   <td className="px-5 py-3 align-top">
                     <span
                       className="inline-flex items-center justify-center w-[22px] h-[22px] rounded-full text-white text-[11px] font-bold"
@@ -139,12 +147,29 @@ export function DevTodoList({
                         <code>{item.codeFix}</code>
                       </pre>
                     )}
+                    {item.file && (
+                      <button
+                        onClick={() => setActiveItem(item)}
+                        className="mt-2 text-xs font-semibold text-white bg-[#1A1A1A] hover:bg-black px-2.5 py-1 rounded-md transition-colors"
+                      >
+                        Suggest fix
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {activeItem && (
+        <SuggestFixPanel
+          item={activeItem}
+          storeSlug={storeSlug}
+          reportUrl={reportUrl}
+          onClose={() => setActiveItem(null)}
+        />
       )}
     </div>
   );

@@ -20,7 +20,7 @@ export default async function ProgressPage() {
             <Link href="/" className="text-sm text-[#6B6B6B] hover:text-[#1A1A1A]">
               ← All reports
             </Link>
-            <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight">Progress</h1>
+            <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight">Baseline & Reporting</h1>
           </div>
           <Link
             href="/instructions"

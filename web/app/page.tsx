@@ -3,12 +3,14 @@ import { getManifest, searchAndPaginate } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import { ScoreBadge, GradePill } from "@/components/ScoreBadge";
 import { SiteFavicon } from "@/components/SiteFavicon";
+import { ArchiveButton } from "@/components/ArchiveButton";
 
 export const dynamic = "force-dynamic";
 
-function pageHref(q: string | undefined, page: number): string {
+function pageHref(q: string | undefined, view: string | undefined, page: number): string {
   const params = new URLSearchParams();
   if (q) params.set("q", q);
+  if (view === "archived") params.set("view", view);
   if (page > 1) params.set("page", String(page));
   const qs = params.toString();
   return qs ? `/?${qs}` : "/";
@@ -17,11 +19,13 @@ function pageHref(q: string | undefined, page: number): string {
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; page?: string; view?: string }>;
 }) {
-  const { q, page } = await searchParams;
+  const { q, page, view } = await searchParams;
+  const isArchivedView = view === "archived";
   const manifest = await getManifest();
-  const result = searchAndPaginate(manifest, q, Number(page) || 1);
+  const result = searchAndPaginate(manifest, q, Number(page) || 1, 20, isArchivedView ? "archived" : "active");
+  const archivedCount = manifest.reports.filter((r) => r.archived).length;
 
   return (
     <div className="min-h-screen bg-[#f9f8f6]">
@@ -30,7 +34,7 @@ export default async function HomePage({
           <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight">Barrel Site Audit</h1>
           <div className="flex items-center gap-4">
             <Link href="/progress" className="text-sm font-medium text-[#1A1A1A] hover:text-[#6B6B6B]">
-              Progress
+              Baseline & Reporting
             </Link>
             <Link
               href="/run"
@@ -54,21 +58,45 @@ export default async function HomePage({
       </header>
 
       <main className="max-w-[1600px] mx-auto px-5 lg:px-8 py-8">
-        <form action="/" method="GET" className="mb-5">
-          <input
-            type="search"
-            name="q"
-            defaultValue={q ?? ""}
-            placeholder="Search reports by store name or URL…"
-            className="w-full max-w-md rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#9A9A9A] focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/10 focus:border-[#1A1A1A]"
-          />
-        </form>
+        <div className="flex items-center justify-between gap-4 mb-5">
+          <form action="/" method="GET" className="flex-1 max-w-md">
+            {isArchivedView && <input type="hidden" name="view" value="archived" />}
+            <input
+              type="search"
+              name="q"
+              defaultValue={q ?? ""}
+              placeholder="Search reports by store name or URL…"
+              className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#9A9A9A] focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/10 focus:border-[#1A1A1A]"
+            />
+          </form>
+
+          <div className="flex items-center gap-1 bg-[#f0efed] rounded-lg p-1 shrink-0">
+            <Link
+              href={pageHref(q, undefined, 1)}
+              className={`text-sm font-medium px-3 py-1.5 rounded-md transition-colors ${
+                !isArchivedView ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6B6B6B] hover:text-[#1A1A1A]"
+              }`}
+            >
+              Active
+            </Link>
+            <Link
+              href={pageHref(q, "archived", 1)}
+              className={`text-sm font-medium px-3 py-1.5 rounded-md transition-colors ${
+                isArchivedView ? "bg-white text-[#1A1A1A] shadow-sm" : "text-[#6B6B6B] hover:text-[#1A1A1A]"
+              }`}
+            >
+              Archived {archivedCount > 0 ? `(${archivedCount})` : ""}
+            </Link>
+          </div>
+        </div>
 
         {result.total === 0 ? (
           <div className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-10 text-center">
             <p className="text-sm text-[#6B6B6B]">
               {q ? (
                 <>No reports match "{q}".</>
+              ) : isArchivedView ? (
+                <>No archived reports.</>
               ) : (
                 <>
                   No reports yet. Run{" "}
@@ -84,20 +112,19 @@ export default async function HomePage({
           <>
             <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden divide-y divide-[#E5E5E5]">
               {result.items.map((r) => (
-                <Link
-                  key={r.id}
-                  href={`/reports/${r.storeSlug}/${r.id}`}
-                  className="flex items-center gap-4 px-5 py-3 hover:bg-[#fafafa] transition-colors"
-                >
-                  <ScoreBadge score={r.overallScore} size="sm" />
-                  <SiteFavicon storeUrl={r.storeUrl} />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-[#000000] break-words">{r.storeName}</div>
-                    <div className="text-sm text-[#6B6B6B] break-all">{r.storeUrl}</div>
-                  </div>
+                <div key={r.id} className="flex items-center gap-4 px-5 py-3 hover:bg-[#fafafa] transition-colors">
+                  <Link href={`/reports/${r.storeSlug}/${r.id}`} className="flex items-center gap-4 flex-1 min-w-0">
+                    <ScoreBadge score={r.overallScore} size="sm" />
+                    <SiteFavicon storeUrl={r.storeUrl} />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold text-[#000000] break-words">{r.storeName}</div>
+                      <div className="text-sm text-[#6B6B6B] break-all">{r.storeUrl}</div>
+                    </div>
+                  </Link>
                   <div className="text-[10px] text-[#9A9A9A] shrink-0 tabular-nums">{formatDate(r.createdAt)}</div>
                   <GradePill score={r.overallScore} />
-                </Link>
+                  <ArchiveButton slug={r.storeSlug} id={r.id} archived={Boolean(r.archived)} />
+                </div>
               ))}
             </div>
 
@@ -108,7 +135,7 @@ export default async function HomePage({
               <div className="flex items-center gap-2">
                 {result.page > 1 ? (
                   <Link
-                    href={pageHref(q, result.page - 1)}
+                    href={pageHref(q, view, result.page - 1)}
                     className="px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white text-[#1A1A1A] hover:bg-[#fafafa]"
                   >
                     Prev
@@ -118,7 +145,7 @@ export default async function HomePage({
                 )}
                 {result.page < result.totalPages ? (
                   <Link
-                    href={pageHref(q, result.page + 1)}
+                    href={pageHref(q, view, result.page + 1)}
                     className="px-3 py-1.5 rounded-lg border border-[#E5E5E5] bg-white text-[#1A1A1A] hover:bg-[#fafafa]"
                   >
                     Next

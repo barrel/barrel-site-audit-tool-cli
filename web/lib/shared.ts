@@ -387,6 +387,10 @@ export interface ManifestEntry {
   /** Marks this report as the reference point for progress tracking — at most one
    * per storeSlug, set/cleared from the web app, never touched by the CLI. */
   isBaseline?: boolean;
+  /** Hides this report from the default landing-page list without deleting it — the report
+   * blob, Baseline & Reporting history, and direct link all keep working. Set/cleared only
+   * from the web app, never touched by the CLI. */
+  archived?: boolean;
 }
 
 export interface Manifest {

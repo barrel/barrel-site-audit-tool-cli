@@ -40,6 +40,11 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
     {
       onStage: (stage) => {
         spinner.text = stage;
+        // ora only ever renders spinner.text when stdout is a TTY — piped/non-interactive
+        // callers (the web dashboard's /api/run and `barrel-audit serve`) would otherwise see
+        // total silence between "Running audit for..." and the final summary. Print an explicit
+        // line in that case so those consumers get live per-stage progress too.
+        if (!process.stdout.isTTY) console.log(`→ ${stage}`);
       },
     },
   ).catch((err) => {

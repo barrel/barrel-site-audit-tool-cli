@@ -44,13 +44,13 @@ export function searchAndPaginate(
   query: string | undefined,
   page: number,
   pageSize = 20,
+  view: "active" | "archived" = "active",
 ): ReportListResult {
   const q = (query ?? "").trim().toLowerCase();
+  const byView = manifest.reports.filter((r) => (view === "archived" ? r.archived : !r.archived));
   const filtered = q
-    ? manifest.reports.filter((r) =>
-        [r.storeName, r.storeSlug, r.storeUrl].some((field) => field.toLowerCase().includes(q)),
-      )
-    : manifest.reports;
+    ? byView.filter((r) => [r.storeName, r.storeSlug, r.storeUrl].some((field) => field.toLowerCase().includes(q)))
+    : byView;
 
   const sorted = [...filtered].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const total = sorted.length;

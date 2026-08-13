@@ -4,6 +4,7 @@ import { getManifest, getReport, reportsForStore } from "@/lib/data";
 import { ReportHeader } from "@/components/ReportHeader";
 import { CategoryNav } from "@/components/CategoryNav";
 import { ShareButton } from "@/components/ShareButton";
+import { ArchiveButton } from "@/components/ArchiveButton";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ export default async function ReportLayout({
   if (!report) notFound();
 
   const history = reportsForStore(manifest, slug, id).slice(0, 6);
+  const currentEntry = manifest.reports.find((r) => r.id === id);
 
   return (
     <div className="min-h-screen bg-[#f9f8f6]">
@@ -32,9 +34,10 @@ export default async function ReportLayout({
               href={`/progress/${slug}`}
               className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"
             >
-              Progress
+              Baseline & Reporting
             </Link>
             <ShareButton slug={slug} id={id} />
+            <ArchiveButton slug={slug} id={id} archived={Boolean(currentEntry?.archived)} variant="header" />
             <Link
               href="/instructions"
               className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"

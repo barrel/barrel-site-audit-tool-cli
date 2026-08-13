@@ -112,6 +112,8 @@ export function collectAllFindings(report: Report): Finding[] {
         description: `${issue.message} (${issue.file}${issue.line ? `:${issue.line}` : ""})`,
         scope: `Theme file: ${issue.file}${issue.line ? `:${issue.line}` : ""}`,
         recommendation: issue.recommendation,
+        file: issue.file,
+        line: issue.line,
       });
     }
   }

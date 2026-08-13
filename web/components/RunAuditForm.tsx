@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { BarrelFactTicker } from "./BarrelFactTicker";
+import { useLocalAgent, DEFAULT_AGENT_PORT } from "@/lib/use-local-agent";
 
 interface CheckDef {
   key: string;
@@ -30,61 +32,23 @@ const CHECKS: CheckDef[] = [
 
 const DEFAULT_INCLUDED: Record<string, boolean> = Object.fromEntries(CHECKS.map((c) => [c.key, true]));
 
-const AGENT_PORT_KEY = "barrel-audit-agent-port";
-const AGENT_TOKEN_KEY = "barrel-audit-agent-token";
-const DEFAULT_PORT = "5757";
-
 function extractReportLink(log: string): { slug: string; id: string } | null {
   const match = log.match(/reports\/([^/\s]+)\/([^/\s]+)\.json/);
   return match ? { slug: match[1], id: match[2] } : null;
 }
 
-/** Detects and talks to the local `barrel-audit serve` agent — a small HTTP server bound to
- * 127.0.0.1 on the user's own machine. The browser reaches it directly (never through Vercel)
- * regardless of which origin this page was loaded from, which is what lets "Run audit" work from
- * the deployed dashboard, not just a locally-running copy of this app. */
-function useLocalAgent() {
-  const [port, setPort] = useState(DEFAULT_PORT);
-  const [token, setToken] = useState("");
-  const [detected, setDetected] = useState(false);
-  const [checking, setChecking] = useState(true);
+// The CLI prints "→ <stage>" lines only when its stdout isn't a TTY (see cli/src/commands/run.ts)
+// — exactly the case here, since this is always a piped/spawned process either way (direct or via
+// the local agent). Take the most recent one as "what's happening right now."
+function extractCurrentStage(log: string): string | null {
+  const matches = log.match(/^→ (.+)$/gm);
+  return matches ? matches[matches.length - 1].slice(2) : null;
+}
 
-  useEffect(() => {
-    setPort(localStorage.getItem(AGENT_PORT_KEY) ?? DEFAULT_PORT);
-    setToken(localStorage.getItem(AGENT_TOKEN_KEY) ?? "");
-  }, []);
-
-  const check = useCallback(async (p: string) => {
-    setChecking(true);
-    try {
-      const res = await fetch(`http://127.0.0.1:${p}/health`, { signal: AbortSignal.timeout(1500) });
-      setDetected(res.ok);
-    } catch {
-      setDetected(false);
-    } finally {
-      setChecking(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    check(port);
-  }, [port, check]);
-
-  function savePort(p: string) {
-    setPort(p);
-    localStorage.setItem(AGENT_PORT_KEY, p);
-  }
-
-  function saveToken(t: string) {
-    setToken(t);
-    localStorage.setItem(AGENT_TOKEN_KEY, t);
-  }
-
-  function clearToken() {
-    saveToken("");
-  }
-
-  return { port, token, detected, checking, savePort, saveToken, clearToken, check, recheck: () => check(port) };
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
 }
 
 export function RunAuditForm() {
@@ -101,8 +65,16 @@ export function RunAuditForm() {
   const [log, setLog] = useState("");
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [usedBackend, setUsedBackend] = useState<"agent" | "server" | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [showRawOutput, setShowRawOutput] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    if (status !== "running") return;
+    const id = setInterval(() => setElapsed((e) => e + 1), 1000);
+    return () => clearInterval(id);
+  }, [status]);
 
   function toggle(key: string) {
     setIncluded((prev) => {
@@ -140,6 +112,8 @@ export function RunAuditForm() {
     setLog("");
     setExitCode(null);
     setUsedBackend(null);
+    setElapsed(0);
+    setShowRawOutput(false);
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -197,6 +171,7 @@ export function RunAuditForm() {
   const reportLink = status === "done" ? extractReportLink(log) : null;
   const running = status === "running";
   const canRunViaAgent = agent.detected && agent.token;
+  const currentStage = extractCurrentStage(log);
 
   return (
     <div className="space-y-5">
@@ -267,7 +242,7 @@ export function RunAuditForm() {
               <button
                 type="button"
                 onClick={() => {
-                  const p = portInput.trim() || DEFAULT_PORT;
+                  const p = portInput.trim() || DEFAULT_AGENT_PORT;
                   agent.savePort(p);
                   agent.saveToken(tokenInput.trim());
                   // Explicit — setPort() above is a no-op when the port didn't actually change
@@ -412,7 +387,51 @@ export function RunAuditForm() {
         </p>
       </div>
 
-      {(log || status !== "idle") && (
+      {status === "running" && (
+        <div className="bg-white border border-[#E5E5E5] rounded-lg p-6 text-center">
+          <div className="flex items-center justify-center gap-3 mb-1">
+            <span className="text-2xl" style={{ animation: "fadein 1.2s ease-in-out infinite alternate" }}>
+              🛢️
+            </span>
+            <h3 className="text-lg font-semibold text-[#1A1A1A]">Auditing {target}…</h3>
+          </div>
+          <p className="text-sm text-[#6B6B6B] mb-4">{formatElapsed(elapsed)} elapsed</p>
+
+          <div className="bg-[#fafafa] border border-[#E5E5E5] rounded-lg px-4 py-3 mb-4">
+            <p className="text-sm font-medium text-[#1A1A1A]">{currentStage ?? "Starting up…"}</p>
+          </div>
+
+          <div className="max-w-[560px] mx-auto min-h-[40px]">
+            <BarrelFactTicker />
+          </div>
+
+          <p className="text-xs font-semibold text-white bg-[#B91C1C] rounded-lg px-3 py-2 mt-5 inline-block">
+            Keep this browser tab open, and the terminal (or agent) running the CLI — closing
+            either one stops the run.
+          </p>
+
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setShowRawOutput((v) => !v)}
+              className="text-xs font-medium text-[#9A9A9A] hover:text-[#1A1A1A]"
+            >
+              {showRawOutput ? "Hide" : "Show"} raw CLI output
+            </button>
+          </div>
+
+          {showRawOutput && (
+            <pre
+              ref={logRef}
+              className="mt-3 text-left text-xs text-[#1A1A1A] bg-[#1A1A1A] text-white/90 rounded-lg p-4 overflow-auto max-h-[300px] whitespace-pre-wrap"
+            >
+              {log || "Starting…"}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {status !== "running" && (log || status !== "idle") && (
         <div className="bg-[#1A1A1A] rounded-lg overflow-hidden">
           <div className="px-4 py-2 border-b border-white/10 flex items-center justify-between">
             <span className="text-[10px] font-semibold text-white/50 uppercase tracking-wider">
@@ -427,7 +446,7 @@ export function RunAuditForm() {
               </span>
             )}
           </div>
-          <pre ref={logRef} className="text-xs text-white/90 p-4 overflow-auto max-h-[420px] whitespace-pre-wrap">
+          <pre className="text-xs text-white/90 p-4 overflow-auto max-h-[420px] whitespace-pre-wrap">
             {log || "Starting…"}
           </pre>
         </div>

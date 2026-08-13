@@ -380,6 +380,14 @@ links to other reports for the same store. `pnpm barrel-audit deploy` is only fo
 shipping changes to the web app's own code (new sections, styling, etc.) — it's never
 needed just to publish a report.
 
+An **Archive** button on each row (also on the report page itself, next to Share) hides a
+report from this default list without deleting anything — the report blob, its direct link,
+and its place in Baseline & Reporting history all keep working exactly as before. Archived
+reports live under the **Archived** tab next to the search box, with an **Unarchive** button
+to bring one back. The flag (`archived` on the manifest entry, toggled via `POST /api/archive`)
+lives in the same `reports/manifest.json` blob as `isBaseline` — set/cleared only from the web
+app, never touched by the CLI.
+
 ## Running an audit from the dashboard
 
 `/run` (a "+ Run Audit" button on the landing page) is a form-based alternative to typing CLI
@@ -389,6 +397,16 @@ and click **Run audit**. It POSTs to `/api/run`, which spawns `pnpm barrel-audit
 real local child process (args passed as an array, never through a shell, so nothing you type
 can inject extra flags) and streams the CLI's own stdout/stderr straight into the page as it
 runs; once it finishes, a "View report" link appears automatically.
+
+While it's running, the page shows a friendlier progress screen instead of a raw log: an elapsed
+timer, the current stage in plain language (parsed from `→ <stage>` lines — the CLI only prints
+those when its stdout isn't a TTY, i.e. exactly when it's being driven this way, see
+`cli/src/commands/run.ts`), and a rotating "did you know?" barrel-history fact
+(`web/lib/barrel-facts.ts`) to make a multi-minute Lighthouse pass less of a staring contest. The
+raw log is still one click away ("Show raw CLI output"), and the plain terminal-style view comes
+back once the run finishes or fails. This only updates live as long as both the browser tab and
+whatever's actually running the CLI (the terminal, or the `serve` agent below) stay open — closing
+either one stops the run.
 
 By itself this only works when the report site is running locally (`pnpm dev` in `web/`) — it
 spawns the CLI on whatever machine is running the Next.js server, and the deployed Vercel site
@@ -419,11 +437,11 @@ to re-paste it. The token is generated fresh each time you run `serve` and only 
 terminal session's output plus your browser's `localStorage` — nothing is written to disk or
 Blob. Same single-flight rule as above: one run at a time per agent.
 
-## Progress tracking
+## Baseline & Reporting
 
 For stores audited more than once over the course of an engagement (running audits at
-different points in the SDLC — pre-build, mid-build, pre-launch), the **Progress** link
-(header of the landing page and every report page) shows change over time instead of one
+different points in the SDLC — pre-build, mid-build, pre-launch), the **Baseline & Reporting**
+link (header of the landing page and every report page) shows change over time instead of one
 report in isolation:
 
 - `/progress` — every store with its full audit history, a sparkline of `overallScore`
@@ -438,6 +456,42 @@ report for that store stands in automatically, so every store shows a trend from
 run without extra setup. The flag (`isBaseline` on the manifest entry) is stored in the same
 `reports/manifest.json` blob the CLI already writes — set/cleared only from the web app via
 `POST /api/baseline`, never touched by the CLI.
+
+## AI-suggested code fixes, gated behind review
+
+Dev To-Do items that point at a real theme file (Theme Check errors, file-grounded AI
+suggestions — anything with a `file` field, `web/lib/findings.ts`) get a **Suggest fix** button.
+This is a three-gate flow, never automatic and never bulk:
+
+1. **Pick one item.** Clicking "Suggest fix" is the only way anything happens — there's no
+   multi-select or "do this for everything" action anywhere in the Dev To-Do list.
+2. **Review the diff.** This calls the local agent's `POST /suggest-fix` (needs
+   `barrel-audit serve` running and connected, same as Run Audit — there's no server-side
+   fallback here, since it needs real access to the theme checkout). It reads the actual current
+   file, asks Claude for a complete corrected version (with the `web_search` tool available for
+   confirming current Shopify/Liquid syntax against shopify.dev), and validates the result
+   against Shopify's real Theme Check engine on a scratch copy before showing you anything.
+   Nothing is written yet. Cancel at this point and nothing happens — no branch, no commit,
+   nothing sent to GitHub.
+3. **Approve, and only then a PR opens.** `POST /apply-fix` clones the store's linked GitHub
+   repo into a disposable temp directory (never `stores/<slug>/theme/`, which has no git history
+   on purpose — see `link-repo`), branches, commits, pushes, and opens a PR — then stops. Merging
+   is 100% normal GitHub review; this tool is structurally incapable of merging anything
+   (`cli/src/git-pr.ts` only ever calls `pulls.list`/`pulls.create`, enforced by a build-time grep
+   check, `cli/scripts/verify-git-pr-safety.mjs`). Client repos should have branch protection on
+   their base branch requiring review before merge — that's the guarantee that holds even if this
+   code ever had a bug.
+
+Retrying an approval is always safe: the branch name is derived deterministically from the
+finding (not random), so a retry after a partial failure resumes the same branch instead of
+creating a duplicate, and re-approving a fix whose PR was already merged is rejected with a clear
+error rather than opening a redundant one. If the file changed on GitHub between "Suggest fix"
+and "Approve," the apply step detects the drift (a content hash captured at suggestion time) and
+refuses to overwrite it — re-run "Suggest fix" to regenerate against the latest version.
+
+Shopify's own MCP server was considered and skipped: it's stdio-only (no hosted endpoint), and
+the one thing it would have provided — Shopify's Theme Check engine — is already a direct
+dependency this CLI uses elsewhere (`cli/src/analyzers/code.ts`).
 
 ## Report pages
 

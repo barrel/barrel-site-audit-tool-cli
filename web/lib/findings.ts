@@ -20,6 +20,12 @@ export interface Finding {
   /** A concrete, AI-written corrected code snippet that implements the fix — only present for
    * AI suggestions grounded in an actual sampled theme file. */
   codeFix?: string;
+  /** Theme file this finding applies to, relative to the theme root (e.g. "sections/hero.liquid")
+   * — only set for findings grounded in an actual sampled/linted theme file. Drives eligibility
+   * for the "Suggest fix" action, since that flow needs a real file to read and patch. */
+  file?: string;
+  /** 1-based line number within `file`, when known (Theme Check offenses only). */
+  line?: number;
 }
 
 function severityFromScore(score: number | null): FindingSeverity {
@@ -167,6 +173,7 @@ export function aiSuggestionFindings(suggestions: AiSuggestion[]): Finding[] {
     scope: s.file ? `Theme file: ${s.file}` : "Homepage",
     recommendation: s.recommendation,
     codeFix: s.codeFix,
+    file: s.file,
   }));
 }
 
@@ -184,6 +191,9 @@ export function pixelToFindings(findings: PixelFinding[]): Finding[] {
 const SEVERITY_RANK: Record<FindingSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3, good: 4 };
 
 export interface RoadmapItem {
+  /** Stable id, carried over from the source Finding — used to key the "Suggest fix" flow to
+   * one specific item rather than an array index/priority rank. */
+  id: string;
   priority: number;
   fix: string;
   why: string;
@@ -194,6 +204,8 @@ export interface RoadmapItem {
   /** Concrete instruction for how to resolve this item — what to change and where. */
   recommendation?: string;
   codeFix?: string;
+  file?: string;
+  line?: number;
 }
 
 function effortForFinding(f: Finding): RoadmapItem["effort"] {
@@ -243,6 +255,7 @@ export function buildRoadmap(allFindings: Finding[], limit = 10): RoadmapItem[] 
   const actionable = allFindings.filter((f) => f.severity !== "good" && !isNoisyCodeFinding(f));
   const sorted = [...actionable].sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity]);
   return sorted.slice(0, limit).map((f, i) => ({
+    id: f.id,
     priority: i + 1,
     fix: f.title,
     why: f.description,
@@ -252,6 +265,8 @@ export function buildRoadmap(allFindings: Finding[], limit = 10): RoadmapItem[] 
     scope: f.scope ?? "Site-wide",
     recommendation: f.recommendation,
     codeFix: f.codeFix,
+    file: f.file,
+    line: f.line,
   }));
 }
 

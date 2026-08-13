@@ -4,7 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 /** Toggles a report's isBaseline flag via /api/baseline, then refreshes so every dependent
- * view (this page's delta math, the Progress list) reflects the new baseline immediately. */
+ * view (this page's delta math, the Baseline & Reporting list) reflects the new baseline
+ * immediately. */
 export function BaselineButton({ slug, id, isBaseline }: { slug: string; id: string; isBaseline: boolean }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
