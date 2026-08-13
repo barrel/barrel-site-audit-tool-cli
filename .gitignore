@@ -19,6 +19,9 @@ out/
 # per-store theme code (pulled fresh per run, not versioned in this repo)
 stores/*/theme/
 
+# in-progress local AI-fix branches (disposable clones, recreated per fix)
+stores/*/fixes/
+
 # logs / os
 *.log
 .DS_Store

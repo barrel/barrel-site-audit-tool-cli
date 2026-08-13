@@ -4,6 +4,7 @@ import { formatDate } from "@/lib/format";
 import { ScoreBadge, GradePill } from "@/components/ScoreBadge";
 import { SiteFavicon } from "@/components/SiteFavicon";
 import { ArchiveButton } from "@/components/ArchiveButton";
+import { AboutBadge } from "@/components/AboutBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,7 @@ export default async function HomePage({
                 Sign out
               </button>
             </form>
+            <AboutBadge />
           </div>
         </div>
       </header>

@@ -1,12 +1,22 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import chalk from "chalk";
-import { findRepoRoot, storeThemeDir } from "../paths.js";
+import { findRepoRoot, storeThemeDir, storeFixDir } from "../paths.js";
 import { buildRunArgs, type RunAuditBody } from "../run-args.js";
 import { resolveStore } from "../store.js";
 import { suggestFix, type SuggestFixParams } from "../analyzers/ai-fix.js";
-import { applyFixAndOpenPr, AlreadyMergedError, DriftError, type FixFinding } from "../git-pr.js";
+import {
+  applyFixAndOpenPr,
+  prepareLocalFixBranch,
+  commitAndPushFix,
+  cleanupLocalFixBranch,
+  deriveBranchName,
+  AlreadyMergedError,
+  DriftError,
+  type FixFinding,
+  type PreparedFix,
+} from "../git-pr.js";
 import { getGithubToken, hasCachedValidGithubToken } from "../github-auth.js";
 
 export interface ServeOptions {
@@ -33,6 +43,35 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
   function fixLockKey(slug: string, findingId: string): string {
     return `${slug}:${findingId}`;
   }
+
+  // Populated by /fix/prepare, consumed by /fix/open-editor, /fix/preview, and (if present) by
+  // /apply-fix, which reuses the same clone instead of starting a fresh disposable one.
+  interface FixEntry {
+    prepared: PreparedFix;
+    line?: number;
+  }
+  const preparedFixes = new Map<string, FixEntry>();
+
+  interface PreviewEntry {
+    child: ChildProcess;
+    status: "starting" | "ready" | "error";
+    urls: string[];
+    log: string;
+  }
+  const activePreviews = new Map<string, PreviewEntry>();
+
+  function stopPreview(lockKey: string): void {
+    const preview = activePreviews.get(lockKey);
+    if (preview) {
+      preview.child.kill();
+      activePreviews.delete(lockKey);
+    }
+  }
+
+  process.on("SIGINT", () => {
+    for (const key of [...activePreviews.keys()]) stopPreview(key);
+    process.exit(0);
+  });
 
   function cors(req: IncomingMessage, res: ServerResponse) {
     const origin = req.headers.origin;
@@ -227,17 +266,35 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
           description: body.description ?? "",
           recommendation: body.recommendation,
         };
-        const result = await applyFixAndOpenPr({
-          owner,
-          repo,
-          baseBranch: config.githubBranch,
-          filePath: body.file,
-          newContent: body.newContent,
-          baseContentSha256: body.baseContentSha256,
-          finding,
-          reportUrl: body.reportUrl,
-          token: await getGithubToken(),
-        });
+
+        const entry = preparedFixes.get(lockKey);
+        const result = entry
+          ? await commitAndPushFix({
+              prepared: entry.prepared,
+              owner,
+              repo,
+              finding,
+              reportUrl: body.reportUrl,
+              token: await getGithubToken(),
+            })
+          : await applyFixAndOpenPr({
+              owner,
+              repo,
+              baseBranch: config.githubBranch,
+              filePath: body.file,
+              newContent: body.newContent,
+              baseContentSha256: body.baseContentSha256,
+              finding,
+              reportUrl: body.reportUrl,
+              token: await getGithubToken(),
+            });
+
+        if (entry) {
+          stopPreview(lockKey);
+          cleanupLocalFixBranch(entry.prepared.cloneDir);
+          preparedFixes.delete(lockKey);
+        }
+
         res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
       } catch (err: any) {
         const status = err instanceof DriftError ? 400 : err instanceof AlreadyMergedError ? 409 : 500;
@@ -245,6 +302,237 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
       } finally {
         activeFixes.delete(lockKey);
       }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/fix/prepare") {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
+        return;
+      }
+
+      let body: {
+        slug: string;
+        file: string;
+        newContent: string;
+        baseContentSha256: string;
+        findingId: string;
+        title: string;
+        line?: number;
+      };
+      try {
+        body = await readJsonBody(req);
+        if (!body?.slug || !body?.file || !body?.newContent || !body?.baseContentSha256 || !body?.findingId || !body?.title) {
+          throw new Error("Missing required fields.");
+        }
+      } catch (err: any) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+        return;
+      }
+
+      let config: ReturnType<typeof resolveStore>;
+      try {
+        config = resolveStore(body.slug);
+      } catch (err: any) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+        return;
+      }
+      if (!config.githubRepo) {
+        res
+          .writeHead(400, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ error: `No GitHub repo linked for "${config.slug}" — run "pnpm barrel-audit link-repo ${config.slug}" first.` }));
+        return;
+      }
+      if (!(await hasCachedValidGithubToken())) {
+        res
+          .writeHead(400, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ error: `GitHub sign-in has expired — run "pnpm barrel-audit link-repo ${config.slug}" in your terminal to re-authenticate, then try again.` }));
+        return;
+      }
+
+      try {
+        const [owner, repo] = config.githubRepo.split("/");
+        const branch = deriveBranchName(body.findingId, body.title);
+        const workDir = storeFixDir(config.slug, branch, repoRoot);
+        const prepared = await prepareLocalFixBranch({
+          owner,
+          repo,
+          baseBranch: config.githubBranch,
+          filePath: body.file,
+          newContent: body.newContent,
+          baseContentSha256: body.baseContentSha256,
+          findingId: body.findingId,
+          findingTitle: body.title,
+          token: await getGithubToken(),
+          workDir,
+        });
+        preparedFixes.set(fixLockKey(body.slug, body.findingId), { prepared, line: body.line });
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ branch: prepared.branch, cloneDir: prepared.cloneDir }));
+      } catch (err: any) {
+        const status = err instanceof DriftError ? 400 : 500;
+        res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+      }
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/fix/open-editor") {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
+        return;
+      }
+
+      let body: { slug: string; findingId: string };
+      try {
+        body = await readJsonBody(req);
+        if (!body?.slug || !body?.findingId) throw new Error("Missing slug or findingId.");
+      } catch (err: any) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+        return;
+      }
+
+      const entry = preparedFixes.get(fixLockKey(body.slug, body.findingId));
+      if (!entry) {
+        res
+          .writeHead(400, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ error: "This fix hasn't been prepared locally yet — try again." }));
+        return;
+      }
+
+      const target = entry.line
+        ? `${entry.prepared.cloneDir}/${entry.prepared.filePath}:${entry.line}`
+        : `${entry.prepared.cloneDir}/${entry.prepared.filePath}`;
+      const child = spawn("code", ["--goto", target, entry.prepared.cloneDir], { detached: true, stdio: "ignore" });
+      const opened = await new Promise<boolean>((resolveSpawn) => {
+        child.once("spawn", () => resolveSpawn(true));
+        child.once("error", () => resolveSpawn(false));
+      });
+      child.unref();
+
+      if (!opened) {
+        res
+          .writeHead(400, { "Content-Type": "application/json" })
+          .end(
+            JSON.stringify({
+              error:
+                'Could not launch VS Code — the "code" command wasn\'t found. In VS Code, open the Command Palette and run "Shell Command: Install \'code\' command in PATH", then try again.',
+            }),
+          );
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ opened: true }));
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/fix/preview") {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
+        return;
+      }
+
+      let body: { slug: string; findingId: string };
+      try {
+        body = await readJsonBody(req);
+        if (!body?.slug || !body?.findingId) throw new Error("Missing slug or findingId.");
+      } catch (err: any) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+        return;
+      }
+
+      const lockKey = fixLockKey(body.slug, body.findingId);
+      const entry = preparedFixes.get(lockKey);
+      if (!entry) {
+        res
+          .writeHead(400, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ error: "This fix hasn't been prepared locally yet — try again." }));
+        return;
+      }
+
+      const already = activePreviews.get(lockKey);
+      if (already) {
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ status: already.status, previewUrls: already.urls }));
+        return;
+      }
+
+      // No --json output from `shopify theme dev` — the preview/local URLs are parsed out of its
+      // normal stdout instead. Requires `shopify auth login` to have been run previously in a real
+      // terminal (or a Theme Access password configured); if not, the CLI's own auth prompt shows
+      // up in `log` below rather than a URL, which the UI surfaces back to the user verbatim.
+      const child = spawn("shopify", ["theme", "dev", "--path", entry.prepared.cloneDir], {
+        cwd: entry.prepared.cloneDir,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const preview: PreviewEntry = { child, status: "starting", urls: [], log: "" };
+      activePreviews.set(lockKey, preview);
+
+      const onData = (chunk: Buffer) => {
+        preview.log = (preview.log + chunk.toString()).slice(-20_000);
+        const found = preview.log.match(/https?:\/\/[^\s"']+/g);
+        if (found) {
+          preview.urls = [...new Set(found)];
+          if (preview.status === "starting") preview.status = "ready";
+        }
+      };
+      child.stdout.on("data", onData);
+      child.stderr.on("data", onData);
+      child.on("error", (err) => {
+        preview.status = "error";
+        preview.log += `\nFailed to start: ${err.message}`;
+      });
+      child.on("exit", (code) => {
+        if (preview.status !== "ready" || code !== 0) {
+          preview.status = "error";
+          preview.log += `\nshopify theme dev exited (${code ?? "signal"}).`;
+        }
+        activePreviews.delete(lockKey);
+      });
+
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "starting", previewUrls: [] }));
+      return;
+    }
+
+    if (req.method === "GET" && req.url?.startsWith("/fix/preview-status")) {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
+        return;
+      }
+      const url = new URL(req.url, "http://127.0.0.1");
+      const slug = url.searchParams.get("slug") ?? "";
+      const findingId = url.searchParams.get("findingId") ?? "";
+      const preview = activePreviews.get(fixLockKey(slug, findingId));
+      if (!preview) {
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ status: "stopped", previewUrls: [] }));
+        return;
+      }
+      res
+        .writeHead(200, { "Content-Type": "application/json" })
+        .end(JSON.stringify({ status: preview.status, previewUrls: preview.urls, log: preview.log.slice(-2000) }));
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/fix/stop-preview") {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
+        return;
+      }
+      let body: { slug: string; findingId: string };
+      try {
+        body = await readJsonBody(req);
+        if (!body?.slug || !body?.findingId) throw new Error("Missing slug or findingId.");
+      } catch (err: any) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+        return;
+      }
+      stopPreview(fixLockKey(body.slug, body.findingId));
+      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ stopped: true }));
       return;
     }
 

@@ -476,21 +476,34 @@ This is a three-gate flow, never automatic and never bulk:
    against Shopify's real Theme Check engine on a scratch copy before showing you anything.
    Nothing is written yet. Cancel at this point and nothing happens — no branch, no commit,
    nothing sent to GitHub.
-3. **Approve, and only then a PR opens.** `POST /apply-fix` clones the store's linked GitHub
-   repo into a disposable temp directory (never `stores/<slug>/theme/`, which has no git history
-   on purpose — see `link-repo`), branches, commits, pushes, and opens a PR — then stops. Merging
-   is 100% normal GitHub review; this tool is structurally incapable of merging anything
-   (`cli/src/git-pr.ts` only ever calls `pulls.list`/`pulls.create`, enforced by a build-time grep
-   check, `cli/scripts/verify-git-pr-safety.mjs`). Client repos should have branch protection on
-   their base branch requiring review before merge — that's the guarantee that holds even if this
-   code ever had a bug.
+3. **Choose how to proceed — any or all of these, in any order, and nothing happens until you
+   pick one:**
+   - **Open in VS Code** — `POST /fix/prepare` clones the store's linked GitHub repo into a
+     persistent working directory (`stores/<slug>/fixes/<branch>/`, never
+     `stores/<slug>/theme/`, which has no git history on purpose — see `link-repo`), creates the
+     fix's branch, and writes the suggested change — uncommitted. `POST /fix/open-editor` then
+     runs `code --goto` on that file. Edit however you like; nothing is pushed yet.
+   - **Test live (Shopify CLI)** — reuses the same prepared branch and runs
+     `shopify theme dev --path <dir>` against it (`POST /fix/preview`, polled via
+     `GET /fix/preview-status`), surfacing whatever preview URL(s) it prints. Requires
+     `shopify auth login` to have been run previously (or a Theme Access password configured) —
+     if not, the CLI's own prompt shows up in the log instead of a URL. `POST /fix/stop-preview`
+     kills it; closing the panel does this automatically.
+   - **Push branch & open PR** — `POST /apply-fix` commits whatever is currently in the prepared
+     branch (including any manual edits made via VS Code) and pushes it, or — if nothing was
+     prepared first — clones, branches, commits, and pushes in one shot. Either way it opens a PR
+     and stops. Merging is 100% normal GitHub review; this tool is structurally incapable of
+     merging anything (`cli/src/git-pr.ts` only ever calls `pulls.list`/`pulls.create`, enforced
+     by a build-time grep check, `cli/scripts/verify-git-pr-safety.mjs`). Client repos should have
+     branch protection on their base branch requiring review before merge — that's the guarantee
+     that holds even if this code ever had a bug.
 
-Retrying an approval is always safe: the branch name is derived deterministically from the
-finding (not random), so a retry after a partial failure resumes the same branch instead of
-creating a duplicate, and re-approving a fix whose PR was already merged is rejected with a clear
-error rather than opening a redundant one. If the file changed on GitHub between "Suggest fix"
-and "Approve," the apply step detects the drift (a content hash captured at suggestion time) and
-refuses to overwrite it — re-run "Suggest fix" to regenerate against the latest version.
+Retrying a push is always safe: the branch name is derived deterministically from the finding
+(not random), so a retry after a partial failure resumes the same branch instead of creating a
+duplicate, and re-pushing a fix whose PR was already merged is rejected with a clear error rather
+than opening a redundant one. If the file changed on GitHub between "Suggest fix" and preparing
+the branch, that step detects the drift (a content hash captured at suggestion time) and refuses
+to overwrite it — re-run "Suggest fix" to regenerate against the latest version.
 
 Shopify's own MCP server was considered and skipped: it's stdio-only (no hosted endpoint), and
 the one thing it would have provided — Shopify's Theme Check engine — is already a direct

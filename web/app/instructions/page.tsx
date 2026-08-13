@@ -281,14 +281,18 @@ export default function InstructionsPage() {
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Getting AI to draft an actual code fix
           </h3>
-          <p className="text-sm text-[#6B6B6B]">
+          <p className="text-sm text-[#6B6B6B] mb-3">
             On the Dev To-Do list, any item that points at a specific theme file shows a
             "Suggest fix" button. Clicking it (needs the same local agent set up above) asks
             Claude to draft a fix for just that one item and shows you the change before anything
-            happens — nothing is written or sent anywhere until you review it. If it looks right,
-            "Approve &amp; open PR" opens a pull request on GitHub for someone to review and merge
-            normally — this never merges anything itself, and nothing runs for more than the one
-            item you clicked.
+            happens — nothing is written or sent anywhere until you review it.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            From there you get three independent choices, pick any: <b>Open in VS Code</b> to edit
+            it yourself on a local branch first; <b>Test live</b> to preview the change on the
+            actual storefront via the Shopify CLI, nothing pushed; or <b>Push branch &amp; open
+            PR</b> to send it to GitHub for someone to review and merge normally. This never
+            merges anything itself, and nothing runs for more than the one item you clicked.
           </p>
         </section>
 

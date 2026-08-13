@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/session";
 import { SHARE_SCOPE_COOKIE_NAME, verifyShareToken } from "@/lib/share";
 
-const PUBLIC_PATHS = ["/login", "/api/login", "/instructions"];
+const PUBLIC_PATHS = ["/login", "/api/login", "/instructions", "/release-notes"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

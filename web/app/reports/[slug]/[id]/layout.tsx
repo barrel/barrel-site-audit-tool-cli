@@ -5,6 +5,7 @@ import { ReportHeader } from "@/components/ReportHeader";
 import { CategoryNav } from "@/components/CategoryNav";
 import { ShareButton } from "@/components/ShareButton";
 import { ArchiveButton } from "@/components/ArchiveButton";
+import { AboutBadge } from "@/components/AboutBadge";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,7 @@ export default async function ReportLayout({
             >
               CLI Instructions
             </Link>
+            <AboutBadge />
           </div>
         </div>
       </header>

@@ -3,6 +3,7 @@ import { getReport } from "@/lib/data";
 import { verifyShareToken } from "@/lib/share";
 import { ReportHeader } from "@/components/ReportHeader";
 import { ReportNav } from "@/components/ReportNav";
+import { AboutBadge } from "@/components/AboutBadge";
 import { buildReportSections } from "@/lib/build-report-sections";
 import { formatDate } from "@/lib/format";
 
@@ -27,10 +28,13 @@ export default async function SharedReportPage({
       <header className="bg-white h-[73px] border-b border-[#E5E5E5] flex items-center px-6 lg:px-8">
         <div className="max-w-[1600px] w-full mx-auto flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight">Barrel Site Audit</h1>
-          <div className="text-[11px] text-[#9A9A9A] text-right shrink-0">
-            Shared report — view only
-            <br />
-            Link expires {formatDate(new Date(payload.expires).toISOString())}
+          <div className="flex items-center gap-3">
+            <div className="text-[11px] text-[#9A9A9A] text-right shrink-0">
+              Shared report — view only
+              <br />
+              Link expires {formatDate(new Date(payload.expires).toISOString())}
+            </div>
+            <AboutBadge />
           </div>
         </div>
       </header>

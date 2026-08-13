@@ -26,6 +26,14 @@ export function storeThemeDir(slug: string, root = findRepoRoot()): string {
   return join(storeDir(slug, root), "theme");
 }
 
+/** Persistent working directory for an in-progress AI fix branch — separate from theme/ (which
+ * has no git history and is overwritten on every audit run). Survives across the prepare/
+ * open-editor/preview/push steps so a fix can be edited or tested locally before anything is
+ * pushed. Safe to delete any time; it's recreated fresh from GitHub on the next "Suggest fix". */
+export function storeFixDir(slug: string, branch: string, root = findRepoRoot()): string {
+  return join(storeDir(slug, root), "fixes", branch);
+}
+
 export function storeConfigPath(slug: string, root = findRepoRoot()): string {
   return join(storeDir(slug, root), "config.json");
 }
