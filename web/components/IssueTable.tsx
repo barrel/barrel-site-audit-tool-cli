@@ -28,10 +28,10 @@ export function IssueTable({ issues }: { issues: CodeIssue[] }) {
       <div className="overflow-x-auto">
         <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
           <colgroup>
-            <col style={{ width: "90px" }} />
-            <col style={{ width: "220px" }} />
-            <col />
+            <col style={{ width: "80px" }} />
             <col style={{ width: "160px" }} />
+            <col />
+            <col style={{ width: "260px" }} />
           </colgroup>
           <thead>
             <tr className="bg-[#fafafa] text-left">
@@ -52,9 +52,9 @@ export function IssueTable({ issues }: { issues: CodeIssue[] }) {
                     {issue.severity}
                   </span>
                 </td>
-                <td className="px-5 py-3 align-top text-[#1A1A1A] font-medium truncate">{issue.check}</td>
-                <td className="px-5 py-3 align-top text-[#6B6B6B]">{issue.message}</td>
-                <td className="px-5 py-3 align-top text-[#9A9A9A] truncate">
+                <td className="px-5 py-3 align-top text-[12.5px] text-[#1A1A1A] font-medium break-words">{issue.check}</td>
+                <td className="px-5 py-3 align-top text-[12.5px] text-[#6B6B6B] leading-relaxed break-words">{issue.message}</td>
+                <td className="px-5 py-3 align-top text-[11.5px] text-[#9A9A9A] font-mono leading-relaxed break-all">
                   {issue.file}
                   {issue.line ? `:${issue.line}` : ""}
                 </td>

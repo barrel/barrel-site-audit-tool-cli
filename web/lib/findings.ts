@@ -1,4 +1,4 @@
-import type { AiSuggestion, AxeImpact, AxePageResult, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SeoOpportunity, UxOpportunity } from "./shared";
+import type { AiSuggestion, AxeImpact, AxePageResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity } from "./shared";
 import { stripMarkdownLinks, extractMarkdownLinkUrl } from "./format";
 
 export type FindingSeverity = "critical" | "high" | "medium" | "low" | "good";
@@ -103,6 +103,61 @@ export function uxOpportunityFindings(opportunities: UxOpportunity[]): Finding[]
   }));
 }
 
+const CONSOLE_ERROR_LABELS: Record<string, string> = {
+  network: "Failed network request",
+  security: "Security/CSP violation",
+  exception: "Uncaught JavaScript exception",
+};
+
+const CONSOLE_ERROR_SEVERITY: Record<string, FindingSeverity> = {
+  network: "medium",
+  security: "high",
+  exception: "high",
+};
+
+export function consoleErrorFindings(errors: ConsoleErrorItem[]): Finding[] {
+  return errors.map((e, i) => ({
+    id: `console-${i}`,
+    title: CONSOLE_ERROR_LABELS[e.source] ?? "Console error",
+    severity: CONSOLE_ERROR_SEVERITY[e.source] ?? "medium",
+    description: e.description,
+    scope: e.url ? `${e.url}${e.line ? `:${e.line}` : ""}` : "Homepage",
+  }));
+}
+
+export function sitespeedAdviceFindings(advice: SitespeedAdvice[]): Finding[] {
+  return advice.map((a, i) => ({
+    id: `sitespeed-${i}`,
+    title: `${a.title} (${a.category})`,
+    severity: a.severity,
+    description: a.detail,
+    scope: "Homepage",
+    recommendation: a.recommendation,
+  }));
+}
+
+export function themeConcernFindings(concerns: ThemeConcern[]): Finding[] {
+  return concerns.map((c, i) => ({
+    id: `theme-concern-${i}`,
+    title: c.title,
+    severity: c.severity,
+    description: c.detail,
+    scope: "Theme architecture",
+    recommendation: c.recommendation,
+  }));
+}
+
+export function agentReadinessIssueFindings(issues: ThemeConcern[]): Finding[] {
+  return issues.map((c, i) => ({
+    id: `agent-readiness-${i}`,
+    title: c.title,
+    severity: c.severity,
+    description: c.detail,
+    scope: "Agent readiness",
+    recommendation: c.recommendation,
+  }));
+}
+
 export function aiSuggestionFindings(suggestions: AiSuggestion[]): Finding[] {
   return suggestions.map((s, i) => ({
     id: `ai-suggestion-${i}`,
@@ -159,10 +214,14 @@ const CATEGORY_PREFIXES: [string, string][] = [
   ["perf-", "Performance"],
   ["a11y-", "Accessibility"],
   ["axe-", "Accessibility (Axe)"],
+  ["sitespeed-", "Performance (Sitespeed.io)"],
   ["seo-", "Technical & SEO"],
   ["health-", "Site Health"],
   ["pixel-", "Trust & Privacy"],
   ["bp-", "Trust & Privacy"],
+  ["console-", "Trust & Privacy"],
+  ["theme-concern-", "Theme Architecture"],
+  ["agent-readiness-", "Agent Readiness"],
   ["theme-", "Theme Structure"],
   ["code-", "Theme Code"],
 ];
@@ -215,6 +274,7 @@ export function formatDevTodoMarkdown(
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: "America/New_York",
   });
   const header = [`Dev To-Do — ${report.storeName}`, `${report.storeUrl} · Audit generated ${date}`];
   if (items.length === 0) {
@@ -235,4 +295,50 @@ export function formatDevTodoMarkdown(
     return lines.join("\n");
   });
   return [...header, "", blocks.join("\n\n---\n\n")].join("\n");
+}
+
+const JIRA_PRIORITY: Record<FindingSeverity, string> = {
+  critical: "Highest",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+  good: "Low",
+};
+
+function csvEscape(value: string): string {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+// Jira's Labels field rejects spaces/most punctuation — collapse a category like
+// "SEO Opportunities" down to "seo-opportunities" so a straight CSV import doesn't choke on it.
+function toJiraLabel(category: string): string {
+  return category.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+/** Renders a dev to-do list as CSV, columns matching Jira's CSV importer field names
+ * (Summary, Priority, Labels, Issue Type, Description) so the file can be dragged straight into
+ * Jira's "Import issues from CSV" flow instead of round-tripping through copy/paste. */
+export function formatDevTodoCsv(items: RoadmapItem[]): string {
+  const headers = ["Summary", "Priority", "Labels", "Issue Type", "Description"];
+  const rows = items.map((item) => {
+    const descriptionLines = [
+      `Where: ${item.scope}`,
+      `Category: ${item.category}  ·  Effort: ${item.effort}  ·  Severity: ${item.severity}`,
+      "",
+      `Why it matters: ${item.why}`,
+      "",
+      `How to fix: ${item.recommendation ?? "No specific remediation captured — use judgment based on the finding above."}`,
+    ];
+    if (item.codeFix) {
+      descriptionLines.push("", "Code fix:", item.codeFix);
+    }
+    return [
+      `[P${item.priority}] ${item.fix} — ${item.scope}`,
+      JIRA_PRIORITY[item.severity],
+      toJiraLabel(item.category),
+      "Task",
+      descriptionLines.join("\n"),
+    ];
+  });
+  return [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\r\n");
 }

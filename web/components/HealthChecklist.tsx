@@ -24,7 +24,7 @@ export function HealthChecklist({ checks }: { checks: HealthCheckItem[] }) {
           />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium text-[#1A1A1A]">{c.label}</div>
-            <div className="text-sm text-[#6B6B6B] truncate">{c.detail}</div>
+            <div className="text-sm text-[#6B6B6B] break-words">{c.detail}</div>
           </div>
           <span
             className="text-[10px] font-semibold uppercase tracking-wider shrink-0 mt-1.5"

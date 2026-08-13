@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getManifest, getReport, reportsForStore } from "@/lib/data";
 import { ReportHeader } from "@/components/ReportHeader";
 import { CategoryNav } from "@/components/CategoryNav";
+import { ShareButton } from "@/components/ShareButton";
 
 export const dynamic = "force-dynamic";
 
@@ -22,20 +23,29 @@ export default async function ReportLayout({
   return (
     <div className="min-h-screen bg-[#f9f8f6]">
       <header className="bg-white h-[73px] border-b border-[#E5E5E5] flex items-center px-6 lg:px-8">
-        <div className="max-w-[1040px] w-full mx-auto flex items-center justify-between gap-3">
+        <div className="max-w-[1600px] w-full mx-auto flex items-center justify-between gap-3">
           <Link href="/" className="text-sm text-[#6B6B6B] hover:text-[#1A1A1A]">
             ← All reports
           </Link>
-          <Link
-            href="/instructions"
-            className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"
-          >
-            CLI Instructions
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/progress/${slug}`}
+              className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"
+            >
+              Progress
+            </Link>
+            <ShareButton slug={slug} id={id} />
+            <Link
+              href="/instructions"
+              className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"
+            >
+              CLI Instructions
+            </Link>
+          </div>
         </div>
       </header>
 
-      <main className="max-w-[1040px] mx-auto px-5 lg:px-8 pb-16">
+      <main className="max-w-[1600px] mx-auto px-5 lg:px-8 pb-16">
         <ReportHeader report={report} slug={slug} history={history} />
         <CategoryNav slug={slug} id={id} />
 

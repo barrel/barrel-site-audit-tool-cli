@@ -1,5 +1,5 @@
 import { cache } from "react";
-import { get } from "@vercel/blob";
+import { get, put } from "@vercel/blob";
 import type { Manifest, ManifestEntry, Report } from "./shared";
 
 const MANIFEST_BLOB_PATH = "reports/manifest.json";
@@ -71,4 +71,49 @@ export function reportsForStore(manifest: Manifest, storeSlug: string, excludeId
   return manifest.reports
     .filter((r) => r.storeSlug === storeSlug && r.id !== excludeId)
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export interface StoreProgressGroup {
+  storeSlug: string;
+  storeName: string;
+  storeUrl: string;
+  reports: ManifestEntry[]; // sorted oldest -> newest
+  baseline: ManifestEntry; // explicit isBaseline entry, else the earliest report
+}
+
+/** Groups every report by store for the Progress views, oldest-to-newest within each group,
+ * so trend/delta math reads left-to-right in the same order the data was produced. */
+export function groupReportsByStore(manifest: Manifest): StoreProgressGroup[] {
+  const bySlug = new Map<string, ManifestEntry[]>();
+  for (const r of manifest.reports) {
+    const list = bySlug.get(r.storeSlug) ?? [];
+    list.push(r);
+    bySlug.set(r.storeSlug, list);
+  }
+
+  return Array.from(bySlug.values())
+    .map((reports) => {
+      const sorted = [...reports].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+      const latest = sorted[sorted.length - 1];
+      const baseline = sorted.find((r) => r.isBaseline) ?? sorted[0];
+      return {
+        storeSlug: latest.storeSlug,
+        storeName: latest.storeName,
+        storeUrl: latest.storeUrl,
+        reports: sorted,
+        baseline,
+      };
+    })
+    .sort((a, b) => b.reports[b.reports.length - 1].createdAt.localeCompare(a.reports[a.reports.length - 1].createdAt));
+}
+
+/** Writes the manifest back to Blob — mirrors the CLI's writeBlobJson (cli/src/blob.ts) exactly,
+ * since the web app and CLI both need read-modify-write access to the same manifest blob. */
+export async function writeManifest(manifest: Manifest): Promise<void> {
+  await put(MANIFEST_BLOB_PATH, JSON.stringify(manifest, null, 2), {
+    access: "private",
+    contentType: "application/json",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+  });
 }

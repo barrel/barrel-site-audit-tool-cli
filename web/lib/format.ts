@@ -10,6 +10,9 @@ export function extractMarkdownLinkUrl(text: string): string | undefined {
   return text.match(/\[[^\]]+\]\((https?:\/\/[^)]+)\)/)?.[1];
 }
 
+// Every report is timestamped by the CLI operator's run, and the team is Eastern-based —
+// render consistently in America/New_York (handles EST/EDT automatically) rather than
+// whatever timezone the Vercel serverless function happens to be running in (UTC).
 export function formatDate(iso: string): string {
   return new Date(iso).toLocaleString("en-US", {
     year: "numeric",
@@ -17,5 +20,7 @@ export function formatDate(iso: string): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZone: "America/New_York",
+    timeZoneName: "short",
   });
 }

@@ -60,6 +60,13 @@ export interface LighthousePageResult {
   seo: number;
 }
 
+export interface ConsoleErrorItem {
+  source: string;
+  description: string;
+  url?: string;
+  line?: number;
+}
+
 export interface PerformanceSection {
   fetchedUrl: string;
   finalUrl: string;
@@ -70,6 +77,17 @@ export interface PerformanceSection {
   vitals?: CoreWebVitals;
   pages?: LighthousePageResult[];
   screenshotPath?: string;
+  /** Absent on reports run before this field existed. */
+  consoleErrors?: ConsoleErrorItem[];
+  /** Lighthouse's "Agentic Browsing" category (Lighthouse 13.3+) — pass/total fraction, kept
+   * out of overallScore since it's still experimental upstream. Absent on older reports. */
+  agenticBrowsing?: AgenticBrowsingSection;
+}
+
+export interface AgenticBrowsingSection {
+  passed: number;
+  total: number;
+  checks: HealthCheckItem[];
 }
 
 export type AxeImpact = "critical" | "serious" | "moderate" | "minor";
@@ -273,10 +291,60 @@ export interface AiSuggestionsSection {
   suggestions: AiSuggestion[];
 }
 
+export interface SitespeedMetric {
+  label: string;
+  value: number;
+  unit: string;
+}
+
+export interface SitespeedCategoryScore {
+  category: string;
+  score: number;
+}
+
+export interface SitespeedAdvice {
+  title: string;
+  category: string;
+  severity: OpportunityImpact;
+  detail: string;
+  recommendation?: string;
+}
+
+export interface SitespeedSection {
+  score: number;
+  categoryScores: SitespeedCategoryScore[];
+  metrics: SitespeedMetric[];
+  runs: number;
+  advice: SitespeedAdvice[];
+}
+
+export interface AgentReadinessSection {
+  score: number;
+  checks: HealthCheckItem[];
+  skusSampled: number;
+  issues: ThemeConcern[];
+}
+
+export interface ThemeConcern {
+  title: string;
+  severity: OpportunityImpact;
+  detail: string;
+  recommendation?: string;
+}
+
+export interface ThemeArchitectureSection {
+  summary: string;
+  modernPractices: BestPracticeRow[];
+  concerns: ThemeConcern[];
+}
+
 export interface ReportSections {
   code?: CodeSection;
   performance?: PerformanceSection;
   accessibility?: AccessibilitySection;
+  sitespeed?: SitespeedSection;
+  themeArchitecture?: ThemeArchitectureSection;
+  agentReadiness?: AgentReadinessSection;
   health?: HealthSection;
   pixels?: PixelSection;
   themeStructure?: ThemeStructureSection;
@@ -316,6 +384,9 @@ export interface ManifestEntry {
   storeUrl: string;
   createdAt: string;
   overallScore: number;
+  /** Marks this report as the reference point for progress tracking — at most one
+   * per storeSlug, set/cleared from the web app, never touched by the CLI. */
+  isBaseline?: boolean;
 }
 
 export interface Manifest {
@@ -333,7 +404,9 @@ export function gradeForScore(score: number): Grade {
 }
 
 export function colorForScore(score: number): string {
-  if (score >= 90) return "#10B981";
-  if (score >= 50) return "#D97706";
-  return "#B91C1C";
+  if (score >= 90) return "#10B981"; // A
+  if (score >= 80) return "#65A30D"; // B
+  if (score >= 70) return "#D97706"; // C
+  if (score >= 50) return "#EA580C"; // D
+  return "#B91C1C"; // F
 }

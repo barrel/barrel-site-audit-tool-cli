@@ -3,9 +3,18 @@ packages:
   - "web"
   - "shared"
 allowBuilds:
+  '@serialport/bindings-cpp': false
+  '@sitespeed.io/chromedriver': true
+  '@sitespeed.io/edgedriver': false
+  '@sitespeed.io/geckodriver': false
+  cpu-features: false
   esbuild: true
+  node-hid: false
   protobufjs: true
   sharp: true
+  sitespeed.io: true
+  ssh2: false
+  usb: false
 minimumReleaseAgeExclude:
   - '@vercel/backends@0.8.32'
   - '@vercel/build-utils@14.0.1'

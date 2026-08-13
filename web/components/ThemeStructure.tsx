@@ -45,7 +45,7 @@ export function ThemeStructure({ section }: { section: ThemeStructureSection }) 
           <div className="mt-1 text-2xl font-semibold text-[#000000] tracking-tight">
             {section.pageBuilderApps.length}
           </div>
-          <div className="text-[10px] text-[#9A9A9A] mt-0.5 truncate">
+          <div className="text-[10px] text-[#9A9A9A] mt-0.5 break-words">
             {section.pageBuilderApps.join(", ") || "None detected"}
           </div>
         </div>

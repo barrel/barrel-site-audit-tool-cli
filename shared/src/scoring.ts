@@ -8,11 +8,15 @@ export function gradeForScore(score: number): Grade {
   return "F";
 }
 
-// Matches Barrel's semantic color palette: green on-track, amber warning, red danger.
+// Five-band palette matching gradeForScore's own cutoffs 1:1 (A/B/C/D/F), so a score's color and
+// letter grade are always in visual agreement — red (worst) through green (best), no blue (blue
+// is reserved elsewhere in the UI for "medium severity", a different signal than a grade).
 export function colorForScore(score: number): string {
-  if (score >= 90) return "#10B981";
-  if (score >= 50) return "#D97706";
-  return "#B91C1C";
+  if (score >= 90) return "#10B981"; // A
+  if (score >= 80) return "#65A30D"; // B
+  if (score >= 70) return "#D97706"; // C
+  if (score >= 50) return "#EA580C"; // D
+  return "#B91C1C"; // F
 }
 
 export function average(scores: number[]): number {

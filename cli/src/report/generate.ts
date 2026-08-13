@@ -3,6 +3,8 @@ import { average, reportBlobPath, type AiUsage, type Report, type StoreConfig } 
 import { analyzeCode, themeDirHasContent } from "../analyzers/code.js";
 import { analyzePerformance } from "../analyzers/performance.js";
 import { analyzeAccessibility } from "../analyzers/accessibility.js";
+import { analyzeSitespeed } from "../analyzers/sitespeed.js";
+import { generateThemeArchitecture } from "../analyzers/theme-architecture.js";
 import { analyzeHealth } from "../analyzers/health.js";
 import { analyzePixels } from "../analyzers/pixels.js";
 import { analyzeThemeStructure } from "../analyzers/theme-structure.js";
@@ -10,28 +12,40 @@ import { analyzeAnalytics } from "../analyzers/analytics.js";
 import { analyzeCompetitor } from "../analyzers/competitors.js";
 import { captureScreenshot } from "../analyzers/screenshot.js";
 import { analyzeGeoSeo } from "../analyzers/geo-seo.js";
+import { analyzeAgentReadiness } from "../analyzers/agent-readiness.js";
 import { analyzeUx } from "../analyzers/ux.js";
 import { deriveBestPractices } from "../analyzers/best-practices.js";
 import { generateAiSuggestions } from "../analyzers/ai-suggestions.js";
 import { generateSummary } from "../analyzers/summary.js";
 import { storeThemeDir } from "../paths.js";
 import { writeBlobJson, writeBlobBinary } from "../blob.js";
+import { normalizeAuditUrl } from "../url.js";
 import { appendToManifest } from "./manifest.js";
 
 export interface RunOptions {
   skipCode?: boolean;
   skipPerformance?: boolean;
   skipAxe?: boolean;
+  skipThemeArchitecture?: boolean;
   skipHealth?: boolean;
   skipPixels?: boolean;
   skipAnalytics?: boolean;
   skipSummary?: boolean;
   skipScreenshots?: boolean;
   skipGeoSeo?: boolean;
+  skipAgentReadiness?: boolean;
   skipUx?: boolean;
   skipAiSuggestions?: boolean;
   competitorUrls?: string[];
+  /** Opt-in: also run sitespeed.io (Browsertime + Coach) as a second, independent performance
+   * signal. Off by default — it's a separate heavy CLI subprocess with its own browser
+   * automation, noticeably slower than the rest of the suite. */
+  sitespeed?: boolean;
 }
+
+// Real-browser iterations sitespeed.io runs per audit when --sitespeed is passed — enough for
+// a stable median without turning an opt-in extra into a multi-minute detour on its own.
+const SITESPEED_RUNS = 3;
 
 function addUsage(a: AiUsage | undefined, b: AiUsage | undefined): AiUsage | undefined {
   if (!a) return b;
@@ -72,6 +86,10 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
   const sections: Report["sections"] = {};
   const themeDir = storeThemeDir(store.slug);
   const hasTheme = themeDirHasContent(themeDir);
+  let aiUsage: AiUsage | undefined;
+  // Every analyzer below fetches/renders this instead of store.url directly — store.url (used
+  // for storeUrl below and in the manifest) stays exactly what was configured.
+  const auditUrl = normalizeAuditUrl(store.url);
 
   if (!options.skipCode) {
     if (hasTheme) {
@@ -79,6 +97,17 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
       sections.code = (await analyzeCode(themeDir)) ?? undefined;
       hooks.onStage?.("Analyzing theme structure (orphaned files, page-builder apps)");
       sections.themeStructure = (await analyzeThemeStructure(themeDir)) ?? undefined;
+
+      if (!options.skipThemeArchitecture) {
+        hooks.onStage?.("Assessing theme architecture & Shopify platform fit (Claude)");
+        const themeArchitectureResult = await generateThemeArchitecture(themeDir, sections.code, sections.themeStructure).catch(
+          () => null,
+        );
+        if (themeArchitectureResult) {
+          sections.themeArchitecture = themeArchitectureResult.section;
+          aiUsage = addUsage(aiUsage, themeArchitectureResult.usage);
+        }
+      }
     } else {
       hooks.onStage?.(`No theme code found at stores/${store.slug}/theme — skipping code analysis`);
     }
@@ -86,17 +115,22 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
 
   if (!options.skipPerformance) {
     hooks.onStage?.("Discovering journey pages (Home/Collection/Product/Cart)");
-    sections.performance = await analyzePerformance(store.url, { onStage: hooks.onStage });
+    sections.performance = await analyzePerformance(auditUrl, { onStage: hooks.onStage });
   }
 
   if (!options.skipAxe) {
     hooks.onStage?.("Scanning for accessibility violations (axe-core)");
-    sections.accessibility = (await analyzeAccessibility(store.url)) ?? undefined;
+    sections.accessibility = (await analyzeAccessibility(auditUrl)) ?? undefined;
+  }
+
+  if (options.sitespeed) {
+    hooks.onStage?.(`Running sitespeed.io (${SITESPEED_RUNS} real-browser iterations, this is slow)`);
+    sections.sitespeed = (await analyzeSitespeed(auditUrl, SITESPEED_RUNS)) ?? undefined;
   }
 
   if (!options.skipScreenshots && sections.performance) {
     hooks.onStage?.("Capturing homepage screenshot");
-    const screenshot = await captureScreenshot(store.url).catch(() => null);
+    const screenshot = await captureScreenshot(auditUrl).catch(() => null);
     if (screenshot) {
       const path = await writeBlobBinary(`screenshots/${store.slug}/${id}/home.jpg`, screenshot, "image/jpeg");
       if (path) sections.performance.screenshotPath = path;
@@ -105,24 +139,27 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
 
   if (!options.skipHealth) {
     hooks.onStage?.("Running storefront health checks");
-    sections.health = await analyzeHealth(store.url);
+    sections.health = await analyzeHealth(auditUrl);
   }
 
   if (!options.skipPixels) {
     hooks.onStage?.("Auditing marketing pixels & consent (live browser)");
-    sections.pixels = await analyzePixels(store.url);
+    sections.pixels = await analyzePixels(auditUrl);
   }
 
   if (!options.skipGeoSeo) {
     hooks.onStage?.("Auditing SEO opportunities & AI/agentic-commerce readiness (GEO)");
-    sections.geoSeo = (await analyzeGeoSeo(store.url)) ?? undefined;
+    sections.geoSeo = (await analyzeGeoSeo(auditUrl)) ?? undefined;
   }
 
-  let aiUsage: AiUsage | undefined;
+  if (!options.skipAgentReadiness) {
+    hooks.onStage?.("Auditing agent readiness (per-SKU schema, hydration, policy data, feed drift)");
+    sections.agentReadiness = (await analyzeAgentReadiness(auditUrl)) ?? undefined;
+  }
 
   if (!options.skipUx) {
     hooks.onStage?.("Auditing UX & conversion (one collection page + one product page, throttled)");
-    const uxResult = await analyzeUx(store.url).catch(() => null);
+    const uxResult = await analyzeUx(auditUrl).catch(() => null);
     if (uxResult) {
       if (!options.skipScreenshots) {
         if (uxResult.screenshots.collection) {
@@ -204,9 +241,11 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
     );
   }
   if (sections.accessibility) scores.push(sections.accessibility.score);
+  if (sections.sitespeed) scores.push(sections.sitespeed.score);
   if (sections.health) scores.push(sections.health.score);
   if (sections.pixels) scores.push(sections.pixels.score);
   if (sections.geoSeo) scores.push(sections.geoSeo.healthRating);
+  if (sections.agentReadiness) scores.push(sections.agentReadiness.score);
   if (sections.ux) scores.push(sections.ux.score);
 
   const overallScore = average(scores);

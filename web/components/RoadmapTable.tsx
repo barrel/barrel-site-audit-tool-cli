@@ -16,11 +16,11 @@ export function RoadmapTable({ items }: { items: RoadmapItem[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
         <colgroup>
-          <col style={{ width: "48px" }} />
+          <col style={{ width: "44px" }} />
+          <col style={{ width: "22%" }} />
+          <col style={{ width: "150px" }} />
+          <col style={{ width: "90px" }} />
           <col />
-          <col style={{ width: "120px" }} />
-          <col style={{ width: "100px" }} />
-          <col style={{ width: "30%" }} />
         </colgroup>
         <thead>
           <tr className="bg-[#fafafa] text-left">
@@ -43,17 +43,17 @@ export function RoadmapTable({ items }: { items: RoadmapItem[] }) {
                   {item.priority}
                 </span>
               </td>
-              <td className="px-5 py-3 align-top font-medium text-[#1A1A1A]">{item.fix}</td>
-              <td className="px-5 py-3 align-top text-[#6B6B6B]">{item.scope}</td>
+              <td className="px-5 py-3 align-top text-[13px] font-medium text-[#1A1A1A] break-words">{item.fix}</td>
+              <td className="px-5 py-3 align-top text-[13px] text-[#6B6B6B] break-words">{item.scope}</td>
               <td className="px-5 py-3 align-top">
                 <span
-                  className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                  className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
                   style={{ backgroundColor: `${EFFORT_COLOR[item.effort]}1A`, color: EFFORT_COLOR[item.effort] }}
                 >
                   {item.effort}
                 </span>
               </td>
-              <td className="px-5 py-3 align-top text-[#6B6B6B]">{item.why}</td>
+              <td className="px-5 py-3 align-top text-[13px] text-[#6B6B6B] leading-relaxed break-words">{item.why}</td>
             </tr>
           ))}
         </tbody>

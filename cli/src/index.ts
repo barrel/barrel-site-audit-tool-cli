@@ -83,9 +83,12 @@ program
   .option("--skip-code", "Skip theme code linting and theme structure analysis")
   .option("--skip-performance", "Skip Lighthouse performance/accessibility/seo audit")
   .option("--skip-axe", "Skip the axe-core accessibility scan")
+  .option("--skip-theme-architecture", "Skip the AI theme architecture & Shopify platform-fit assessment")
+  .option("--sitespeed", "Also run sitespeed.io (Browsertime + Coach) as a second, independent performance signal — slow, off by default")
   .option("--skip-health", "Skip storefront health checks")
   .option("--skip-pixels", "Skip live marketing pixel / consent audit")
   .option("--skip-geo-seo", "Skip SEO opportunities & AI/agentic-commerce readiness (GEO) audit")
+  .option("--skip-agent-readiness", "Skip the agent-readiness audit (per-SKU schema, hydration, policy data, feed drift)")
   .option("--skip-ux", "Skip the UX/conversion audit (one collection page + one product page)")
   .option("--skip-analytics", "Skip pulling Google Analytics traffic/revenue data")
   .option("--skip-screenshots", "Skip capturing homepage/competitor screenshots")
@@ -105,9 +108,12 @@ program
         skipCode?: boolean;
         skipPerformance?: boolean;
         skipAxe?: boolean;
+        skipThemeArchitecture?: boolean;
+        sitespeed?: boolean;
         skipHealth?: boolean;
         skipPixels?: boolean;
         skipGeoSeo?: boolean;
+        skipAgentReadiness?: boolean;
         skipUx?: boolean;
         skipAnalytics?: boolean;
         skipScreenshots?: boolean;
@@ -123,9 +129,12 @@ program
           skipCode: opts.skipCode,
           skipPerformance: opts.skipPerformance,
           skipAxe: opts.skipAxe,
+          skipThemeArchitecture: opts.skipThemeArchitecture,
+          sitespeed: opts.sitespeed,
           skipHealth: opts.skipHealth,
           skipPixels: opts.skipPixels,
           skipGeoSeo: opts.skipGeoSeo,
+          skipAgentReadiness: opts.skipAgentReadiness,
           skipUx: opts.skipUx,
           skipAnalytics: opts.skipAnalytics,
           skipScreenshots: opts.skipScreenshots,

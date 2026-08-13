@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getManifest, searchAndPaginate } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import { ScoreBadge, GradePill } from "@/components/ScoreBadge";
+import { SiteFavicon } from "@/components/SiteFavicon";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,9 @@ export default async function HomePage({
         <div className="max-w-[1600px] w-full mx-auto flex items-center justify-between">
           <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight">Barrel Site Audit</h1>
           <div className="flex items-center gap-4">
+            <Link href="/progress" className="text-sm font-medium text-[#1A1A1A] hover:text-[#6B6B6B]">
+              Progress
+            </Link>
             <Link
               href="/instructions"
               className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"
@@ -80,9 +84,10 @@ export default async function HomePage({
                   className="flex items-center gap-4 px-5 py-3 hover:bg-[#fafafa] transition-colors"
                 >
                   <ScoreBadge score={r.overallScore} size="sm" />
+                  <SiteFavicon storeUrl={r.storeUrl} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-semibold text-[#000000] truncate">{r.storeName}</div>
-                    <div className="text-sm text-[#6B6B6B] truncate">{r.storeUrl}</div>
+                    <div className="text-sm font-semibold text-[#000000] break-words">{r.storeName}</div>
+                    <div className="text-sm text-[#6B6B6B] break-all">{r.storeUrl}</div>
                   </div>
                   <div className="text-[10px] text-[#9A9A9A] shrink-0 tabular-nums">{formatDate(r.createdAt)}</div>
                   <GradePill score={r.overallScore} />

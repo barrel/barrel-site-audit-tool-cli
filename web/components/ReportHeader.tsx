@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { formatDate } from "@/lib/format";
 import { ScoreBadge, GradePill } from "@/components/ScoreBadge";
+import { SiteFavicon } from "@/components/SiteFavicon";
 import type { ManifestEntry, Report } from "@/lib/shared";
 
 export function ReportHeader({
@@ -20,11 +21,12 @@ export function ReportHeader({
           <div className="text-[10px] font-semibold text-[#9A9A9A] uppercase tracking-wider mb-0.5">
             Site Diagnostic Report
           </div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight truncate">{report.storeName}</h1>
+          <div className="flex items-start gap-2 flex-wrap">
+            <SiteFavicon storeUrl={report.storeUrl} size={24} />
+            <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight break-words">{report.storeName}</h1>
             <GradePill score={report.overallScore} />
           </div>
-          <div className="text-sm text-[#6B6B6B] truncate">{report.storeUrl}</div>
+          <div className="text-sm text-[#6B6B6B] break-all">{report.storeUrl}</div>
           <div className="text-[10px] text-[#9A9A9A] mt-1">
             Generated {formatDate(report.createdAt)} · report {report.id}
           </div>

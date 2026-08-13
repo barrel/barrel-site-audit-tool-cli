@@ -34,7 +34,7 @@ export function PixelAudit({
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 divide-x divide-y md:divide-y-0 divide-[#E5E5E5] border-b border-[#E5E5E5]">
         {platforms.map((p) => (
           <div key={p.id} className="px-4 py-4">
-            <div className="text-sm font-semibold text-[#1A1A1A] truncate">{p.name}</div>
+            <div className="text-sm font-semibold text-[#1A1A1A]">{p.name}</div>
             <div
               className="mt-1 text-[10px] font-semibold uppercase tracking-wider"
               style={{ color: STATUS_COLOR[p.status] }}

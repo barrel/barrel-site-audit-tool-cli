@@ -10,7 +10,7 @@ import type {
   SeoSection,
 } from "@barrel/site-audit-shared";
 
-async function safeFetch(url: string): Promise<Response | null> {
+export async function safeFetch(url: string): Promise<Response | null> {
   try {
     return await fetch(url, { redirect: "follow", cache: "no-store" });
   } catch {
@@ -25,7 +25,7 @@ function check(id: string, label: string, status: HealthStatus, detail: string):
 // AI/LLM crawlers that matter for generative-engine discoverability — chat answer engines
 // (GPTBot, ClaudeBot, PerplexityBot), model-training crawlers (Google-Extended, Applebot-Extended,
 // CCBot feeds many open models), and OpenAI's ChatGPT-search crawler.
-const AI_CRAWLERS = [
+export const AI_CRAWLERS = [
   { id: "gptbot", name: "GPTBot (OpenAI)" },
   { id: "oai-searchbot", name: "OAI-SearchBot (ChatGPT search)" },
   { id: "chatgpt-user", name: "ChatGPT-User (OpenAI)" },
@@ -36,13 +36,13 @@ const AI_CRAWLERS = [
   { id: "ccbot", name: "CCBot (Common Crawl)" },
 ];
 
-interface RobotsGroup {
+export interface RobotsGroup {
   agents: string[];
   disallow: string[];
   allow: string[];
 }
 
-function parseRobotsGroups(text: string): RobotsGroup[] {
+export function parseRobotsGroups(text: string): RobotsGroup[] {
   const groups: RobotsGroup[] = [];
   let current: RobotsGroup | null = null;
   let sawRuleSinceAgent = false;
@@ -75,7 +75,7 @@ function parseRobotsGroups(text: string): RobotsGroup[] {
 
 // Heuristic, not a spec-perfect robots.txt evaluator: a bot is "blocked" only on a blanket
 // Disallow (/ or empty-path) in its own group or the wildcard group, with no Allow rule at all.
-function isCrawlerAllowed(groups: RobotsGroup[], botId: string): boolean {
+export function isCrawlerAllowed(groups: RobotsGroup[], botId: string): boolean {
   const specific = groups.find((g) => g.agents.includes(botId));
   const group = specific ?? groups.find((g) => g.agents.includes("*"));
   if (!group) return true;
@@ -87,7 +87,7 @@ function isCrawlerAllowed(groups: RobotsGroup[], botId: string): boolean {
 // Walks the full JSON-LD tree (not just top-level items) so @type values nested under
 // hasVariant/offers/publisher/etc. are found too — e.g. Shopify's ProductGroup wraps each
 // variant's Product+Offer inside hasVariant, which a top-level-only scan would miss entirely.
-function collectSchemaNodes(node: unknown, visit: (n: Record<string, unknown>) => void): void {
+export function collectSchemaNodes(node: unknown, visit: (n: Record<string, unknown>) => void): void {
   if (Array.isArray(node)) {
     for (const item of node) collectSchemaNodes(item, visit);
     return;
@@ -102,7 +102,7 @@ function collectSchemaNodes(node: unknown, visit: (n: Record<string, unknown>) =
   }
 }
 
-function parseJsonLdBlocks(html: string): unknown[] {
+export function parseJsonLdBlocks(html: string): unknown[] {
   const $ = cheerio.load(html);
   const blocks: unknown[] = [];
   $('script[type="application/ld+json"]').each((_, el) => {

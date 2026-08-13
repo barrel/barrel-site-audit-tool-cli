@@ -172,6 +172,12 @@ export default function InstructionsPage() {
               it), and the new report is already sitting at the top of the list — no extra step to
               publish it. You can search by store name and page through past reports too.
             </p>
+            <p className="mt-2">
+              Need to send the report to someone without site access — a client or prospect?
+              Click <span className="font-medium text-[#1A1A1A]">Share</span> at the top of any
+              report page. It copies a private link that opens the full report with no login
+              required and stops working after 30 days.
+            </p>
           </Step>
         </div>
 
@@ -249,6 +255,21 @@ export default function InstructionsPage() {
             against more than one site at once. Screenshots of the client's homepage — and of
             each competitor — are captured automatically and shown right in the report, no
             extra step needed.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Tracking progress over multiple audits
+          </h3>
+          <p className="text-sm text-[#6B6B6B]">
+            Running the same store more than once — e.g. before/during/after a build — just
+            works: re-run <span className="font-mono text-[#1A1A1A]">pnpm barrel-audit run</span>{" "}
+            against the same slug or URL any time. The "Progress" link on the landing page and on
+            every report shows every store's score trend over time, and any run can be marked the
+            baseline (a "Set baseline" button on its row) so later runs show a clear improved/
+            regressed delta against it — with no baseline set, the earliest run is used
+            automatically.
           </p>
         </section>
 

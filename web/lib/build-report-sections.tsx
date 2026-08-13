@@ -3,11 +3,13 @@ import { GradePill } from "@/components/ScoreBadge";
 import { StatTile } from "@/components/StatTile";
 import { ReportSection } from "@/components/ReportSection";
 import { MeterGrid } from "@/components/MeterGrid";
+import { DeviceScoreComparison } from "@/components/DeviceScoreComparison";
 import { CoreWebVitalsTable } from "@/components/CoreWebVitalsTable";
 import { LighthousePagesTable } from "@/components/LighthousePagesTable";
 import { FindingCard } from "@/components/FindingCard";
 import { RoadmapTable } from "@/components/RoadmapTable";
 import { IssueTable } from "@/components/IssueTable";
+import { SitespeedMetrics } from "@/components/SitespeedMetrics";
 import { HealthChecklist } from "@/components/HealthChecklist";
 import { PixelAudit } from "@/components/PixelAudit";
 import { ThemeStructure } from "@/components/ThemeStructure";
@@ -24,6 +26,10 @@ import {
   uxOpportunityFindings,
   aiSuggestionFindings,
   axeFindings,
+  sitespeedAdviceFindings,
+  consoleErrorFindings,
+  themeConcernFindings,
+  agentReadinessIssueFindings,
   buildRoadmap,
   type Finding,
 } from "@/lib/findings";
@@ -55,6 +61,7 @@ export function collectAllFindings(report: Report): Finding[] {
   const perfFindings = sections.performance ? lighthouseFindings(sections.performance.performance, "perf") : [];
   const a11yFindings = sections.performance ? lighthouseFindings(sections.performance.accessibility, "a11y") : [];
   const axeFindingsList = sections.accessibility ? axeFindings(sections.accessibility.pages) : [];
+  const sitespeedFindingsList = sections.sitespeed ? sitespeedAdviceFindings(sections.sitespeed.advice) : [];
   const seoLighthouseFindings = sections.performance ? lighthouseFindings(sections.performance.seo, "seo") : [];
   const seoHealthFindings = sections.health ? healthFindings(sections.health.checks) : [];
   const seoFindings = [...seoLighthouseFindings, ...seoHealthFindings];
@@ -62,20 +69,27 @@ export function collectAllFindings(report: Report): Finding[] {
     ? lighthouseFindings(sections.performance.bestPractices, "bp")
     : [];
   const consentFindings = sections.pixels ? pixelToFindings(sections.pixels.findings) : [];
+  const consoleErrorFindingsList = sections.performance ? consoleErrorFindings(sections.performance.consoleErrors ?? []) : [];
   const trustFindings = [...bestPracticeLighthouseFindings, ...consentFindings];
   const seoOppFindings = sections.geoSeo ? seoOpportunityFindings(sections.geoSeo.seo.opportunities) : [];
   const uxOppFindings = sections.ux ? uxOpportunityFindings(sections.ux.opportunities) : [];
   const aiSuggestionFindingsList = sections.aiSuggestions ? aiSuggestionFindings(sections.aiSuggestions.suggestions) : [];
+  const themeConcernFindingsList = sections.themeArchitecture ? themeConcernFindings(sections.themeArchitecture.concerns) : [];
+  const agentReadinessFindingsList = sections.agentReadiness ? agentReadinessIssueFindings(sections.agentReadiness.issues) : [];
 
   const allFindings: Finding[] = [
     ...perfFindings,
     ...a11yFindings,
     ...axeFindingsList,
+    ...sitespeedFindingsList,
     ...seoFindings,
     ...trustFindings,
+    ...consoleErrorFindingsList,
+    ...agentReadinessFindingsList,
     ...seoOppFindings,
     ...uxOppFindings,
     ...aiSuggestionFindingsList,
+    ...themeConcernFindingsList,
   ];
   if (sections.themeStructure) {
     for (const flag of sections.themeStructure.redFlags) {
@@ -114,6 +128,7 @@ export function buildReportSections(report: Report): SectionDef[] {
   const perfFindings = sections.performance ? lighthouseFindings(sections.performance.performance, "perf") : [];
   const a11yFindings = sections.performance ? lighthouseFindings(sections.performance.accessibility, "a11y") : [];
   const axeFindingsList = sections.accessibility ? axeFindings(sections.accessibility.pages) : [];
+  const sitespeedFindingsList = sections.sitespeed ? sitespeedAdviceFindings(sections.sitespeed.advice) : [];
   const seoLighthouseFindings = sections.performance ? lighthouseFindings(sections.performance.seo, "seo") : [];
   const seoHealthFindings = sections.health ? healthFindings(sections.health.checks) : [];
   const seoFindings = [...seoLighthouseFindings, ...seoHealthFindings];
@@ -121,9 +136,12 @@ export function buildReportSections(report: Report): SectionDef[] {
     ? lighthouseFindings(sections.performance.bestPractices, "bp")
     : [];
   const consentFindings = sections.pixels ? pixelToFindings(sections.pixels.findings) : [];
+  const consoleErrorFindingsList = sections.performance ? consoleErrorFindings(sections.performance.consoleErrors ?? []) : [];
   const trustFindings = [...bestPracticeLighthouseFindings, ...consentFindings];
   const seoOppFindings = sections.geoSeo ? seoOpportunityFindings(sections.geoSeo.seo.opportunities) : [];
   const uxOppFindings = sections.ux ? uxOpportunityFindings(sections.ux.opportunities) : [];
+  const themeConcernFindingsList = sections.themeArchitecture ? themeConcernFindings(sections.themeArchitecture.concerns) : [];
+  const agentReadinessFindingsList = sections.agentReadiness ? agentReadinessIssueFindings(sections.agentReadiness.issues) : [];
   const aiPerfSuggestions = sections.aiSuggestions?.suggestions.filter((s) => s.category === "performance") ?? [];
   const aiA11ySuggestions = sections.aiSuggestions?.suggestions.filter((s) => s.category === "accessibility") ?? [];
 
@@ -145,26 +163,30 @@ export function buildReportSections(report: Report): SectionDef[] {
       category: "overview",
       render: (n) => (
         <ReportSection id="summary" number={n} title="Executive Summary" action={<GradePill score={report.overallScore} />}>
-          <div className="max-w-[720px]">
-            <p className="text-[15px] text-[#1A1A1A] leading-relaxed">
-              {sections.summary?.overview ??
-                `This audit produced an overall grade of ${report.overallScore}/100 across the areas analyzed below.`}
-            </p>
-            {sections.summary && sections.summary.keyFindings.length > 0 && (
-              <ul className="space-y-2 mt-4">
-                {sections.summary.keyFindings.map((finding, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-[#1A1A1A]">
-                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#1A1A1A]/40 shrink-0" />
-                    {finding}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="flex flex-wrap divide-x divide-[#E5E5E5] border border-[#E5E5E5] rounded-lg bg-white mt-7">
-            {stats.slice(0, 4).map((s) => (
-              <StatTile key={s.label} label={s.label} score={s.score} />
-            ))}
+          <div className="flex flex-col lg:flex-row gap-8">
+            <div className="max-w-[720px] flex-1">
+              <p className="text-[15px] text-[#1A1A1A] leading-relaxed">
+                {sections.summary?.overview ??
+                  `This audit produced an overall grade of ${report.overallScore}/100 across the areas analyzed below.`}
+              </p>
+              {sections.summary && sections.summary.keyFindings.length > 0 && (
+                <ul className="space-y-2 mt-4">
+                  {sections.summary.keyFindings.map((finding, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-[#1A1A1A]">
+                      <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#1A1A1A]/40 shrink-0" />
+                      {finding}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3 lg:w-[320px] shrink-0 lg:self-start">
+              {stats.slice(0, 4).map((s) => (
+                <div key={s.label} className="bg-white border border-[#E5E5E5] rounded-lg">
+                  <StatTile label={s.label} score={s.score} />
+                </div>
+              ))}
+            </div>
           </div>
         </ReportSection>
       ),
@@ -202,19 +224,31 @@ export function buildReportSections(report: Report): SectionDef[] {
               </>
             ) : (
               <>
-                Lighthouse (mobile) run directly against{" "}
-                <span className="font-mono text-[#1A1A1A]">{performance.finalUrl}</span>.
+                Lighthouse run directly against{" "}
+                <span className="font-mono text-[#1A1A1A]">{performance.finalUrl}</span> for both mobile and
+                desktop.
               </>
             )}
           </p>
           <div className="space-y-5">
-            <MeterGrid
-              meters={[
-                { label: "Performance · Mobile", score: performance.performance.score },
-                { label: "Accessibility · Mobile", score: performance.accessibility.score },
-                { label: "Best Practices", score: performance.bestPractices.score },
-                { label: "SEO", score: performance.seo.score },
-              ]}
+            <DeviceScoreComparison
+              mobile={{
+                performance: performance.performance.score,
+                accessibility: performance.accessibility.score,
+                bestPractices: performance.bestPractices.score,
+                seo: performance.seo.score,
+              }}
+              desktop={(() => {
+                const home = performance.pages?.find((p) => p.page === "Home" && p.device === "desktop");
+                return home
+                  ? {
+                      performance: home.performance,
+                      accessibility: home.accessibility,
+                      bestPractices: home.bestPractices,
+                      seo: home.seo,
+                    }
+                  : undefined;
+              })()}
             />
             {performance.vitals && <CoreWebVitalsTable vitals={performance.vitals} />}
             {performance.pages && performance.pages.length > 0 && (
@@ -266,6 +300,83 @@ export function buildReportSections(report: Report): SectionDef[] {
       ),
     });
 
+    if (performance.agenticBrowsing) {
+      const agentic = performance.agenticBrowsing;
+      const fractionColor = agentic.passed === agentic.total ? "#10B981" : agentic.passed === 0 ? "#B91C1C" : "#D97706";
+      sectionDefs.push({
+        id: "agentic-browsing",
+        label: "Agentic Browsing",
+        category: "vitals",
+        render: (n) => (
+          <ReportSection
+            id="agentic-browsing"
+            number={n}
+            title="Agentic Browsing"
+            action={
+              <span
+                className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums"
+                style={{ backgroundColor: `${fractionColor}1A`, color: fractionColor }}
+              >
+                {agentic.passed}/{agentic.total}
+              </span>
+            }
+          >
+            <p className="text-sm text-[#6B6B6B] mb-5 max-w-[720px]">
+              Lighthouse's newest category — how well an AI agent (a browser-use agent, not a search
+              crawler) can navigate and act on the homepage: agent-facing accessibility-tree quality,
+              WebMCP integration, layout stability, and an <code className="bg-[#fafafa] px-1 rounded">llms.txt</code>.
+              Still experimental upstream and scored as a pass/fail ratio rather than 0-100, so it isn't
+              factored into the overall score.
+            </p>
+            <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden">
+              <HealthChecklist checks={agentic.checks} />
+            </div>
+          </ReportSection>
+        ),
+      });
+    }
+
+  }
+
+  if (sections.sitespeed) {
+    const sitespeed = sections.sitespeed;
+    sectionDefs.push({
+      id: "sitespeed",
+      label: "Sitespeed.io",
+      category: "vitals",
+      render: (n) => (
+        <ReportSection id="sitespeed" number={n} title="Sitespeed.io" action={<GradePill score={sitespeed.score} />}>
+          <p className="text-sm text-[#6B6B6B] mb-5 max-w-[720px]">
+            A second, independent performance signal — median across {sitespeed.runs} real-browser (Chrome via
+            Browsertime) iterations, scored by Coach against its own performance, best-practice, and privacy rule
+            set. Different methodology than the single synthetic Lighthouse trace above, so it can surface
+            different issues.
+          </p>
+          <div className="space-y-5">
+            <MeterGrid meters={sitespeed.categoryScores.map((c) => ({ label: c.category, score: c.score }))} />
+            <SitespeedMetrics metrics={sitespeed.metrics} />
+          </div>
+          <div className="mt-6">
+            {sitespeedFindingsList.length === 0 ? (
+              <FindingCard
+                finding={{
+                  id: "sitespeed-good",
+                  title: "No notable Coach advice",
+                  severity: "good",
+                  description: "Every measured Coach rule scored 100.",
+                }}
+              />
+            ) : (
+              <div className="space-y-4">
+                {sitespeedFindingsList.map((f) => (
+                  <FindingCard key={f.id} finding={f} />
+                ))}
+              </div>
+            )}
+          </div>
+        </ReportSection>
+      ),
+    });
   }
 
   if (sections.performance || sections.accessibility) {
@@ -542,6 +653,65 @@ export function buildReportSections(report: Report): SectionDef[] {
     });
   }
 
+  if (sections.agentReadiness) {
+    const agentReadiness = sections.agentReadiness;
+    sectionDefs.push({
+      id: "agent-readiness",
+      label: "Agent Readiness",
+      category: "seo-geo",
+      render: (n) => (
+        <ReportSection
+          id="agent-readiness"
+          number={n}
+          title="Agent Readiness"
+          action={<GradePill score={agentReadiness.score} />}
+        >
+          <p className="text-sm text-[#6B6B6B] mb-6 max-w-[820px]">
+            Whether AI shopping agents (ChatGPT, Gemini, Perplexity Shopping) can actually
+            transact against this catalog, not just discover it: per-SKU Offer schema — checked
+            on every sampled variant, not one product sampled once — server-rendered price/stock
+            (an agent that has to execute heavy JavaScript to see current price or stock will
+            often abandon the crawl), machine-readable return/shipping policy data, consistent
+            attribute labeling across SKUs, and price agreement between the product feed and the
+            live product page. Sampled {agentReadiness.skusSampled} SKU(s) across up to 8
+            products.
+          </p>
+
+          <div className="mb-6">
+            <div className="text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider mb-3">
+              Agent Readiness Checks
+            </div>
+            <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden">
+              <HealthChecklist checks={agentReadiness.checks} />
+            </div>
+          </div>
+
+          <div>
+            <div className="text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider mb-3">
+              SKU &amp; Catalog Issues
+            </div>
+            {agentReadinessFindingsList.length === 0 ? (
+              <FindingCard
+                finding={{
+                  id: "agent-readiness-good",
+                  title: "No agent-readiness issues found",
+                  severity: "good",
+                  description: "Every sampled SKU and catalog-level check passed.",
+                }}
+              />
+            ) : (
+              <div className="space-y-4">
+                {agentReadinessFindingsList.map((f) => (
+                  <FindingCard key={f.id} finding={f} />
+                ))}
+              </div>
+            )}
+          </div>
+        </ReportSection>
+      ),
+    });
+  }
+
   if (sections.ux) {
     const ux = sections.ux;
     sectionDefs.push({
@@ -655,6 +825,29 @@ export function buildReportSections(report: Report): SectionDef[] {
               ))}
             </div>
           )}
+          {sections.performance && (
+            <div className="mt-6">
+              <div className="text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider mb-3">
+                Console Errors
+              </div>
+              {consoleErrorFindingsList.length === 0 ? (
+                <FindingCard
+                  finding={{
+                    id: "console-good",
+                    title: "No console errors detected",
+                    severity: "good",
+                    description: "Nothing was logged to the browser console during the homepage (mobile) run.",
+                  }}
+                />
+              ) : (
+                <div className="space-y-4">
+                  {consoleErrorFindingsList.map((f) => (
+                    <FindingCard key={f.id} finding={f} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {sections.pixels && (
             <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden mt-5">
               <div className="px-5 py-2 bg-[#fafafa] text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider">
@@ -693,6 +886,49 @@ export function buildReportSections(report: Report): SectionDef[] {
             </div>
           }
         >
+          {sections.themeArchitecture && (
+            <div className="mb-6">
+              <div className="text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider mb-3">
+                How This Theme Is Built
+              </div>
+              <p className="text-sm text-[#1A1A1A] leading-relaxed mb-5">{sections.themeArchitecture.summary}</p>
+
+              {sections.themeArchitecture.modernPractices.length > 0 && (
+                <div className="mb-5">
+                  <div className="text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider mb-3">
+                    Shopify Platform Fit &amp; Modern Feature Adoption
+                  </div>
+                  <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden">
+                    <BestPracticesTable rows={sections.themeArchitecture.modernPractices} />
+                  </div>
+                </div>
+              )}
+
+              <div className="text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider mb-3">
+                Other Concerns
+              </div>
+              {themeConcernFindingsList.length === 0 ? (
+                <FindingCard
+                  finding={{
+                    id: "theme-concern-good",
+                    title: "No other architectural concerns found",
+                    severity: "good",
+                    description: "No concerns beyond the raw lint issues below were identified.",
+                  }}
+                />
+              ) : (
+                <div className="space-y-4">
+                  {themeConcernFindingsList.map((f) => (
+                    <FindingCard key={f.id} finding={f} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider mb-3">
+            Theme Check Issues
+          </div>
           <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden">
             <IssueTable issues={code.issues} />
           </div>

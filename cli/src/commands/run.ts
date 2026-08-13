@@ -65,8 +65,15 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
     const violations = a.pages.reduce((sum, p) => sum + p.violations.length, 0);
     console.log(`  Accessibility (axe-core): ${a.score}  (${violations} violation type(s) across ${a.pages.length} page(s))`);
   }
+  if (report.sections.sitespeed) {
+    const s = report.sections.sitespeed;
+    console.log(`  Sitespeed.io: ${s.score}  (${s.advice.length} advice item(s), ${s.runs} run(s))`);
+  }
   if (report.sections.themeStructure) {
     console.log(`  Theme Structure: ${report.sections.themeStructure.score}  (${report.sections.themeStructure.redFlags.length} flags)`);
+  }
+  if (report.sections.themeArchitecture) {
+    console.log(`  Theme Architecture: ${report.sections.themeArchitecture.concerns.length} other concern(s) flagged`);
   }
   if (report.sections.health) {
     console.log(`  Site Health: ${report.sections.health.score}`);
@@ -79,6 +86,10 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
     console.log(
       `  SEO & GEO Health: ${gs.healthRating}  (SEO ${gs.seo.score}, ${gs.seo.opportunities.length} opportunities · GEO ${gs.geo.score})`,
     );
+  }
+  if (report.sections.agentReadiness) {
+    const ar = report.sections.agentReadiness;
+    console.log(`  Agent Readiness: ${ar.score}  (${ar.skusSampled} SKUs sampled, ${ar.issues.length} issue(s))`);
   }
   if (report.sections.ux) {
     const ux = report.sections.ux;

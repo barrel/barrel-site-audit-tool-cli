@@ -57,6 +57,14 @@ export interface LighthousePageResult {
   seo: number;
 }
 
+export interface ConsoleErrorItem {
+  /** Lighthouse's own vocabulary for where the error came from: "network", "security", "exception", etc. */
+  source: string;
+  description: string;
+  url?: string;
+  line?: number;
+}
+
 export interface PerformanceSection {
   fetchedUrl: string;
   finalUrl: string;
@@ -65,12 +73,27 @@ export interface PerformanceSection {
   bestPractices: LighthouseCategoryResult;
   seo: LighthouseCategoryResult;
   vitals: CoreWebVitals;
+  /** Real browser console errors captured during the homepage/mobile Lighthouse run (Lighthouse's
+   * own `errors-in-console` audit detail rows) — network failures, CSP/security violations,
+   * uncaught JS exceptions. */
+  consoleErrors: ConsoleErrorItem[];
   /** Performance/A11y/Best-Practices/SEO scores across every discovered page x device combo
    * (Home, Collection, Product, Cart — mobile and desktop). The single-page audits above stay
    * scoped to the homepage on mobile, used for the detailed finding cards. */
   pages: LighthousePageResult[];
   /** Blob pathname (screenshots/...) of a full-page mobile screenshot of the homepage, if captured. */
   screenshotPath?: string;
+  /** Lighthouse's "Agentic Browsing" category (ships by default from Lighthouse 13.3+) — how
+   * well an AI agent can navigate and act on the homepage. Still experimental upstream, scored
+   * as a pass/total fraction rather than 0-100, so it's kept out of overallScore. Absent on
+   * reports run before this field existed, or against an older Lighthouse version. */
+  agenticBrowsing?: AgenticBrowsingSection;
+}
+
+export interface AgenticBrowsingSection {
+  passed: number;
+  total: number;
+  checks: HealthCheckItem[];
 }
 
 export type AxeImpact = "critical" | "serious" | "moderate" | "minor";
@@ -290,10 +313,75 @@ export interface AiSuggestionsSection {
   suggestions: AiSuggestion[];
 }
 
+export interface SitespeedMetric {
+  label: string;
+  value: number;
+  unit: string;
+}
+
+export interface SitespeedCategoryScore {
+  category: string;
+  score: number;
+}
+
+export interface SitespeedAdvice {
+  title: string;
+  category: string;
+  severity: OpportunityImpact;
+  detail: string;
+  recommendation?: string;
+}
+
+export interface SitespeedSection {
+  /** Coach's overall 0-100 score for the page. */
+  score: number;
+  /** Per-category Coach scores — Performance, Best Practice, Privacy. */
+  categoryScores: SitespeedCategoryScore[];
+  /** Key Browsertime timing/weight metrics, median across `runs` real-browser iterations. */
+  metrics: SitespeedMetric[];
+  runs: number;
+  /** Coach's rule-level advice for anything scoring below 100, worst-first. */
+  advice: SitespeedAdvice[];
+}
+
+export interface AgentReadinessSection {
+  score: number;
+  /** Dimension-level checks: AI crawler access, server-rendered price/stock, per-SKU Offer
+   * schema completeness, machine-readable return/shipping policy data, size-attribute
+   * consistency, feed-vs-PDP price accuracy. */
+  checks: HealthCheckItem[];
+  skusSampled: number;
+  /** Concrete, SKU-level or catalog-level findings — missing Offer fields on a specific
+   * product, inconsistent size labels across the catalog, feed/PDP price drift, etc. */
+  issues: ThemeConcern[];
+}
+
+export interface ThemeConcern {
+  title: string;
+  severity: OpportunityImpact;
+  detail: string;
+  recommendation?: string;
+}
+
+export interface ThemeArchitectureSection {
+  /** 2-4 sentence narrative: how the theme appears to be built (custom vs. stock-based, page-builder
+   * reliance, Online Store 2.0 vs. legacy template architecture). */
+  summary: string;
+  /** Verdict table for Shopify platform-feature adoption — OS 2.0 JSON templates, section groups,
+   * theme blocks / app-block support, metafields usage, settings schema quality, etc. */
+  modernPractices: BestPracticeRow[];
+  /** Other architectural concerns beyond raw lint errors — e.g. page-builder reliance fighting the
+   * theme's own architecture, inconsistent patterns, sections missing block/app-block support. */
+  concerns: ThemeConcern[];
+}
+
 export interface ReportSections {
   code?: CodeSection;
   performance?: PerformanceSection;
   accessibility?: AccessibilitySection;
+  sitespeed?: SitespeedSection;
+  themeArchitecture?: ThemeArchitectureSection;
+  agentReadiness?: AgentReadinessSection;
   health?: HealthSection;
   pixels?: PixelSection;
   themeStructure?: ThemeStructureSection;
@@ -334,6 +422,9 @@ export interface ManifestEntry {
   storeUrl: string;
   createdAt: string;
   overallScore: number;
+  /** Marks this report as the reference point for progress tracking — at most one
+   * per storeSlug, set/cleared from the web app, never touched by the CLI. */
+  isBaseline?: boolean;
 }
 
 export interface Manifest {

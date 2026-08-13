@@ -18,7 +18,17 @@ const SEVERITY_COLOR: Record<RoadmapItem["severity"], string> = {
   good: "#10B981",
 };
 
-export function DevTodoList({ items, markdown }: { items: RoadmapItem[]; markdown: string }) {
+export function DevTodoList({
+  items,
+  markdown,
+  csv,
+  csvFilename,
+}: {
+  items: RoadmapItem[];
+  markdown: string;
+  csv: string;
+  csvFilename: string;
+}) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -27,19 +37,38 @@ export function DevTodoList({ items, markdown }: { items: RoadmapItem[]; markdow
     setTimeout(() => setCopied(false), 2000);
   }
 
+  function handleDownloadCsv() {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = csvFilename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
       <div className="flex items-start justify-between gap-4 mb-5">
         <p className="text-sm text-[#6B6B6B] max-w-[600px]">
-          Every actionable finding across this report, ordered by priority. Each item copies as a ready-made ticket
-          (Summary + Description, with a How to fix step) — paste it straight into Jira, Slack, or email.
+          Every actionable finding across this report, ordered by priority. Download as CSV to import straight into
+          Jira (Summary, Priority, Labels, Issue Type, Description columns), or copy as a ready-made ticket per item
+          for Slack/email.
         </p>
-        <button
-          onClick={handleCopy}
-          className="shrink-0 text-sm font-medium text-white bg-[#1A1A1A] hover:bg-[#333333] px-4 py-2 rounded-lg transition-colors"
-        >
-          {copied ? "Copied!" : "Copy to clipboard"}
-        </button>
+        <div className="flex shrink-0 gap-2.5">
+          <button
+            onClick={handleDownloadCsv}
+            className="text-sm font-medium text-[#1A1A1A] bg-white border border-[#E5E5E5] hover:bg-[#fafafa] px-4 py-2 rounded-lg transition-colors"
+          >
+            Export CSV (Jira)
+          </button>
+          <button
+            onClick={handleCopy}
+            className="text-sm font-medium text-white bg-[#1A1A1A] hover:bg-[#333333] px-4 py-2 rounded-lg transition-colors"
+          >
+            {copied ? "Copied!" : "Copy to clipboard"}
+          </button>
+        </div>
       </div>
 
       {items.length === 0 ? (
@@ -50,12 +79,12 @@ export function DevTodoList({ items, markdown }: { items: RoadmapItem[]; markdow
         <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden overflow-x-auto">
           <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
             <colgroup>
-              <col style={{ width: "48px" }} />
-              <col />
+              <col style={{ width: "44px" }} />
+              <col style={{ width: "220px" }} />
               <col style={{ width: "150px" }} />
-              <col style={{ width: "130px" }} />
-              <col style={{ width: "100px" }} />
-              <col style={{ width: "28%" }} />
+              <col style={{ width: "140px" }} />
+              <col style={{ width: "90px" }} />
+              <col />
             </colgroup>
             <thead>
               <tr className="bg-[#fafafa] text-left">
@@ -86,18 +115,18 @@ export function DevTodoList({ items, markdown }: { items: RoadmapItem[]; markdow
                       {item.priority}
                     </span>
                   </td>
-                  <td className="px-5 py-3 align-top font-medium text-[#1A1A1A]">{item.fix}</td>
-                  <td className="px-5 py-3 align-top text-[#6B6B6B]">{item.scope}</td>
-                  <td className="px-5 py-3 align-top text-[#6B6B6B]">{item.category}</td>
+                  <td className="px-5 py-3 align-top text-[13px] font-medium text-[#1A1A1A] break-words">{item.fix}</td>
+                  <td className="px-5 py-3 align-top text-[13px] text-[#6B6B6B] break-words">{item.scope}</td>
+                  <td className="px-5 py-3 align-top text-[13px] text-[#6B6B6B] break-words">{item.category}</td>
                   <td className="px-5 py-3 align-top">
                     <span
-                      className="text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                      className="text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
                       style={{ backgroundColor: `${EFFORT_COLOR[item.effort]}1A`, color: EFFORT_COLOR[item.effort] }}
                     >
                       {item.effort}
                     </span>
                   </td>
-                  <td className="px-5 py-3 align-top text-[#6B6B6B]">
+                  <td className="px-5 py-3 align-top text-[13px] text-[#6B6B6B] leading-relaxed break-words">
                     <div>{item.why}</div>
                     {item.recommendation && (
                       <div className="mt-2">

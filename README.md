@@ -94,6 +94,8 @@ Redeploying `web/` is only needed when the app's own code changes.
 
 ## One-time setup
 
+Requires **Node 22+** (`sitespeed.io`, used by the optional `--sitespeed` flag, hard-requires it).
+
 ```
 pnpm install
 pnpm --filter @barrel/site-audit-shared build   # CLI depends on this
@@ -179,19 +181,52 @@ pnpm barrel-audit run <slug-or-url>
 Pass an existing store slug, or a live URL to auto-create a store from its hostname. This
 runs every analyzer below and writes one report:
 
+**Realistic data, by design:** every headless-Chrome analyzer (Lighthouse, axe-core, the
+pixel/UX/agent-readiness audits, screenshots) launches its own Chrome instance with `--incognito`
+and a brand-new temp profile (`chrome-launcher`'s default — created fresh per launch, deleted on
+exit), and Lighthouse explicitly resets storage before every run — no signed-in session, cached
+asset, extension, or prior run's cookies can leak into the numbers. If you're auditing a Shopify
+**theme preview** link (a `?...&preview_theme_id=...&key=...` URL, not the published site), two
+extra things happen automatically: (1) the floating preview bar — which injects DOM/script that
+skews layout-shift and load timing — is disabled by appending `pb=0`; (2) the preview token is
+carried onto every discovered journey page (Collection/Product/Cart), not just Home, since losing
+it would otherwise silently audit the *live* published theme on every page but the first. Preview
+links still carry one unavoidable cost the live site doesn't: an extra token-check redirect on
+first load, so expect a slightly worse TTFB/load time than the same theme once actually published.
+
 - **Code** — [Shopify Theme Check](https://shopify.dev/docs/storefronts/themes/tools/theme-check)
   against `stores/<slug>/theme/`. Skips automatically if no theme code has been added yet.
 - **Theme Structure** — static analysis of the theme folder: orphaned sections/snippets
   (unreferenced and, for sections, without customizer presets), leftover test/backup
   files, hash-named auto-generated files, and competing page-builder apps (Shogun,
   PageFly, EComposer, GemPages, Zipify, Replo).
+- **Theme Architecture** *(AI, shown inside the Theme Code Quality section)* — a Claude-written
+  assessment of how the theme is actually built, grounded in the Theme Check/Theme Structure
+  signals above plus a real sample of the theme's source (same sampler `ai-suggestions.ts`
+  uses): a short narrative (custom-built vs. stock-based, page-builder reliance, Online Store
+  2.0 vs. legacy Liquid-template architecture), a verdict table for specific platform-feature
+  adoption (JSON templates, section groups, theme blocks/app-block support, metafields,
+  settings-schema quality), and any other architectural concerns beyond raw lint errors — all
+  of which feed the Roadmap/Dev To-Do list like any other finding. Requires
+  `ANTHROPIC_API_KEY`; skip with `--skip-theme-architecture`.
 - **Performance** — Lighthouse across the shopping journey: the CLI auto-discovers a
   Home, Collection (`/collections/all`), Product (via the store's public
   `/products.json`), and Cart page, then runs full Lighthouse passes on each for both
   mobile and desktop (Performance, Accessibility, Best Practices, SEO). Any page/device
   combo that fails to load is skipped rather than failing the whole audit. Detailed
   Core Web Vitals and the top failing audits come from the homepage/mobile run. This is
-  the slowest analyzer — expect several minutes per audit.
+  the slowest analyzer — expect several minutes per audit. Also captures the real browser
+  console errors logged during that homepage/mobile run (Lighthouse's own `errors-in-console`
+  audit detail rows — network failures, CSP/MIME violations, uncaught JS exceptions), shown
+  as their own "Console Errors" area in the **Trust & Privacy** section with the affected
+  file/line where available, each feeding the Roadmap/Dev To-Do list. Also captures Lighthouse's
+  **Agentic Browsing** category (ships by default from `lighthouse@13.3+`, requires a recent
+  enough local Chrome) — how well an AI browsing agent (not a search crawler) can navigate and
+  act on the homepage: agent-facing accessibility-tree quality, WebMCP integration, layout
+  stability, and an `llms.txt`. Scored as a pass/total fraction rather than 0-100 (Google's own
+  wording: "still under development and subject to change"), shown in Site Vitals as its own
+  checklist and deliberately excluded from `overallScore`. Absent entirely on older/incompatible
+  Chrome, or on reports run before this field existed.
 - **Accessibility (axe-core)** — a second, independent accessibility signal: an automated
   [axe-core](https://github.com/dequelabs/axe-core) scan of every discovered journey page
   (Home, Collection, Product, Cart), catching issues Lighthouse's fixed audit set doesn't
@@ -201,6 +236,16 @@ runs every analyzer below and writes one report:
   finding (rule, affected elements, WCAG guidance link) feeding the Roadmap/Dev To-Do list.
   Throttled the same way as the UX audit below (single browser session, sequential loads,
   randomized pause, normal desktop UA). Skip with `--skip-axe`.
+- **Sitespeed.io** *(opt-in, `--sitespeed`)* — a second, independent **performance** signal
+  alongside Lighthouse: [sitespeed.io](https://www.sitespeed.io/) (Browsertime + its Coach
+  plugin) runs 3 real-browser iterations against the homepage and reports a median-based
+  score (0-100, plus Performance/Best Practice/Privacy sub-scores from Coach's own rule set —
+  different from Lighthouse's), key timing metrics (TTFB, FCP, LCP, Total Blocking Time, CLS,
+  full page load time, request count, page weight), and every sub-100 Coach rule as an
+  actionable finding feeding the Roadmap/Dev To-Do list. This is a separate CLI subprocess with
+  its own browser automation — noticeably heavier/slower than the rest of the suite (expect it
+  to roughly double a run's total time), which is why it's opt-in rather than on by default.
+  Shown in the Site Vitals page alongside the Lighthouse-based sections above.
 - **Site Health** — custom checks against the live URL: HTTPS, meta tags, canonical,
   structured data, image alt-text coverage, third-party script count, password-page
   detection, robots.txt, sitemap.xml.
@@ -222,6 +267,22 @@ runs every analyzer below and writes one report:
   machine-readable product feed, AI crawler access, FAQ/Q&A schema, brand-entity clarity via
   Organization `sameAs` links), and a synthesized "Areas to Improve" list. Skip with
   `--skip-geo-seo`.
+- **Agent Readiness** — a deeper, catalog-wide follow-on to GEO focused specifically on whether
+  an AI shopping agent can actually *transact* against this store, not just discover it. Samples
+  up to 8 products (plain `fetch()` calls to `/products.json` + each PDP — no browser) and checks,
+  per-SKU rather than sampled once: (1) AI crawler access via `robots.txt` (same crawler list as
+  GEO); (2) whether price/availability are present in the raw, pre-JS HTML (via Product/Offer
+  JSON-LD or a price meta tag) — an agent that has to execute heavy JavaScript to see current
+  price or stock will often abandon the crawl; (3) per-SKU Product/Offer schema completeness
+  (`sku`, `price`, `priceCurrency`, `availability`) walked across every variant in a
+  `ProductGroup.hasVariant`, not just checked once for the whole product; (4) whether returns/
+  shipping/warranty are exposed as structured data (`hasMerchantReturnPolicy`/`shippingDetails`
+  on the Offer) rather than only a prose policy page; (5) size-attribute consistency across the
+  sampled catalog (e.g. "XL" vs "X-Large" vs "extra large" all used for the same size breaks
+  agent-side SKU comparison); (6) price agreement between `/products.json` (the "feed") and each
+  sampled product's own live Offer schema (the "site") — a mismatch here causes shopping-feed
+  disapprovals and agent mistrust. Every SKU/catalog issue found feeds the Roadmap/Dev To-Do
+  list like any other finding. On by default; skip with `--skip-agent-readiness`.
 - **UX & Conversion** — a focused review of one collection page and one product page (not a
   full-site crawl): deterministic checks (add-to-cart visibility, reviews/social proof, trust
   badges, image count, breadcrumbs, collection filters/quick-add) plus an AI vision critique
@@ -257,19 +318,20 @@ runs every analyzer below and writes one report:
   inline in the Lighthouse Vitals and Competitor Benchmark sections. Skip with
   `--skip-screenshots`.
 
-Flags: `--skip-code`, `--skip-performance`, `--skip-axe`, `--skip-health`, `--skip-pixels`, `--skip-geo-seo`, `--skip-ux`, `--skip-analytics`, `--skip-screenshots`, `--skip-ai-suggestions`, `--skip-summary`, `--skip-github`, `--competitor <url>` (repeatable).
+Flags: `--skip-code`, `--skip-performance`, `--skip-axe`, `--skip-theme-architecture`, `--skip-health`, `--skip-pixels`, `--skip-geo-seo`, `--skip-agent-readiness`, `--skip-ux`, `--skip-analytics`, `--skip-screenshots`, `--skip-ai-suggestions`, `--skip-summary`, `--skip-github`, `--competitor <url>` (repeatable), `--sitespeed` (opt-in, off by default).
 
 ### Rate limits & quotas
 
 Per `run`, the tool's external-API footprint is small and fixed, independent of how often the
 team runs audits:
 
-- **Claude (Anthropic API)** — up to 3 calls per run: the executive summary, the UX audit's
+- **Claude (Anthropic API)** — up to 4 calls per run: the executive summary, the UX audit's
   screenshot critique (skipped if `--skip-ux` or `--skip-summary`, or if no UX pages could be
-  loaded), and the AI performance/accessibility suggestions list (skipped with
+  loaded), the AI performance/accessibility suggestions list (skipped with
   `--skip-ai-suggestions`, or if there's neither Lighthouse data nor theme code to ground it
-  in). Combined token usage across all calls is recorded on the report and shown in its
-  footer, so real spend is always visible per audit.
+  in), and the Theme Architecture assessment (skipped with `--skip-theme-architecture`, or if
+  there's no theme code). Combined token usage across all calls is recorded on the report and
+  shown in its footer, so real spend is always visible per audit.
 - **Google Analytics Data API (GA4)** — exactly 3 `runReport` calls per run, only when a store
   has `ga4PropertyId` configured. Well inside Google's default per-property quota (25,000
   requests/day).
@@ -282,6 +344,10 @@ team runs audits:
   (Cloudflare, etc.), not just an API quota: each uses a single browser session that loads its
   pages sequentially, with a randomized 2–4s pause between them and a normal desktop Chrome
   user agent, then stops — no retries, no parallel tabs, no repeated hits on the same URL.
+- **Sitespeed.io** *(opt-in, `--sitespeed`)* — not an API quota either, but the heaviest single
+  step in the tool: a separate CLI subprocess (Browsertime driving its own Chrome via
+  chromedriver) runs 3 full real-browser iterations against the homepage. Expect it to roughly
+  double a run's total time — this is exactly why it's opt-in rather than on by default.
 - **Everything else** (Lighthouse, site health, GEO/SEO checks, pixel audit, screenshot
   capture, theme-code linting) either runs entirely locally (headless Chrome, Shopify Theme
   Check) or hits the client's *own* storefront directly (a handful of plain `fetch()` calls to
@@ -314,6 +380,26 @@ links to other reports for the same store. `pnpm barrel-audit deploy` is only fo
 shipping changes to the web app's own code (new sections, styling, etc.) — it's never
 needed just to publish a report.
 
+## Progress tracking
+
+For stores audited more than once over the course of an engagement (running audits at
+different points in the SDLC — pre-build, mid-build, pre-launch), the **Progress** link
+(header of the landing page and every report page) shows change over time instead of one
+report in isolation:
+
+- `/progress` — every store with its full audit history, a sparkline of `overallScore`
+  across runs, and its current score vs. baseline delta, sorted by most recently audited.
+- `/progress/<slug>` — that store's full run history, newest first, each row's score
+  compared against the baseline with a colored ±delta badge.
+
+Any run can be marked the **baseline** via the "Set baseline" button on its row in
+`/progress/<slug>` — at most one per store; marking a different run moves it, clicking the
+current baseline's button again clears it. With no baseline explicitly set, the earliest
+report for that store stands in automatically, so every store shows a trend from the first
+run without extra setup. The flag (`isBaseline` on the manifest entry) is stored in the same
+`reports/manifest.json` blob the CLI already writes — set/cleared only from the web app via
+`POST /api/baseline`, never touched by the CLI.
+
 ## Report pages
 
 Each report is split across multiple pages instead of one long scroll, with a sticky
@@ -323,13 +409,14 @@ tab bar (Overview / Site Vitals / Theme Check / UX / SEO/GEO / ADA / All / Dev T
 - **Overview** (the default — `/reports/<slug>/<id>`) — Executive Summary, stat tiles,
   Traffic & Revenue, Competitor Benchmark, and the Prioritized Roadmap (synthesized
   across every section in the report, regardless of which page it's shown on).
-- **Site Vitals** (`/vitals`) — Lighthouse Vitals, Performance findings, AI
-  performance suggestions.
-- **Theme Check** (`/theme`) — Theme Code Quality, Theme Structure, Best Practices
-  Verdict, Trust & Privacy.
+- **Site Vitals** (`/vitals`) — Lighthouse Vitals, Performance findings, Sitespeed.io (if run
+  with `--sitespeed`), AI performance suggestions.
+- **Theme Check** (`/theme`) — Theme Code Quality (incl. the Theme Architecture assessment —
+  how the theme is built, Shopify platform-feature fit, other concerns), Theme Structure, Best
+  Practices Verdict, Trust & Privacy.
 - **UX** (`/ux`) — UX & Conversion.
 - **SEO/GEO** (`/seo-geo`) — Technical Health & SEO (with the full site-health
-  checklist tucked in a collapsible), SEO Opportunities, GEO.
+  checklist tucked in a collapsible), SEO Opportunities, GEO, Agent Readiness.
 - **ADA** (`/ada`) — Accessibility: Lighthouse + axe-core scores, a WCAG readiness
   checklist, Lighthouse findings, axe violations (actionable items), and AI accessibility
   suggestions.
@@ -341,14 +428,16 @@ tab bar (Overview / Site Vitals / Theme Check / UX / SEO/GEO / ADA / All / Dev T
   (Homepage, Collection page, Product page, a specific theme file, or Site-wide for
   config/behavior that isn't tied to one page), category, an effort estimate, and a
   **How to fix** step distinct from the rationale — a concrete instruction (what to
-  change, and where), not just a restatement of the problem. A "Copy to clipboard"
-  button copies the whole list as plain-text/Markdown, one self-contained ticket block
-  per item (`Summary:` / `Description:` / `How to fix:`, separated by `---`), so each
-  block pastes directly into a Jira issue — Summary into the title field, Description
-  into the description field — without depending on nested-list rendering. Theme
-  Check's `MatchingTranslations` rule is filtered out of this list (and the Overview
-  Roadmap) as low-signal noise — it still shows in the raw Theme Code section, just
-  not as a developer to-do.
+  change, and where), not just a restatement of the problem. An "Export CSV (Jira)"
+  button downloads the whole list as a CSV with columns matching Jira's CSV importer
+  (`Summary`, `Priority`, `Labels`, `Issue Type`, `Description`) — drag it straight into
+  Jira's "Import issues from CSV" flow instead of pasting items one at a time. A "Copy
+  to clipboard" button is also still there for a quick Slack/email paste: it copies the
+  whole list as plain-text/Markdown, one self-contained ticket block per item
+  (`Summary:` / `Description:` / `How to fix:`, separated by `---`). Theme Check's
+  `MatchingTranslations` rule is filtered out of this list (and the Overview Roadmap) as
+  low-signal noise — it still shows in the raw Theme Code section, just not as a
+  developer to-do.
 
 All of these are generated from a single source of truth
 (`web/lib/build-report-sections.tsx`), so a section only ever needs to be written
@@ -356,6 +445,22 @@ once — it's tagged with the category page it belongs on, and the All page just
 everything regardless of tag. `collectAllFindings()` in that same file is the shared
 finding-gathering step behind both the Overview Roadmap and the full Dev To-Do list, so
 the two can never drift out of sync with each other.
+
+## Sharing a report
+
+The "Share" button in the report header (visible on every report page) generates a
+private link at `/share/<token>` that opens the full report — every section, on one
+scrollable page — with **no login required**, so it's safe to send to a client or
+prospect who doesn't have the site password. Clicking it copies the link to your
+clipboard immediately.
+
+The link is a signed, stateless token (HMAC'd with `SESSION_SECRET`, no database row to
+manage or clean up) scoped to exactly that one report and valid for **30 days**, after
+which it 404s. There's no revocation list — a link can't be un-shared early, only left
+to expire. Screenshots embedded in a shared report (homepage/competitor/UX captures)
+load via a short-lived cookie scoped to that same report's screenshot paths, set when
+the share link is first opened, so they display for the recipient without exposing the
+Blob store or any other report's images.
 
 ## Scoring
 
