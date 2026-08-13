@@ -33,6 +33,12 @@ export default async function HomePage({
               Progress
             </Link>
             <Link
+              href="/run"
+              className="text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-3.5 py-2 rounded-lg transition-colors"
+            >
+              + Run Audit
+            </Link>
+            <Link
               href="/instructions"
               className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"
             >

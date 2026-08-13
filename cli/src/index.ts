@@ -8,6 +8,7 @@ import { listCommand } from "./commands/list.js";
 import { deployCommand } from "./commands/deploy.js";
 import { pullThemeCommand } from "./commands/pull-theme.js";
 import { linkRepoCommand } from "./commands/link-repo.js";
+import { serveCommand } from "./commands/serve.js";
 import { findRepoRoot } from "./paths.js";
 
 try {
@@ -149,6 +150,24 @@ program
       }
     },
   );
+
+program
+  .command("serve")
+  .description(
+    "Start a local HTTP agent (127.0.0.1 only) so the report dashboard — including the deployed " +
+      "Vercel site, since the browser talks to this port directly rather than through Vercel — can " +
+      "trigger audits on this machine. Prints a one-time token to paste into the dashboard's " +
+      "\"Run Audit\" page; every request must present it.",
+  )
+  .option("--port <port>", "Port to listen on", "5757")
+  .action(async (opts: { port: string }) => {
+    try {
+      await serveCommand({ port: Number(opts.port) });
+    } catch (err: any) {
+      console.error(chalk.red(`\n${err?.message ?? err}`));
+      process.exitCode = 1;
+    }
+  });
 
 program
   .command("list")

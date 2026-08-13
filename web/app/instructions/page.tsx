@@ -260,6 +260,25 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Prefer clicking over typing?
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            The "+ Run Audit" button on the landing page opens a form — paste a URL, check the
+            boxes for what to include, click "Run audit," and watch it go.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            To use this from the hosted version of the site (not just when running it on your
+            own computer), run{" "}
+            <span className="font-mono text-[#1A1A1A]">pnpm barrel-audit serve</span> in Terminal
+            first — it prints a one-time code. Paste that code into the "Local agent" box at the
+            top of the Run Audit form (only needs to be done once per computer), and from then on
+            "Run audit" works from the hosted dashboard too, not just your own machine's copy of
+            the site.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Tracking progress over multiple audits
           </h3>
           <p className="text-sm text-[#6B6B6B]">

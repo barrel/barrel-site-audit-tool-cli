@@ -380,6 +380,45 @@ links to other reports for the same store. `pnpm barrel-audit deploy` is only fo
 shipping changes to the web app's own code (new sections, styling, etc.) — it's never
 needed just to publish a report.
 
+## Running an audit from the dashboard
+
+`/run` (a "+ Run Audit" button on the landing page) is a form-based alternative to typing CLI
+flags: enter a store slug or URL, check the boxes for which analyzers to include (inverted from
+the CLI's `--skip-*` flags — checked means "run it"), optionally add up to 5 competitor URLs,
+and click **Run audit**. It POSTs to `/api/run`, which spawns `pnpm barrel-audit run ...` as a
+real local child process (args passed as an array, never through a shell, so nothing you type
+can inject extra flags) and streams the CLI's own stdout/stderr straight into the page as it
+runs; once it finishes, a "View report" link appears automatically.
+
+By itself this only works when the report site is running locally (`pnpm dev` in `web/`) — it
+spawns the CLI on whatever machine is running the Next.js server, and the deployed Vercel site
+has no local Chrome, no `stores/*/theme`, and no pnpm to reach. `/api/run` checks for
+`process.env.VERCEL` and refuses with a clear message rather than failing confusingly if hit
+there. Only one run at a time is allowed (a second attempt gets a 409) since two concurrent
+Lighthouse/Chrome passes on one machine would fight over the same resources.
+
+### Running it from the deployed dashboard
+
+```
+pnpm barrel-audit serve [--port 5757]
+```
+
+Starts a small local HTTP agent bound to `127.0.0.1` only (never your network) and prints a
+one-time token. The `/run` page's "Local agent" panel detects it and, once you paste in the
+token, submits runs straight to `http://127.0.0.1:<port>/run` **from the browser** instead of
+through `/api/run` — this works even when the dashboard itself is the deployed Vercel site,
+because the browser is still running on your own machine regardless of which origin loaded the
+page; that request never touches Vercel. (Browsers treat `127.0.0.1`/`localhost` as a
+"potentially trustworthy" target even from an `https://` page, so this isn't blocked as mixed
+content.)
+
+CORS alone doesn't gate access here — any page can send a "simple" cross-origin request whether
+or not the response is readable — so every `/run` request must present the token as
+`Authorization: Bearer <token>`; a wrong or missing one gets a 401 and the dashboard prompts you
+to re-paste it. The token is generated fresh each time you run `serve` and only lives in that
+terminal session's output plus your browser's `localStorage` — nothing is written to disk or
+Blob. Same single-flight rule as above: one run at a time per agent.
+
 ## Progress tracking
 
 For stores audited more than once over the course of an engagement (running audits at
