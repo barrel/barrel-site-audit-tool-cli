@@ -247,8 +247,9 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   to roughly double a run's total time), which is why it's opt-in rather than on by default.
   Shown in the Site Vitals page alongside the Lighthouse-based sections above.
 - **Site Health** — custom checks against the live URL: HTTPS, meta tags, canonical,
-  structured data, image alt-text coverage, third-party script count, password-page
-  detection, robots.txt, sitemap.xml.
+  structured data (parses the homepage's JSON-LD and reports the actual schema.org `@type`s
+  found, e.g. "Found: Organization, WebSite, BreadcrumbList" — not just a block count), image
+  alt-text coverage, third-party script count, password-page detection, robots.txt, sitemap.xml.
 - **Pixel & Tracking Audit** — a live headless-browser pass over the homepage: whether
   Meta, Google Ads/GA4, Microsoft Clarity, TikTok, and Pinterest pixels actually fire on
   the network (vs. just being referenced in code), whether a cookie-consent mechanism is
@@ -263,10 +264,12 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   answer-engine and agentic-commerce readiness: whether major AI/LLM crawlers (GPTBot,
   ClaudeBot, PerplexityBot, Google-Extended, etc.) are allowed by `robots.txt`, whether
   `llms.txt` is present, whether a sample product page carries real Product/Offer schema.org
-  data, an *Agentic Commerce & AI Discoverability* verdict table (structured product data, a
-  machine-readable product feed, AI crawler access, FAQ/Q&A schema, brand-entity clarity via
-  Organization `sameAs` links), and a synthesized "Areas to Improve" list. Skip with
-  `--skip-geo-seo`.
+  data, and dedicated checks for **Organization**, **WebSite**, and **BreadcrumbList**
+  structured data (checked across the homepage and the sample product page, each with its own
+  pass/warn and a concrete Liquid snippet to add if missing) — an *Agentic Commerce & AI
+  Discoverability* verdict table (structured product data, a machine-readable product feed, AI
+  crawler access, FAQ/Q&A schema, brand-entity clarity via Organization `sameAs` links), and a
+  synthesized "Areas to Improve" list. Skip with `--skip-geo-seo`.
 - **Agent Readiness** — a deeper, catalog-wide follow-on to GEO focused specifically on whether
   an AI shopping agent can actually *transact* against this store, not just discover it. Samples
   up to 8 products (plain `fetch()` calls to `/products.json` + each PDP — no browser) and checks,

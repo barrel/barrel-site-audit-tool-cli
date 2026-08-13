@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { HealthCheckItem, HealthSection, HealthStatus } from "@barrel/site-audit-shared";
+import { extractSchemaTypes } from "./geo-seo.js";
 
 async function safeFetch(url: string, init?: RequestInit) {
   try {
@@ -102,10 +103,15 @@ export async function analyzeHealth(url: string): Promise<HealthSection> {
           ),
     );
 
-    const jsonLd = $('script[type="application/ld+json"]').length;
+    // Parses and identifies actual schema.org @type values (recursing into nested nodes, e.g.
+    // Shopify's ProductGroup/hasVariant) rather than just counting <script> blocks — a count
+    // alone doesn't say whether the structured data that matters is actually present. See
+    // geo-seo.ts's GEO section for the detailed per-type breakdown (Organization/WebSite/
+    // Product/Offer/BreadcrumbList/FAQPage), each with its own pass/warn and recommendation.
+    const schemaTypes = extractSchemaTypes(html);
     checks.push(
-      jsonLd > 0
-        ? check("structured-data", "Structured data (JSON-LD)", "pass", `${jsonLd} block(s) found.`)
+      schemaTypes.length > 0
+        ? check("structured-data", "Structured data (JSON-LD)", "pass", `Found: ${schemaTypes.join(", ")}.`)
         : check(
             "structured-data",
             "Structured data (JSON-LD)",

@@ -18,8 +18,8 @@ export async function safeFetch(url: string): Promise<Response | null> {
   }
 }
 
-function check(id: string, label: string, status: HealthStatus, detail: string): HealthCheckItem {
-  return { id, label, status, detail };
+function check(id: string, label: string, status: HealthStatus, detail: string, recommendation?: string): HealthCheckItem {
+  return { id, label, status, detail, recommendation };
 }
 
 // AI/LLM crawlers that matter for generative-engine discoverability — chat answer engines
@@ -115,7 +115,12 @@ export function parseJsonLdBlocks(html: string): unknown[] {
   return blocks;
 }
 
-function extractSchemaTypes(html: string): string[] {
+// Exported so other analyzers (health.ts) can report the actual schema.org types found instead
+// of just counting <script type="application/ld+json"> blocks — a count alone doesn't say
+// whether the structured data that matters (Organization, WebSite, Product, breadcrumbs) is
+// actually present, and Shopify's ProductGroup/hasVariant nesting means a naive top-level-only
+// scan misses real types too (see collectSchemaNodes above).
+export function extractSchemaTypes(html: string): string[] {
   const types = new Set<string>();
   for (const block of parseJsonLdBlocks(html)) {
     collectSchemaNodes(block, (node) => {
@@ -268,6 +273,11 @@ export async function analyzeGeoSeo(url: string): Promise<GeoSeoSection | null> 
     const hasProductSchema = productSchemaTypes.some((t) => t === "Product" || t === "ProductGroup");
     const hasOfferSchema = productSchemaTypes.some((t) => t === "Offer" || t === "AggregateOffer");
     const hasFaqSchema = schemaTypes.some((t) => t === "FAQPage" || t === "QAPage");
+    const hasOrganizationSchema = homeSchemaTypes.includes("Organization");
+    const hasWebsiteSchema = homeSchemaTypes.includes("WebSite");
+    // Checked across home + product page since breadcrumbs are commonly emitted on category/PDP
+    // templates rather than the homepage itself.
+    const hasBreadcrumbSchema = schemaTypes.includes("BreadcrumbList");
     const sameAs = extractOrganizationSameAs(html);
 
     // --- SEO opportunities ---
@@ -304,7 +314,7 @@ export async function analyzeGeoSeo(url: string): Promise<GeoSeoSection | null> 
           : "No llms.txt found — an emerging convention that gives AI agents a clean, structured summary of the site.",
       ),
       check(
-        "structured-data",
+        "product-structured-data",
         "Product structured data",
         !productPageHtml
           ? "warn"
@@ -318,6 +328,39 @@ export async function analyzeGeoSeo(url: string): Promise<GeoSeoSection | null> 
           : productSchemaTypes.length > 0
             ? `Schema.org types found on a sample product page: ${productSchemaTypes.join(", ")}.`
             : "No Product/Offer schema.org structured data found on a sample product page.",
+      ),
+      check(
+        "organization-schema",
+        "Organization structured data",
+        hasOrganizationSchema ? "pass" : "warn",
+        hasOrganizationSchema
+          ? "Organization schema.org markup found on the homepage."
+          : "No Organization structured data found on the homepage.",
+        hasOrganizationSchema
+          ? undefined
+          : 'Add an Organization JSON-LD block to layout/theme.liquid: `<script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"{{ shop.name }}","url":"{{ shop.url }}","logo":"{{ settings.logo | image_url }}"}</script>` — this is what lets search engines and AI answer engines identify the brand as a distinct entity.',
+      ),
+      check(
+        "website-schema",
+        "WebSite structured data",
+        hasWebsiteSchema ? "pass" : "warn",
+        hasWebsiteSchema
+          ? "WebSite schema.org markup found on the homepage."
+          : "No WebSite structured data found on the homepage.",
+        hasWebsiteSchema
+          ? undefined
+          : 'Add a WebSite JSON-LD block to layout/theme.liquid alongside the Organization block: `{"@context":"https://schema.org","@type":"WebSite","name":"{{ shop.name }}","url":"{{ shop.url }}"}` — optionally add a `potentialAction` SearchAction if the theme has a working /search route, which can enable a sitelinks search box in Google results.',
+      ),
+      check(
+        "breadcrumb-schema",
+        "Breadcrumb structured data",
+        hasBreadcrumbSchema ? "pass" : "warn",
+        hasBreadcrumbSchema
+          ? "BreadcrumbList schema.org markup found."
+          : "No BreadcrumbList structured data found on the homepage or the sample product page.",
+        hasBreadcrumbSchema
+          ? undefined
+          : "Add BreadcrumbList JSON-LD to collection and product templates reflecting the real navigation path (Home > Collection > Product) — this is what lets search results show a breadcrumb trail instead of a bare URL, and helps AI agents understand site structure.",
       ),
       check(
         "product-feed",
