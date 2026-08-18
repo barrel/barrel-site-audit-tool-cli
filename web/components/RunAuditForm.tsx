@@ -57,6 +57,20 @@ function extractCurrentStage(log: string): string | null {
   return matches ? matches[matches.length - 1].slice(2) : null;
 }
 
+// A Shopify theme-preview target is a wall of query params (`?_ab=0&_fd=0&preview_theme_id=...`),
+// which is unreadable as a heading and wraps to three lines. Show what identifies the store and
+// say it's a preview link, rather than reprinting the token.
+function displayTarget(target: string): string {
+  const trimmed = target.trim();
+  try {
+    const url = new URL(trimmed);
+    const path = url.pathname.replace(/\/$/, "");
+    return `${url.host}${path}${url.search ? " (preview link)" : ""}`;
+  } catch {
+    return trimmed;
+  }
+}
+
 function formatElapsed(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
@@ -80,7 +94,12 @@ export function RunAuditForm() {
   const [usedBackend, setUsedBackend] = useState<"agent" | "server" | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [showRawOutput, setShowRawOutput] = useState(false);
+  // The run takes minutes and the page behind it is a form you shouldn't be editing mid-run, so
+  // progress takes over the screen. It stays up after the run finishes — that's when it carries
+  // the outcome and the link to the report — until it's explicitly dismissed.
+  const [showModal, setShowModal] = useState(false);
   const logRef = useRef<HTMLPreElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -88,6 +107,52 @@ export function RunAuditForm() {
     const id = setInterval(() => setElapsed((e) => e + 1), 1000);
     return () => clearInterval(id);
   }, [status]);
+
+  // Locks background scrolling while the modal owns the screen, moves focus into it, and hands
+  // focus back to whatever opened it on close.
+  useEffect(() => {
+    if (!showModal) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    dialogRef.current?.focus();
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      previouslyFocused?.focus?.();
+    };
+  }, [showModal]);
+
+  // Escape closes, but only once the run is over — mid-run it would read as "cancel", which is
+  // its own explicit button. Tab cycles within the dialog so keyboard focus can't wander behind
+  // the scrim while it's up.
+  useEffect(() => {
+    if (!showModal) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        if (status !== "running") {
+          e.preventDefault();
+          setShowModal(false);
+        }
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      );
+      if (!focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [showModal, status]);
 
   function toggle(key: string) {
     setIncluded((prev) => {
@@ -122,6 +187,7 @@ export function RunAuditForm() {
 
   async function runAudit() {
     setStatus("running");
+    setShowModal(true);
     setLog("");
     setExitCode(null);
     setUsedBackend(null);
@@ -184,6 +250,7 @@ export function RunAuditForm() {
   function cancel() {
     abortRef.current?.abort();
     setStatus("idle");
+    setShowModal(false);
   }
 
   const reportLink = status === "done" ? extractReportLink(log) : null;
@@ -422,15 +489,6 @@ export function RunAuditForm() {
         >
           {running ? "Running…" : "Run audit"}
         </button>
-        {running && (
-          <button
-            type="button"
-            onClick={cancel}
-            className="text-sm font-medium text-[#6B6B6B] hover:text-[#1A1A1A] px-3 py-2.5"
-          >
-            Cancel
-          </button>
-        )}
         <p className="text-xs text-[#9A9A9A]">
           {canRunViaAgent
             ? "Will run via your local agent — works from this dashboard anywhere, including the deployed site."
@@ -438,47 +496,144 @@ export function RunAuditForm() {
         </p>
       </div>
 
-      {status === "running" && (
-        <div className="bg-white border border-[#E5E5E5] rounded-lg p-6 text-center">
-          <div className="flex items-center justify-center gap-3 mb-1">
-            <span className="text-2xl" style={{ animation: "fadein 1.2s ease-in-out infinite alternate" }}>
-              🛢️
-            </span>
-            <h3 className="text-lg font-semibold text-[#1A1A1A]">Auditing {target}…</h3>
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+          {/* Scrim opacity, shadow and max height match SuggestFixPanel, the app's other modal,
+              so the two read as the same component. */}
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={running ? undefined : () => setShowModal(false)}
+            aria-hidden="true"
+          />
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="run-modal-title"
+            tabIndex={-1}
+            className="relative w-full max-w-[720px] max-h-[85vh] overflow-auto bg-white border border-[#E5E5E5] rounded-lg p-6 sm:p-8 text-center shadow-xl focus:outline-none"
+          >
+            {/* Only offered once there's nothing left to interrupt — while the audit is running,
+                the way out is Cancel, which actually stops it, rather than an X that would leave
+                the run going invisibly. */}
+            {!running && (
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                aria-label="Close"
+                className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-full text-[#6B6B6B] hover:text-[#1A1A1A] hover:bg-[#f0efed] transition-colors text-lg leading-none"
+              >
+                ×
+              </button>
+            )}
+
+            {running && (
+              <>
+                <div className="flex items-center justify-center gap-3 mb-1">
+                  <span className="text-2xl" style={{ animation: "fadein 1.2s ease-in-out infinite alternate" }}>
+                    🛢️
+                  </span>
+                  <h3 id="run-modal-title" className="text-lg font-semibold text-[#1A1A1A] break-words">
+                    Auditing {displayTarget(target)}…
+                  </h3>
+                </div>
+                <p className="text-sm text-[#6B6B6B] mb-4">{formatElapsed(elapsed)} elapsed</p>
+
+                <div className="bg-[#fafafa] border border-[#E5E5E5] rounded-lg px-4 py-3 mb-4">
+                  <p className="text-sm font-medium text-[#1A1A1A]" aria-live="polite">
+                    {currentStage ?? "Starting up…"}
+                  </p>
+                </div>
+
+                <div className="max-w-[560px] mx-auto min-h-[40px]">
+                  <BarrelFactTicker />
+                </div>
+
+                <p className="text-xs font-semibold text-white bg-[#B91C1C] rounded-lg px-3 py-2 mt-5 inline-block">
+                  Keep this browser tab open, and the terminal (or agent) running the CLI — closing
+                  either one stops the run.
+                </p>
+
+                <div className="mt-5">
+                  <button
+                    type="button"
+                    onClick={cancel}
+                    className="text-sm font-medium text-[#6B6B6B] hover:text-[#1A1A1A] border border-[#E5E5E5] hover:bg-[#fafafa] px-4 py-2 rounded-lg transition-colors"
+                  >
+                    Cancel run
+                  </button>
+                </div>
+              </>
+            )}
+
+            {status === "done" && (
+              <>
+                <div className="flex items-center justify-center gap-3 mb-1">
+                  <span className="text-2xl">✅</span>
+                  <h3 id="run-modal-title" className="text-lg font-semibold text-[#1A1A1A]">
+                    Audit complete
+                  </h3>
+                </div>
+                <p className="text-sm text-[#6B6B6B] mb-5">
+                  {displayTarget(target)} · finished in {formatElapsed(elapsed)}
+                </p>
+                {reportLink ? (
+                  <>
+                    <Link
+                      href={`/reports/${reportLink.slug}/${reportLink.id}`}
+                      className="inline-block text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-5 py-2.5 rounded-lg transition-colors"
+                    >
+                      View report →
+                    </Link>
+                    <p className="text-xs text-[#9A9A9A] mt-3">
+                      It&apos;s already live on the report site — nothing to publish or deploy.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-sm text-[#6B6B6B]">
+                    The run finished, but no report link was found in its output — check the CLI output
+                    below for what happened.
+                  </p>
+                )}
+              </>
+            )}
+
+            {status === "error" && (
+              <>
+                <div className="flex items-center justify-center gap-3 mb-1">
+                  <span className="text-2xl">⚠️</span>
+                  <h3 id="run-modal-title" className="text-lg font-semibold text-[#1A1A1A]">
+                    Audit failed{exitCode !== null ? ` (exit ${exitCode})` : ""}
+                  </h3>
+                </div>
+                <p className="text-sm text-[#6B6B6B] mb-4">
+                  {displayTarget(target)} · stopped after {formatElapsed(elapsed)}. The full CLI output is
+                  below, and stays on the page after you close this.
+                </p>
+              </>
+            )}
+
+            {/* Available in every state: mid-run for anyone who wants the live log, and afterwards
+                as the record of what happened. */}
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => setShowRawOutput((v) => !v)}
+                className="text-xs font-medium text-[#9A9A9A] hover:text-[#1A1A1A]"
+              >
+                {showRawOutput ? "Hide" : "Show"} raw CLI output
+              </button>
+            </div>
+
+            {showRawOutput && (
+              <pre
+                ref={logRef}
+                className="mt-3 text-left text-xs bg-[#1A1A1A] text-white/90 rounded-lg p-4 overflow-auto max-h-[300px] whitespace-pre-wrap"
+              >
+                {log || "Starting…"}
+              </pre>
+            )}
           </div>
-          <p className="text-sm text-[#6B6B6B] mb-4">{formatElapsed(elapsed)} elapsed</p>
-
-          <div className="bg-[#fafafa] border border-[#E5E5E5] rounded-lg px-4 py-3 mb-4">
-            <p className="text-sm font-medium text-[#1A1A1A]">{currentStage ?? "Starting up…"}</p>
-          </div>
-
-          <div className="max-w-[560px] mx-auto min-h-[40px]">
-            <BarrelFactTicker />
-          </div>
-
-          <p className="text-xs font-semibold text-white bg-[#B91C1C] rounded-lg px-3 py-2 mt-5 inline-block">
-            Keep this browser tab open, and the terminal (or agent) running the CLI — closing
-            either one stops the run.
-          </p>
-
-          <div className="mt-4">
-            <button
-              type="button"
-              onClick={() => setShowRawOutput((v) => !v)}
-              className="text-xs font-medium text-[#9A9A9A] hover:text-[#1A1A1A]"
-            >
-              {showRawOutput ? "Hide" : "Show"} raw CLI output
-            </button>
-          </div>
-
-          {showRawOutput && (
-            <pre
-              ref={logRef}
-              className="mt-3 text-left text-xs text-[#1A1A1A] bg-[#1A1A1A] text-white/90 rounded-lg p-4 overflow-auto max-h-[300px] whitespace-pre-wrap"
-            >
-              {log || "Starting…"}
-            </pre>
-          )}
         </div>
       )}
 

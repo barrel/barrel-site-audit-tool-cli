@@ -12,6 +12,17 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.10",
+    date: "2026-08-18",
+    title: "Run progress takes over the screen",
+    notes: [
+      "Starting an audit now opens progress as a full-screen modal instead of a panel below the form — the elapsed timer, current stage and rotating fact, with the page behind it dimmed and locked so there's nothing to accidentally edit mid-run.",
+      "While the run is going there's no close button, just \"Cancel run\", which actually stops it — an X there would have hidden a run that was still going. Once it finishes, the modal turns into the outcome (complete or failed, with \"View report →\") and an X appears; Escape and a click outside work too.",
+      "Closing it leaves the CLI output and report link on the page, so nothing is lost by dismissing it.",
+      "Long theme-preview URLs no longer fill the heading with query-string tokens — it now reads \"Auditing client-store.com (preview link)…\".",
+    ],
+  },
+  {
     version: "1.9",
     date: "2026-08-18",
     title: "ADA Scope Checker",
