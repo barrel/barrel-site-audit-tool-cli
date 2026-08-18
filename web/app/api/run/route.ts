@@ -62,9 +62,25 @@ interface RunAuditBody {
   skipAiSuggestions?: boolean;
   skipSummary?: boolean;
   competitorUrls?: string[];
+  /** The client's ADA scope, pasted verbatim — verified item by item during the run. Passed to
+   * the child through the environment rather than argv (see buildEnv below). */
+  adaScope?: string;
 }
 
 const MAX_COMPETITORS = 5;
+const MAX_ADA_SCOPE_CHARS = 20_000;
+
+// The pasted ADA scope is multi-line, and one pasted with "- " bullets starts with a dash, which
+// commander would read as the next flag rather than an option value — so it travels in the
+// environment instead. Mirrors buildRunEnv() in cli/src/run-args.ts, which the local agent uses.
+function buildEnv(body: RunAuditBody): Record<string, string> {
+  const scope = body.adaScope?.trim();
+  if (!scope) return {};
+  if (scope.length > MAX_ADA_SCOPE_CHARS) {
+    throw new Error(`The ADA scope is too long (${scope.length} characters, max ${MAX_ADA_SCOPE_CHARS}).`);
+  }
+  return { BARREL_ADA_SCOPE: scope };
+}
 
 function buildArgs(body: RunAuditBody): string[] {
   const target = validateTarget(body.target, "URL/slug");
@@ -115,8 +131,10 @@ export async function POST(req: NextRequest) {
   if (!body) return new Response("Invalid request body.", { status: 400 });
 
   let args: string[];
+  let runEnv: Record<string, string>;
   try {
     args = buildArgs(body);
+    runEnv = buildEnv(body);
   } catch (err: any) {
     return new Response(err.message ?? String(err), { status: 400 });
   }
@@ -140,7 +158,11 @@ export async function POST(req: NextRequest) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
-      const child = spawn("pnpm", args, { cwd: repoRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn("pnpm", args, {
+        cwd: repoRoot,
+        env: { ...process.env, ...runEnv },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
 
       const forward = (chunk: Buffer) => controller.enqueue(encoder.encode(chunk.toString("utf-8")));
       child.stdout.on("data", forward);

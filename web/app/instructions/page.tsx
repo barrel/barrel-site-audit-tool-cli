@@ -240,6 +240,49 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Optional: checking off a client&apos;s ADA scope
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            If accessibility work was scoped for this client, paste that scope into the{" "}
+            <span className="font-medium text-[#1A1A1A]">ADA scope</span> box on the Run Audit form
+            — straight out of the SOW, bullets and all, one requirement per line. Every line comes
+            back as a checklist item on the report&apos;s ADA tab: ticked when an automated check
+            verified it, and otherwise carrying a specific instruction a developer can act on
+            (which elements, on which page, and what to change).
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            The checks behind those ticks are the industry-standard ones: axe-core, Google
+            Lighthouse&apos;s accessibility audit — whose score is shown right on the section — and
+            a live pass that tabs through each page the way a keyboard user does, watching for
+            controls TAB can&apos;t reach, focus outlines that never appear, and a skip-navigation
+            link that works. Items no automated test can settle (captions, a screen-reader pass,
+            zoom behavior) are labelled as needing a manual check rather than quietly counted as
+            done, with a checkbox you can tick yourself once you&apos;ve verified them.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            The section has two copy buttons:{" "}
+            <span className="font-medium text-[#1A1A1A]">Copy client update</span> gives you a
+            plain-English summary to paste into an email — what&apos;s verified, what&apos;s
+            outstanding, no jargon or CSS selectors — and{" "}
+            <span className="font-medium text-[#1A1A1A]">Copy dev actions</span> gives the
+            developer version, with the failing elements and the fix for each. Outstanding scope
+            items also flow into the Dev To-Do list alongside everything else.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            From Terminal instead, put the scope in a text file and point at it — handy since it
+            usually spans several lines:
+          </p>
+          <div className="mt-3">
+            <Code>pnpm barrel-audit run &lt;slug-or-url&gt; --ada-scope-file ./ada-scope.txt</Code>
+          </div>
+          <p className="text-sm text-[#6B6B6B] mt-3">
+            Either way the scope is saved against that store, so re-running the audit later
+            re-checks the same list without you pasting it again.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Optional: comparing against a competitor
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-3">
@@ -266,7 +309,7 @@ export default function InstructionsPage() {
             The "+ Run Audit" button on the landing page opens a form — paste a URL, check the
             boxes for what to include, click "Run audit," and watch it go.
           </p>
-          <p className="text-sm text-[#6B6B6B]">
+          <p className="text-sm text-[#6B6B6B] mb-3">
             To use this from the hosted version of the site (not just when running it on your
             own computer), run{" "}
             <span className="font-mono text-[#1A1A1A]">pnpm barrel-audit serve</span> in Terminal
@@ -274,6 +317,19 @@ export default function InstructionsPage() {
             top of the Run Audit form (only needs to be done once per computer), and from then on
             "Run audit" works from the hosted dashboard too, not just your own machine's copy of
             the site.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            That exact command only works from inside a copy of the audit tool's own repo. If you
+            installed the CLI globally instead, drop the{" "}
+            <span className="font-mono text-[#1A1A1A]">pnpm</span> and run{" "}
+            <span className="font-mono text-[#1A1A1A]">barrel-audit serve</span> from any folder —
+            including a client theme repo. Running{" "}
+            <span className="font-mono text-[#1A1A1A]">pnpm barrel-audit serve</span> somewhere
+            without a <span className="font-mono text-[#1A1A1A]">package.json</span> is what
+            produces the <span className="font-mono text-[#1A1A1A]">
+              ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND
+            </span>{" "}
+            error.
           </p>
         </section>
 

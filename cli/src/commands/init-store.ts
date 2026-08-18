@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import chalk from "chalk";
 import type { StoreConfig } from "@barrel/site-audit-shared";
-import { storeConfigPath, storeDir, storeThemeDir } from "../paths.js";
+import { cliInvocation, storeConfigPath, storeDir, storeThemeDir } from "../paths.js";
 
 export interface InitStoreArgs {
   slug: string;
@@ -39,14 +39,14 @@ export function initStore({ slug, name, url, shopifyDomain, ga4PropertyId }: Ini
       `\`theme/\` is a plain folder — get the theme's Liquid source into it either way:\n\n` +
       `**Option A — pull it via the Shopify CLI:**\n\n` +
       "```\n" +
-      `pnpm barrel-audit pull-theme ${slug}${shopifyDomain ? "" : ` --store <your-store>.myshopify.com`}\n` +
+      `${cliInvocation()} pull-theme ${slug}${shopifyDomain ? "" : ` --store <your-store>.myshopify.com`}\n` +
       "```\n\n" +
       `**Option B — copy/paste the files in yourself:** unzip a theme export, drag files ` +
       `in Finder, \`cp -r\` from a local checkout, whatever's fastest — just get the theme's ` +
       `files into \`theme/\`.\n\n` +
       `Once the code is in place, run:\n\n` +
       "```\n" +
-      `pnpm barrel-audit run ${slug}\n` +
+      `${cliInvocation()} run ${slug}\n` +
       "```\n",
   );
 
@@ -55,8 +55,8 @@ export function initStore({ slug, name, url, shopifyDomain, ga4PropertyId }: Ini
   console.log(
     chalk.gray(
       shopifyDomain
-        ? `      pull it:  pnpm barrel-audit pull-theme ${slug}`
-        : `      pull it:  pnpm barrel-audit pull-theme ${slug} --store <your-store>.myshopify.com`,
+        ? `      pull it:  ${cliInvocation()} pull-theme ${slug}`
+        : `      pull it:  ${cliInvocation()} pull-theme ${slug} --store <your-store>.myshopify.com`,
     ),
   );
   console.log(chalk.gray(`      or just copy/paste the theme's files directly into that folder`));
@@ -66,5 +66,5 @@ export function initStore({ slug, name, url, shopifyDomain, ga4PropertyId }: Ini
       chalk.gray(`  - (Optional) add a "ga4PropertyId" to config.json for real traffic/revenue data — see docs/ga4-setup.md`),
     );
   }
-  console.log(chalk.gray(`  - Then: pnpm barrel-audit run ${slug}`));
+  console.log(chalk.gray(`  - Then: ${cliInvocation()} run ${slug}`));
 }

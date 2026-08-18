@@ -12,6 +12,42 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.9",
+    date: "2026-08-18",
+    title: "ADA Scope Checker",
+    notes: [
+      "Paste a client's scoped accessibility requirements into the new \"ADA scope\" field on the Run Audit form (or pass `--ada-scope-file`), and the report checks off each line against what the audit actually measured — axe-core, Google Lighthouse's accessibility audit, and a live pass that presses real TAB keys through every journey page.",
+      "The ADA tab leads with that checklist: a ticked box means an automated check verified the line; anything else carries a developer-ready action naming the failing elements, on which page, and what to change. Outstanding items also flow into the prioritized roadmap and Dev To-Do list.",
+      "The live pass catches what a rule engine can't: controls TAB never reaches, focus outlines that never appear, and whether the skip-navigation link exists, points somewhere real, and actually shows itself when focused. Consent-dialog focus traps are called out as the trap they are, rather than as a page full of unreachable controls.",
+      "Two copy buttons on the section: \"Copy client update\" for a plain-English summary a PM or AM can paste straight into a client email (with the Lighthouse accessibility score), and \"Copy dev actions\" for the developer version with selectors and fixes.",
+      "Scope wording varies client to client, so nothing is hardcoded: common phrasings are keyword-matched, Claude maps anything unfamiliar, and requirements no automated test can settle — captions, a screen-reader pass, zoom/reflow, PDFs — are labelled as manual checks with instructions for how to verify them, plus a checkbox you can tick yourself. The scope is saved to the store, so re-running an audit re-checks the same list.",
+    ],
+  },
+  {
+    version: "1.8",
+    date: "2026-08-17",
+    title: "Run the local agent from any folder",
+    notes: [
+      "`barrel-audit serve` — the local agent that lets the hosted dashboard trigger audits on your machine — now works from any directory, not just a barrel-site-audit checkout. Sit in a client theme repo and start it there; stores and reports fall back to `~/.barrel-audit/` as `run` already did.",
+      "Reminder on the command itself: with the CLI installed globally it's `barrel-audit serve`, with no `pnpm` in front. `pnpm barrel-audit serve` only resolves inside this repo, and in a Shopify theme folder (no package.json) it fails with ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND.",
+      "Running an audit from inside a Shopify theme checkout now audits that code automatically — no `--local-repo .` needed. It looks for `layout/theme.liquid`, searching up from the current directory, and only applies when the store has no theme code of its own, so managed stores are never overridden.",
+      "`run` now checks for the credentials it needs before starting, so a missing BLOB_READ_WRITE_TOKEN fails in a second instead of after several minutes of Lighthouse and browser passes. A missing ANTHROPIC_API_KEY is called out up front too.",
+      "Every \"run this command next\" hint the CLI prints now matches how you actually installed it, instead of always saying `pnpm barrel-audit ...` even on a global install.",
+      "Starting the agent on a port that's already busy now prints a one-line explanation and a suggested `--port`, instead of a raw Node EADDRINUSE stack trace.",
+    ],
+  },
+  {
+    version: "1.7",
+    date: "2026-08-14",
+    title: "Audit a repo you already have cloned, and a simpler CLI command",
+    notes: [
+      "`run --local-repo <path>` reads theme code straight from an existing local git checkout instead of copying it into stores/<slug>/theme/ — the fit for a dev auditing their own working copy rather than a client store managed via `link-repo`/`pull-theme`.",
+      "For those stores, \"Suggest fix\" gets a fourth, simpler delivery option: write the change directly into that checkout, unstaged — no clone, no branch, no PR. Review and commit it yourself.",
+      "The CLI can now be installed globally from GitHub Packages (`npm install -g @barrel/site-audit-cli`) and run from any directory, with config/report state falling back to `~/.barrel-audit/` when there's no barrel-site-audit checkout on disk.",
+      "`pnpm run audit <url>` is now a shorter alias for `pnpm barrel-audit run <url>`.",
+    ],
+  },
+  {
     version: "1.6",
     date: "2026-08-13",
     title: "Three ways to deliver a suggested fix",

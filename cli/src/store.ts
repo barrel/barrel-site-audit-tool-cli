@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import chalk from "chalk";
 import type { StoreConfig } from "@barrel/site-audit-shared";
-import { storeConfigPath, storesDir, storeThemeDir } from "./paths.js";
+import { cliInvocation, storeConfigPath, storesDir, storeThemeDir } from "./paths.js";
 
 function isUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
@@ -72,7 +73,7 @@ export function resolveStore(slugOrUrl: string): StoreConfig {
   const configPath = storeConfigPath(slugOrUrl);
   if (!existsSync(configPath)) {
     throw new Error(
-      `No store found for "${slugOrUrl}". Run "pnpm barrel-audit init-store ${slugOrUrl} --url <https://...>" first, or pass a URL directly.`,
+      `No store found for "${slugOrUrl}". Run "${cliInvocation()} init-store ${slugOrUrl} --url <https://...>" first, or pass a URL directly.`,
     );
   }
   return JSON.parse(readFileSync(configPath, "utf-8")) as StoreConfig;
@@ -80,4 +81,33 @@ export function resolveStore(slugOrUrl: string): StoreConfig {
 
 export function themeDirHasContent(themeDir: string): boolean {
   return existsSync(themeDir) && readdirSync(themeDir).length > 0;
+}
+
+/** Where to read this store's theme code from: a local git checkout the user pointed at with
+ * `run --local-repo <path>` (or that was auto-detected from the working directory), if any,
+ * otherwise the managed stores/<slug>/theme/ copy. */
+export function resolveThemeDir(store: StoreConfig): string {
+  return store.localThemeDir ?? storeThemeDir(store.slug);
+}
+
+/** Whether `dir` is the root of a Shopify theme. `layout/theme.liquid` is the one file every
+ * theme is required to have, which makes it a much sharper signal than the presence of any of
+ * its sibling folders — assets/, config/ and locales/ all show up in plenty of repos that aren't
+ * themes at all. */
+export function looksLikeShopifyTheme(dir: string): boolean {
+  return existsSync(join(dir, "layout", "theme.liquid"));
+}
+
+/** The nearest Shopify theme root at or above `startDir`, so running the CLI from a subfolder
+ * (sections/, snippets/, ...) still finds the theme you're plainly working in. Null if there
+ * isn't one — the caller decides whether that's an error. */
+export function findThemeRoot(startDir = process.cwd()): string | null {
+  let dir = startDir;
+  for (let i = 0; i < 20; i++) {
+    if (looksLikeShopifyTheme(dir)) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
 }

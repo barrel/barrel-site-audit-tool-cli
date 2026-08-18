@@ -375,10 +375,66 @@ export interface ThemeArchitectureSection {
   concerns: ThemeConcern[];
 }
 
+export type AdaScopeStatus = "complete" | "partial" | "incomplete" | "manual" | "unverified";
+
+export interface AdaScopeEvidence {
+  /** What produced this evidence — "axe-core", "Lighthouse", or "Keyboard probe". */
+  source: string;
+  detail: string;
+  /** CSS selectors of the actual offending elements (capped), so a dev can go straight to them. */
+  selectors?: string[];
+  /** Journey page the evidence came from, when it's page-specific. */
+  page?: string;
+}
+
+export interface AdaScopeItem {
+  id: string;
+  /** The scope line exactly as the client wrote it, minus its bullet marker. */
+  text: string;
+  /** The "such as:" heading this line sat under in the pasted scope, if any. */
+  group?: string;
+  status: AdaScopeStatus;
+  /** Requirement IDs from the shared catalog (see shared/src/ada-scope.ts) this line was
+   * verified against — empty for a purely manual item. */
+  requirementIds: string[];
+  /** How the line was mapped to those requirements: keyword catalog, Claude, or not at all. */
+  matchedBy: "catalog" | "ai" | "none";
+  /** Why the status is what it is — the specific rules, counts and elements behind it. */
+  evidence: AdaScopeEvidence[];
+  /** A developer-ready instruction to close the gap: what to change, where, and how to verify.
+   * Omitted only when the item is complete. */
+  action?: string;
+  /** Number of elements/pages failing, when the underlying check is countable. */
+  affectedCount?: number;
+}
+
+export interface AdaScopeSection {
+  /** The scope exactly as pasted, kept verbatim so the report shows what was actually asked for. */
+  rawScope: string;
+  items: AdaScopeItem[];
+  completeCount: number;
+  partialCount: number;
+  incompleteCount: number;
+  manualCount: number;
+  unverifiedCount: number;
+  /** Percent of the automatically-verifiable scope items that came back complete (0-100).
+   * Manual and unverified items are excluded from both sides of the fraction — this measures
+   * scope delivery, not site quality, so it's deliberately kept out of overallScore. */
+  coverage: number;
+  /** Journey pages the scope was verified against. */
+  pagesScanned: string[];
+  /** Lighthouse's own accessibility score for the homepage (mobile) at the time of this run,
+   * carried here so the ADA scope sign-off reads standalone. Absent when Lighthouse was skipped. */
+  lighthouseAccessibilityScore?: number;
+  /** axe-core's automated accessibility score, same reason. Absent when the axe scan was skipped. */
+  axeScore?: number;
+}
+
 export interface ReportSections {
   code?: CodeSection;
   performance?: PerformanceSection;
   accessibility?: AccessibilitySection;
+  adaScope?: AdaScopeSection;
   sitespeed?: SitespeedSection;
   themeArchitecture?: ThemeArchitectureSection;
   agentReadiness?: AgentReadinessSection;
@@ -449,5 +505,14 @@ export interface StoreConfig {
   githubRepo?: string;
   /** Branch last cloned via `link-repo` — omitted when the repo's default branch was used. */
   githubBranch?: string;
+  /** Absolute path to a local git checkout to read theme code from directly, set via
+   * `run --local-repo <path>` — an alternative to the managed stores/<slug>/theme/ copy for a
+   * dev auditing (and fixing) a repo they already have cloned. When set, "Suggest fix" writes
+   * straight into this checkout (unstaged) instead of opening a GitHub PR. */
+  localThemeDir?: string;
+  /** The client's ADA/accessibility scope, pasted verbatim (bullets and all). Set from the
+   * dashboard's Run Audit form or `run --ada-scope`, and reused by later runs for this store so
+   * the same scope doesn't have to be re-pasted every time. */
+  adaScope?: string;
   notes?: string;
 }

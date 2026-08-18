@@ -1,4 +1,4 @@
-import type { AiSuggestion, AxeImpact, AxePageResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity } from "./shared";
+import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity } from "./shared";
 import { stripMarkdownLinks, extractMarkdownLinkUrl } from "./format";
 
 export type FindingSeverity = "critical" | "high" | "medium" | "low" | "good";
@@ -96,6 +96,44 @@ export function axeFindings(pages: AxePageResult[]): Finding[] {
       };
     }),
   );
+}
+
+const ADA_SCOPE_SEVERITY: Record<AdaScopeStatus, FindingSeverity> = {
+  incomplete: "high",
+  partial: "medium",
+  manual: "low",
+  unverified: "low",
+  complete: "good",
+};
+
+function adaScopeTitle(item: AdaScopeItem): string {
+  const text = item.text.length > 110 ? `${item.text.slice(0, 107)}...` : item.text;
+  return `Scoped ADA item: ${text}`;
+}
+
+/** Turns every ADA scope item that isn't verified complete into a roadmap/dev-to-do finding, so a
+ * contractual accessibility commitment lands in the same prioritized list as everything else
+ * rather than living only inside its own section. "unverified" items are excluded — those need the
+ * audit re-run with the axe scan enabled, which is a task for whoever runs the tool, not the
+ * client's developer. */
+export function adaScopeFindings(section: AdaScopeSection): Finding[] {
+  return section.items
+    .filter((i) => i.status === "incomplete" || i.status === "partial" || i.status === "manual")
+    .map((item) => ({
+      id: `ada-scope-${item.id}`,
+      title: adaScopeTitle(item),
+      severity: ADA_SCOPE_SEVERITY[item.status],
+      description:
+        item.evidence.map((e) => `${e.source}${e.page ? ` (${e.page})` : ""}: ${e.detail}`).join(" ") ||
+        "No automated check in this audit covers this scope item.",
+      scope:
+        item.status === "manual"
+          ? "Manual QA"
+          : section.pagesScanned.length > 0
+            ? `${section.pagesScanned.join(", ")} page(s)`
+            : "Site-wide",
+      recommendation: item.action,
+    }));
 }
 
 export function uxOpportunityFindings(opportunities: UxOpportunity[]): Finding[] {
@@ -225,6 +263,7 @@ const CATEGORY_PREFIXES: [string, string][] = [
   ["ai-suggestion-", "AI Suggestions"],
   ["perf-", "Performance"],
   ["a11y-", "Accessibility"],
+  ["ada-scope-", "ADA Scope"],
   ["axe-", "Accessibility (Axe)"],
   ["sitespeed-", "Performance (Sitespeed.io)"],
   ["seo-", "Technical & SEO"],

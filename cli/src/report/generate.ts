@@ -3,6 +3,7 @@ import { average, reportBlobPath, type AiUsage, type Report, type StoreConfig } 
 import { analyzeCode, themeDirHasContent } from "../analyzers/code.js";
 import { analyzePerformance } from "../analyzers/performance.js";
 import { analyzeAccessibility } from "../analyzers/accessibility.js";
+import { analyzeAdaScope } from "../analyzers/ada-scope.js";
 import { analyzeSitespeed } from "../analyzers/sitespeed.js";
 import { generateThemeArchitecture } from "../analyzers/theme-architecture.js";
 import { analyzeHealth } from "../analyzers/health.js";
@@ -17,7 +18,7 @@ import { analyzeUx } from "../analyzers/ux.js";
 import { deriveBestPractices } from "../analyzers/best-practices.js";
 import { generateAiSuggestions } from "../analyzers/ai-suggestions.js";
 import { generateSummary } from "../analyzers/summary.js";
-import { storeThemeDir } from "../paths.js";
+import { resolveThemeDir } from "../store.js";
 import { writeBlobJson, writeBlobBinary } from "../blob.js";
 import { normalizeAuditUrl } from "../url.js";
 import { appendToManifest } from "./manifest.js";
@@ -37,6 +38,9 @@ export interface RunOptions {
   skipUx?: boolean;
   skipAiSuggestions?: boolean;
   competitorUrls?: string[];
+  /** The client's ADA scope, pasted verbatim. Present = run the ADA Scope Checker, verifying each
+   * scoped line against this run's axe-core, Lighthouse and live keyboard/focus results. */
+  adaScope?: string;
   /** Opt-in: also run sitespeed.io (Browsertime + Coach) as a second, independent performance
    * signal. Off by default — it's a separate heavy CLI subprocess with its own browser
    * automation, noticeably slower than the rest of the suite. */
@@ -84,7 +88,7 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
   const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${nanoid(6)}`;
 
   const sections: Report["sections"] = {};
-  const themeDir = storeThemeDir(store.slug);
+  const themeDir = resolveThemeDir(store);
   const hasTheme = themeDirHasContent(themeDir);
   let aiUsage: AiUsage | undefined;
   // Every analyzer below fetches/renders this instead of store.url directly — store.url (used
@@ -121,6 +125,22 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
   if (!options.skipAxe) {
     hooks.onStage?.("Scanning for accessibility violations (axe-core)");
     sections.accessibility = (await analyzeAccessibility(auditUrl)) ?? undefined;
+  }
+
+  // After both Lighthouse and axe, since it verifies the client's scope against whatever those
+  // two actually measured (plus its own live keyboard/focus probe). Deliberately absent from the
+  // `scores` list below: it measures delivery against one client's contract, not site quality.
+  if (options.adaScope?.trim()) {
+    hooks.onStage?.("Checking the client's ADA scope against axe-core, Lighthouse & a live keyboard probe");
+    const adaScopeResult = await analyzeAdaScope(
+      options.adaScope,
+      { auditUrl, accessibility: sections.accessibility, performance: sections.performance },
+      { onStage: hooks.onStage },
+    ).catch(() => null);
+    if (adaScopeResult) {
+      sections.adaScope = adaScopeResult.section;
+      aiUsage = addUsage(aiUsage, adaScopeResult.usage);
+    }
   }
 
   if (options.sitespeed) {

@@ -32,6 +32,8 @@ one-time setup.)
 
 ```
 pnpm barrel-audit run https://client-store.com
+# — or the shorter alias, which is exactly the same command —
+pnpm run audit https://client-store.com
 ```
 
 That's it. This single command scaffolds a `stores/<slug>/` folder for you (from the
@@ -170,7 +172,96 @@ the hostname.
   Finder, `cp -r` from a local checkout, whatever's fastest. No CLI step required; the
   next `pnpm barrel-audit run <slug>` picks up whatever's in the folder.
 
+- **Or point straight at a repo you already have cloned**, instead of copying anything
+  into `theme/` at all:
+
+  ```
+  pnpm barrel-audit run <slug-or-url> --local-repo /path/to/your/theme-checkout
+  ```
+
+  This is the option for a dev auditing (and fixing) their own working copy — see
+  [Auditing a repo you already have cloned](#auditing-a-repo-you-already-have-cloned)
+  below.
+
 Either way, `theme/` is gitignored — it's per-machine working state, not versioned here.
+
+## Auditing a repo you already have cloned
+
+`run --local-repo <path>` reads theme code straight from an existing git checkout instead
+of copying it into `stores/<slug>/theme/`:
+
+```
+pnpm barrel-audit run https://client-store.com --local-repo .
+```
+
+The path is saved to that store's `config.json` (as `localThemeDir`), so later runs and
+fixes for the same store keep using it without repeating the flag.
+
+**You usually don't need the flag at all.** If you run an audit from inside a Shopify theme
+checkout (detected by `layout/theme.liquid`, searching up from the current directory so a
+subfolder works too), that checkout is used automatically and saved the same way — it prints
+which directory it picked. This only kicks in when the store has no theme code of its own, so a
+managed store set up via `link-repo`/`pull-theme` is never silently overridden by whatever
+directory you happened to be standing in. Pass `--local-repo <path>` explicitly to override the
+detection, and note that a store whose code has never been located just skips code review
+entirely — if you see `No theme code found ... skipping code analysis`, you were outside a theme
+checkout. This is the natural
+fit for a dev who already has the theme repo checked out locally — one dev per repo, one
+audit at a time — as opposed to `link-repo`/`pull-theme`, which clone a fresh managed copy
+and suit auditing many stores you don't otherwise have on disk.
+
+It changes how "Suggest fix" on the report page delivers a fix, too: instead of cloning
+the GitHub repo into a disposable branch and opening a pull request, the fix is written
+**directly into `--local-repo`'s path, left unstaged** — exactly like any other local edit.
+Nothing is committed or pushed automatically; review the diff with your own git tooling
+(`git diff`) and commit it yourself once you're happy with it. This is deliberately the
+most conservative delivery option available — no branch, no PR, no chance of an
+AI-generated change reaching GitHub without a human in the loop first.
+
+## Installing the CLI outside this repo
+
+Day to day, `pnpm barrel-audit ...`/`pnpm run audit ...` from inside this checkout (as
+above) is the easiest way to run it. If you'd rather not clone `barrel-site-audit` at all
+— e.g. you just want `barrel-audit` available globally to run against your own theme
+repo — install the published package instead:
+
+```
+# one-time: point the @barrel scope at GitHub Packages and authenticate
+echo "@barrel:registry=https://npm.pkg.github.com" >> ~/.npmrc
+echo "//npm.pkg.github.com/:_authToken=$(gh auth token)" >> ~/.npmrc   # needs a token with read:packages
+
+npm install -g @barrel/site-audit-cli
+```
+
+From anywhere, that gives you the same `barrel-audit` command:
+
+```
+cd ~/code/some-client-theme-repo
+barrel-audit run https://client-store.com --local-repo .
+barrel-audit serve                                        # or drive it from the dashboard
+```
+
+Note there's no `pnpm` in front of these. `pnpm barrel-audit ...` resolves the `barrel-audit`
+script from this repo's root `package.json`, so in any other directory it fails with
+`ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND` — call the global `barrel-audit` binary directly instead.
+(There's also no `barrel-audit install` command; installing is the `npm install -g` step above.)
+
+With no `barrel-site-audit` checkout on disk, config/store data lives in `~/.barrel-audit/`
+instead of `stores/` (created automatically), and env vars (`BLOB_READ_WRITE_TOKEN`,
+`ANTHROPIC_API_KEY`) load from `~/.barrel-audit/.env` if present, else the shell
+environment — create that file the same way you would `.env` at the repo root (see
+[One-time setup](#one-time-setup)).
+
+**Publishing a new version** (maintainers): `shared` publishes first since `cli` depends
+on it.
+
+```
+pnpm --filter @barrel/site-audit-shared build && pnpm --filter @barrel/site-audit-shared publish --no-git-checks
+pnpm --filter @barrel/site-audit-cli build && pnpm --filter @barrel/site-audit-cli publish --no-git-checks
+```
+
+Requires the same `~/.npmrc` auth line as above, but with a token that has
+**`write:packages`** instead of (or in addition to) `read:packages`.
 
 ## Running an audit
 
@@ -236,6 +327,28 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   finding (rule, affected elements, WCAG guidance link) feeding the Roadmap/Dev To-Do list.
   Throttled the same way as the UX audit below (single browser session, sequential loads,
   randomized pause, normal desktop UA). Skip with `--skip-axe`.
+- **ADA Scope Checker** *(opt-in, needs a scope to check)* — verifies a client's own scoped
+  accessibility requirements, line by line, against what the run actually measured. Paste the
+  scope from the SOW (bullets, numbered lists, a "such as:" preamble and one-long-paragraph
+  formats all parse) into the dashboard's **ADA scope** field, or pass
+  `--ada-scope-file <path>` / `--ada-scope "<text>"`; it's saved to the store's `config.json`,
+  so later runs re-check the same list without re-pasting. Each line is keyword-matched against
+  a catalog of automated checks (`shared/src/ada-scope.ts`) — keyboard/TAB reach, visible focus
+  indicators, skip-nav link, alt text, contrast, form labels, headings, landmarks, link/button
+  names, ARIA, page language/title, tables, and WCAG A/AA as a whole — with Claude mapping any
+  wording the keyword catalog doesn't recognize, and anything genuinely unautomatable (captions,
+  screen-reader passes, zoom/reflow, PDFs) labelled as a manual check rather than quietly passed.
+  Verdicts come from three sources: axe-core rules, Google Lighthouse's accessibility audits
+  (whose score is shown on the section), and a live browser probe that presses real TAB keys
+  through every journey page — comparing what the keyboard reaches against every visible
+  interactive element, diffing each element's computed styles (outline, box-shadow, border,
+  background, `::before`/`::after`) between its unfocused and keyboard-focused states, and
+  checking the skip link's target and its reveal-on-focus. Focus traps (consent dialogs, drawers)
+  are detected and reported as the finding rather than as a page full of unreachable controls,
+  and a pass that runs out of key presses is reported as unfinished rather than as failures.
+  Every item that isn't complete carries a developer-ready action naming the failing selectors,
+  and those items also flow into the Roadmap/Dev To-Do list. The section's grade is scope
+  completion, not site quality, so it's deliberately excluded from `overallScore`.
 - **Sitespeed.io** *(opt-in, `--sitespeed`)* — a second, independent **performance** signal
   alongside Lighthouse: [sitespeed.io](https://www.sitespeed.io/) (Browsertime + its Coach
   plugin) runs 3 real-browser iterations against the homepage and reports a median-based
@@ -321,19 +434,20 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   inline in the Lighthouse Vitals and Competitor Benchmark sections. Skip with
   `--skip-screenshots`.
 
-Flags: `--skip-code`, `--skip-performance`, `--skip-axe`, `--skip-theme-architecture`, `--skip-health`, `--skip-pixels`, `--skip-geo-seo`, `--skip-agent-readiness`, `--skip-ux`, `--skip-analytics`, `--skip-screenshots`, `--skip-ai-suggestions`, `--skip-summary`, `--skip-github`, `--competitor <url>` (repeatable), `--sitespeed` (opt-in, off by default).
+Flags: `--skip-code`, `--skip-performance`, `--skip-axe`, `--skip-theme-architecture`, `--skip-health`, `--skip-pixels`, `--skip-geo-seo`, `--skip-agent-readiness`, `--skip-ux`, `--skip-analytics`, `--skip-screenshots`, `--skip-ai-suggestions`, `--skip-summary`, `--skip-github`, `--competitor <url>` (repeatable), `--ada-scope <text>` / `--ada-scope-file <path>`, `--sitespeed` (opt-in, off by default).
 
 ### Rate limits & quotas
 
 Per `run`, the tool's external-API footprint is small and fixed, independent of how often the
 team runs audits:
 
-- **Claude (Anthropic API)** — up to 4 calls per run: the executive summary, the UX audit's
+- **Claude (Anthropic API)** — up to 5 calls per run: the executive summary, the UX audit's
   screenshot critique (skipped if `--skip-ux` or `--skip-summary`, or if no UX pages could be
   loaded), the AI performance/accessibility suggestions list (skipped with
   `--skip-ai-suggestions`, or if there's neither Lighthouse data nor theme code to ground it
-  in), and the Theme Architecture assessment (skipped with `--skip-theme-architecture`, or if
-  there's no theme code). Combined token usage across all calls is recorded on the report and
+  in), the Theme Architecture assessment (skipped with `--skip-theme-architecture`, or if
+  there's no theme code), and the ADA Scope Checker's mapping call (only when an ADA scope was
+  supplied *and* some line in it didn't match the keyword catalog). Combined token usage across all calls is recorded on the report and
   shown in its footer, so real spend is always visible per audit.
 - **Google Analytics Data API (GA4)** — exactly 3 `runReport` calls per run, only when a store
   has `ga4PropertyId` configured. Well inside Google's default per-property quota (25,000
@@ -421,7 +535,8 @@ Lighthouse/Chrome passes on one machine would fight over the same resources.
 ### Running it from the deployed dashboard
 
 ```
-pnpm barrel-audit serve [--port 5757]
+pnpm barrel-audit serve [--port 5757]     # from inside this checkout
+barrel-audit serve [--port 5757]          # or anywhere, with the CLI installed globally
 ```
 
 Starts a small local HTTP agent bound to `127.0.0.1` only (never your network) and prints a
@@ -439,6 +554,14 @@ or not the response is readable — so every `/run` request must present the tok
 to re-paste it. The token is generated fresh each time you run `serve` and only lives in that
 terminal session's output plus your browser's `localStorage` — nothing is written to disk or
 Blob. Same single-flight rule as above: one run at a time per agent.
+
+`serve` works from any directory, including a client theme repo with no `package.json` of its
+own — it stores stores/reports under whichever root [`dataRoot()`](cli/src/paths.ts) resolves to
+(this checkout if you're inside one, otherwise `~/.barrel-audit/`, created on first run) and
+re-invokes its own binary for each audit rather than shelling out to `pnpm`. Note that `pnpm
+barrel-audit serve` only works *inside* this checkout: `pnpm <script>` needs a `package.json` in
+the current directory, so from anywhere else drop the `pnpm` and call `barrel-audit serve`
+directly (see [Installing the CLI outside this repo](#installing-the-cli-outside-this-repo)).
 
 ## Baseline & Reporting
 
@@ -476,8 +599,12 @@ This is a three-gate flow, never automatic and never bulk:
    against Shopify's real Theme Check engine on a scratch copy before showing you anything.
    Nothing is written yet. Cancel at this point and nothing happens — no branch, no commit,
    nothing sent to GitHub.
-3. **Choose how to proceed — any or all of these, in any order, and nothing happens until you
-   pick one:**
+3. **Choose how to proceed.** For a store audited with `run --local-repo <path>` (see
+   [Auditing a repo you already have cloned](#auditing-a-repo-you-already-have-cloned)),
+   there's exactly one option — **Apply to local repo**, which writes the change directly
+   into that checkout via `POST /apply-fix`, unstaged, and stops. No clone, no branch, no
+   PR — review and commit it yourself. Every other store gets the three GitHub-backed
+   options below, any or all of them, in any order, and nothing happens until you pick one:
    - **Open in VS Code** — `POST /fix/prepare` clones the store's linked GitHub repo into a
      persistent working directory (`stores/<slug>/fixes/<branch>/`, never
      `stores/<slug>/theme/`, which has no git history on purpose — see `link-repo`), creates the
@@ -526,9 +653,10 @@ tab bar (Overview / Site Vitals / Theme Check / UX / SEO/GEO / ADA / All / Dev T
 - **UX** (`/ux`) — UX & Conversion.
 - **SEO/GEO** (`/seo-geo`) — Technical Health & SEO (with the full site-health
   checklist tucked in a collapsible), SEO Opportunities, GEO, Agent Readiness.
-- **ADA** (`/ada`) — Accessibility: Lighthouse + axe-core scores, a WCAG readiness
-  checklist, Lighthouse findings, axe violations (actionable items), and AI accessibility
-  suggestions.
+- **ADA** (`/ada`) — the ADA Scope Checker first when a scope was supplied (the client's own
+  scoped requirements as a verified checklist, with "Copy client update" / "Copy dev actions"
+  buttons), then Accessibility: Lighthouse + axe-core scores, a WCAG readiness checklist,
+  Lighthouse findings, axe violations (actionable items), and AI accessibility suggestions.
 - **All** (`/all`) — every section above on one page, for anyone who wants the whole
   report at a glance or wants to Cmd+F/print it in one shot.
 - **Dev To-Do** (`/dev-todo`) — the complete, uncapped prioritized findings list (the

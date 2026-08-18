@@ -1,10 +1,21 @@
 {
   "name": "@barrel/site-audit-shared",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "Shared report types/schema and scoring helpers used by both the CLI and web app",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/barrel/barrel-site-audit-tool-cli.git"
+  },
+  "publishConfig": {
+    "access": "restricted",
+    "registry": "https://npm.pkg.github.com"
+  },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json"
   },

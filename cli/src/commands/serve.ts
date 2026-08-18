@@ -1,10 +1,12 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import chalk from "chalk";
-import { findRepoRoot, storeThemeDir, storeFixDir } from "../paths.js";
-import { buildRunArgs, type RunAuditBody } from "../run-args.js";
-import { resolveStore } from "../store.js";
+import { cliInvocation, dataRoot, storeFixDir } from "../paths.js";
+import { buildRunArgs, buildRunEnv, type RunAuditBody } from "../run-args.js";
+import { resolveStore, resolveThemeDir } from "../store.js";
 import { suggestFix, type SuggestFixParams } from "../analyzers/ai-fix.js";
 import {
   applyFixAndOpenPr,
@@ -17,11 +19,20 @@ import {
   type FixFinding,
   type PreparedFix,
 } from "../git-pr.js";
+import { applyFixLocally, DriftError as LocalDriftError } from "../local-fix.js";
 import { getGithubToken, hasCachedValidGithubToken } from "../github-auth.js";
 
 export interface ServeOptions {
   port: number;
 }
+
+/** This CLI's own entrypoint. Resolved off this module first, so it's right whether the agent
+ * was launched via the global bin shim or `node cli/dist/index.js`; argv[1] covers the
+ * `tsx src/index.ts` dev path, where the sibling is index.ts rather than index.js. */
+const selfScript = (() => {
+  const compiled = fileURLToPath(new URL("../index.js", import.meta.url));
+  return existsSync(compiled) ? compiled : process.argv[1];
+})();
 
 // Lets the dashboard trigger real local audits from anywhere it's viewed — including the
 // deployed Vercel site — since the browser talks directly to this port on the same machine it's
@@ -29,7 +40,12 @@ export interface ServeOptions {
 // request must present the token printed below: CORS alone isn't a real access boundary (any
 // page can send a "simple" cross-origin request), so the token is what actually gates this.
 export async function serveCommand(opts: ServeOptions): Promise<void> {
-  const repoRoot = findRepoRoot();
+  // dataRoot(), not findRepoRoot(): the agent works just as well from a globally-installed CLI
+  // run anywhere (stores live under ~/.barrel-audit then), which is the normal case when you're
+  // sitting in a client theme repo rather than a barrel-site-audit checkout. mkdir because it's
+  // the spawn cwd below, and ~/.barrel-audit may not exist yet on a fresh global install.
+  const root = dataRoot();
+  mkdirSync(root, { recursive: true });
   const token = randomBytes(24).toString("hex");
 
   let activeRun: { target: string; startedAt: number } | null = null;
@@ -128,9 +144,11 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
 
       let body: RunAuditBody;
       let args: string[];
+      let runEnv: Record<string, string>;
       try {
         body = await readJsonBody(req);
         args = buildRunArgs(body);
+        runEnv = buildRunEnv(body);
       } catch (err: any) {
         res.writeHead(400, { "Content-Type": "text/plain" }).end(err?.message ?? String(err));
         return;
@@ -139,9 +157,13 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
       activeRun = { target: body.target, startedAt: Date.now() };
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
 
-      const child = spawn("pnpm", ["barrel-audit", ...args], {
-        cwd: repoRoot,
-        env: process.env,
+      // Re-invoke this exact CLI build rather than `pnpm barrel-audit`, which only resolves
+      // inside the monorepo (and would pick the checkout's build over the global one).
+      // execArgv carries any loader flags (e.g. tsx's --import) so a TS-source dev run re-spawns
+      // itself the same way it was started.
+      const child = spawn(process.execPath, [...process.execArgv, selfScript, ...args], {
+        cwd: root,
+        env: { ...process.env, ...runEnv },
         stdio: ["ignore", "pipe", "pipe"],
       });
 
@@ -185,14 +207,16 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
 
       try {
         const config = resolveStore(body.slug);
-        const result = await suggestFix(storeThemeDir(config.slug), {
+        const result = await suggestFix(resolveThemeDir(config), {
           file: body.file,
           line: body.line,
           title: body.title,
           description: body.description,
           recommendation: body.recommendation,
         });
-        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(result));
+        res
+          .writeHead(200, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ ...result, isLocalRepo: Boolean(config.localThemeDir) }));
       } catch (err: any) {
         res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
       }
@@ -236,16 +260,36 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
         res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
         return;
       }
+
+      if (config.localThemeDir) {
+        const localLockKey = fixLockKey(body.slug, body.findingId);
+        if (activeFixes.has(localLockKey)) {
+          res.writeHead(409, { "Content-Type": "application/json" }).end(JSON.stringify({ error: "A fix for this finding is already being applied." }));
+          return;
+        }
+        activeFixes.add(localLockKey);
+        try {
+          const path = applyFixLocally(config.localThemeDir, body.file, body.newContent, body.baseContentSha256);
+          res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ appliedLocally: true, path }));
+        } catch (err: any) {
+          const status = err instanceof LocalDriftError ? 400 : 500;
+          res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+        } finally {
+          activeFixes.delete(localLockKey);
+        }
+        return;
+      }
+
       if (!config.githubRepo) {
         res
           .writeHead(400, { "Content-Type": "application/json" })
-          .end(JSON.stringify({ error: `No GitHub repo linked for "${config.slug}" — run "pnpm barrel-audit link-repo ${config.slug}" first.` }));
+          .end(JSON.stringify({ error: `No GitHub repo linked for "${config.slug}" — run "${cliInvocation()} link-repo ${config.slug}" first.` }));
         return;
       }
       if (!(await hasCachedValidGithubToken())) {
         res
           .writeHead(400, { "Content-Type": "application/json" })
-          .end(JSON.stringify({ error: `GitHub sign-in has expired — run "pnpm barrel-audit link-repo ${config.slug}" in your terminal to re-authenticate, then try again.` }));
+          .end(JSON.stringify({ error: `GitHub sign-in has expired — run "${cliInvocation()} link-repo ${config.slug}" in your terminal to re-authenticate, then try again.` }));
         return;
       }
 
@@ -341,20 +385,20 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
       if (!config.githubRepo) {
         res
           .writeHead(400, { "Content-Type": "application/json" })
-          .end(JSON.stringify({ error: `No GitHub repo linked for "${config.slug}" — run "pnpm barrel-audit link-repo ${config.slug}" first.` }));
+          .end(JSON.stringify({ error: `No GitHub repo linked for "${config.slug}" — run "${cliInvocation()} link-repo ${config.slug}" first.` }));
         return;
       }
       if (!(await hasCachedValidGithubToken())) {
         res
           .writeHead(400, { "Content-Type": "application/json" })
-          .end(JSON.stringify({ error: `GitHub sign-in has expired — run "pnpm barrel-audit link-repo ${config.slug}" in your terminal to re-authenticate, then try again.` }));
+          .end(JSON.stringify({ error: `GitHub sign-in has expired — run "${cliInvocation()} link-repo ${config.slug}" in your terminal to re-authenticate, then try again.` }));
         return;
       }
 
       try {
         const [owner, repo] = config.githubRepo.split("/");
         const branch = deriveBranchName(body.findingId, body.title);
-        const workDir = storeFixDir(config.slug, branch, repoRoot);
+        const workDir = storeFixDir(config.slug, branch, root);
         const prepared = await prepareLocalFixBranch({
           owner,
           repo,
@@ -537,6 +581,26 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
     }
 
     res.writeHead(404, { "Content-Type": "text/plain" }).end("Not found.");
+  });
+
+  // Without this, a busy port surfaces as an unhandled 'error' event — a Node stack trace for
+  // what is really a one-line, self-explanatory situation (usually an agent you already left
+  // running in another terminal tab).
+  server.on("error", (err: NodeJS.ErrnoException) => {
+    if (err.code === "EADDRINUSE") {
+      console.error(
+        chalk.red(`\nPort ${opts.port} is already in use.`) +
+          chalk.gray(
+            `\n\nAnother barrel-audit agent is probably already running — check your other terminal tabs` +
+              `\nand reuse the token it printed. Otherwise pick a different port:\n\n` +
+              `  ${cliInvocation()} serve --port ${opts.port + 1}\n\n` +
+              `To see what's holding it:  lsof -nP -iTCP:${opts.port} -sTCP:LISTEN\n`,
+          ),
+      );
+    } else {
+      console.error(chalk.red(`\n${err.message}\n`));
+    }
+    process.exitCode = 1;
   });
 
   server.listen(opts.port, "127.0.0.1", () => {

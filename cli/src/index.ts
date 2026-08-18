@@ -9,13 +9,12 @@ import { deployCommand } from "./commands/deploy.js";
 import { pullThemeCommand } from "./commands/pull-theme.js";
 import { linkRepoCommand } from "./commands/link-repo.js";
 import { serveCommand } from "./commands/serve.js";
-import { findRepoRoot } from "./paths.js";
+import { dataRoot } from "./paths.js";
 
-try {
-  loadEnv({ path: `${findRepoRoot()}/.env` });
-} catch {
-  // no repo-root .env — fine, rely on the shell environment instead
-}
+// dataRoot() is the repo root inside a barrel-site-audit checkout, or ~/.barrel-audit when the
+// CLI is installed globally and run elsewhere — loadEnv() itself is a silent no-op if the file
+// doesn't exist, so no try/catch is needed either way.
+loadEnv({ path: `${dataRoot()}/.env` });
 
 const program = new Command();
 
@@ -79,7 +78,8 @@ program
       "is set. Pass an existing store slug, or a live URL to auto-create a store from its hostname. On a store " +
       "with no theme code yet, interactively prompts to connect a GitHub repo via OAuth device flow (see " +
       "link-repo) before auditing. " +
-      "Pass --competitor one or more times to add a side-by-side benchmark against competitor storefronts.",
+      "Pass --competitor one or more times to add a side-by-side benchmark against competitor storefronts. " +
+      "Pass --ada-scope-file to verify a client's pasted ADA scope item by item.",
   )
   .option("--skip-code", "Skip theme code linting and theme structure analysis")
   .option("--skip-performance", "Skip Lighthouse performance/accessibility/seo audit")
@@ -96,6 +96,24 @@ program
   .option("--skip-ai-suggestions", "Skip the AI-generated performance & accessibility suggestions list")
   .option("--skip-summary", "Skip the AI-generated executive summary")
   .option("--skip-github", "Don't prompt to connect a GitHub repo, even on a store with no theme code yet")
+  .option(
+    "--ada-scope <text>",
+    "Verify a client's ADA scope against this run: paste the scoped accessibility requirements and " +
+      "each one is checked against axe-core, Lighthouse and a live keyboard/focus probe, with a " +
+      "developer-ready action item for anything not yet complete. Saved to config.json, so later " +
+      "runs for this store reuse it. Use --ada-scope-file for a multi-line scope.",
+  )
+  .option(
+    "--ada-scope-file <path>",
+    "Read the ADA scope from a file instead of the command line — the practical way to pass a " +
+      "multi-line, bulleted scope. Takes precedence over --ada-scope.",
+  )
+  .option(
+    "--local-repo <path>",
+    "Read theme code from an existing local git checkout instead of stores/<slug>/theme/ — for " +
+      "auditing (and, via \"Suggest fix\", editing in place) a repo you already have cloned. Saved " +
+      "to config.json, so later runs for this store keep using it without repeating the flag.",
+  )
   .option(
     "--competitor <url>",
     "Benchmark against a competitor storefront URL (repeatable, max 5 — each one runs a full Lighthouse + screenshot pass)",
@@ -121,6 +139,9 @@ program
         skipAiSuggestions?: boolean;
         skipSummary?: boolean;
         skipGithub?: boolean;
+        adaScope?: string;
+        adaScopeFile?: string;
+        localRepo?: string;
         competitor: string[];
       },
     ) => {
@@ -142,6 +163,9 @@ program
           skipAiSuggestions: opts.skipAiSuggestions,
           skipSummary: opts.skipSummary,
           skipGithub: opts.skipGithub,
+          adaScope: opts.adaScope,
+          adaScopeFile: opts.adaScopeFile,
+          localRepo: opts.localRepo,
           competitorUrls: opts.competitor,
         });
       } catch (err: any) {

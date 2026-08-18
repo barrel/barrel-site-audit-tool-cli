@@ -11,12 +11,14 @@ import { RoadmapTable } from "@/components/RoadmapTable";
 import { IssueTable } from "@/components/IssueTable";
 import { SitespeedMetrics } from "@/components/SitespeedMetrics";
 import { HealthChecklist } from "@/components/HealthChecklist";
+import { AdaScopeChecklist } from "@/components/AdaScopeChecklist";
 import { PixelAudit } from "@/components/PixelAudit";
 import { ThemeStructure } from "@/components/ThemeStructure";
 import { BestPracticesTable } from "@/components/BestPracticesTable";
 import { AnalyticsSection } from "@/components/AnalyticsSection";
 import { CompetitorComparison } from "@/components/CompetitorComparison";
 import { screenshotUrl } from "@/lib/screenshot";
+import { formatDate } from "@/lib/format";
 import type { Report } from "@/lib/shared";
 import {
   lighthouseFindings,
@@ -26,6 +28,7 @@ import {
   uxOpportunityFindings,
   aiSuggestionFindings,
   axeFindings,
+  adaScopeFindings,
   sitespeedAdviceFindings,
   consoleErrorFindings,
   themeConcernFindings,
@@ -76,11 +79,13 @@ export function collectAllFindings(report: Report): Finding[] {
   const aiSuggestionFindingsList = sections.aiSuggestions ? aiSuggestionFindings(sections.aiSuggestions.suggestions) : [];
   const themeConcernFindingsList = sections.themeArchitecture ? themeConcernFindings(sections.themeArchitecture.concerns) : [];
   const agentReadinessFindingsList = sections.agentReadiness ? agentReadinessIssueFindings(sections.agentReadiness.issues) : [];
+  const adaScopeFindingsList = sections.adaScope ? adaScopeFindings(sections.adaScope) : [];
 
   const allFindings: Finding[] = [
     ...perfFindings,
     ...a11yFindings,
     ...axeFindingsList,
+    ...adaScopeFindingsList,
     ...sitespeedFindingsList,
     ...seoFindings,
     ...trustFindings,
@@ -376,6 +381,62 @@ export function buildReportSections(report: Report): SectionDef[] {
               </div>
             )}
           </div>
+        </ReportSection>
+      ),
+    });
+  }
+
+  // First on the ADA tab: when a client has a contractual accessibility scope, "did we deliver
+  // what was scoped?" is the question the report exists to answer, and the axe/Lighthouse detail
+  // below it is the evidence.
+  if (sections.adaScope && sections.adaScope.items.length > 0) {
+    const adaScope = sections.adaScope;
+    const automatable = adaScope.completeCount + adaScope.partialCount + adaScope.incompleteCount;
+    const meters = [
+      ...(automatable > 0 ? [{ label: "Scope Verified", score: adaScope.coverage }] : []),
+      ...(adaScope.lighthouseAccessibilityScore !== undefined
+        ? [{ label: "Lighthouse Accessibility", score: adaScope.lighthouseAccessibilityScore }]
+        : []),
+      ...(adaScope.axeScore !== undefined ? [{ label: "Axe Automated Scan", score: adaScope.axeScore }] : []),
+    ];
+
+    sectionDefs.push({
+      id: "ada-scope",
+      label: "ADA Scope Checker",
+      category: "ada",
+      render: (n) => (
+        <ReportSection
+          id="ada-scope"
+          number={n}
+          title="ADA Scope Checker"
+          action={automatable > 0 ? <GradePill score={adaScope.coverage} /> : undefined}
+        >
+          <p className="text-sm text-[#6B6B6B] mb-5 max-w-[720px]">
+            The accessibility scope agreed for this client, checked line by line against what this run actually
+            measured — axe-core rules, Google Lighthouse&apos;s accessibility audit, and a live pass that tabs through
+            each page to test keyboard reach, focus visibility and the skip-navigation link. A ticked box means an
+            automated check verified it; anything else carries a specific developer action naming the failing elements.
+            {automatable > 0 && (
+              <>
+                {" "}
+                The grade is scope completion ({adaScope.completeCount} of {automatable} automatically-verifiable
+                items), not a site-quality score, so it stays out of the report&apos;s overall score.
+              </>
+            )}
+          </p>
+
+          {meters.length > 0 && (
+            <div className="mb-6">
+              <MeterGrid meters={meters} />
+            </div>
+          )}
+
+          <AdaScopeChecklist
+            section={adaScope}
+            storeName={report.storeName}
+            reportDate={formatDate(report.createdAt)}
+            storageKey={`barrel-ada-scope:${report.storeSlug}:${report.id}`}
+          />
         </ReportSection>
       ),
     });

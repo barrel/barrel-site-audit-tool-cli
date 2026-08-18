@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import chalk from "chalk";
 import { gradeForScore, type StoreConfig } from "@barrel/site-audit-shared";
-import { storesDir, storeConfigPath } from "../paths.js";
+import { cliInvocation, storesDir, storeConfigPath } from "../paths.js";
 import { readManifest } from "../report/manifest.js";
 
 export async function listCommand(): Promise<void> {
@@ -11,7 +11,7 @@ export async function listCommand(): Promise<void> {
   const manifest = await readManifest();
 
   if (slugs.length === 0 && manifest.reports.length === 0) {
-    console.log(chalk.gray("No stores yet. Create one with: pnpm barrel-audit init-store <slug> --url <https://...>"));
+    console.log(chalk.gray(`No stores yet. Create one with: ${cliInvocation()} init-store <slug> --url <https://...>`));
     return;
   }
 

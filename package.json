@@ -6,6 +6,7 @@
   "scripts": {
     "build": "pnpm --filter ./cli build && pnpm --filter ./web build",
     "barrel-audit": "node cli/dist/index.js",
+    "audit": "node cli/dist/index.js run",
     "web:dev": "pnpm --filter ./web dev",
     "web:deploy": "pnpm --filter ./web exec vercel deploy --prod"
   },

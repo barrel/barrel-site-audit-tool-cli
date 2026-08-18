@@ -1,4 +1,5 @@
 import { get, put } from "@vercel/blob";
+import { dataRoot } from "./paths.js";
 
 export async function readBlobJson<T>(pathname: string): Promise<T | null> {
   try {
@@ -14,9 +15,7 @@ export async function readBlobJson<T>(pathname: string): Promise<T | null> {
 
 export async function writeBlobJson(pathname: string, data: unknown): Promise<void> {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    throw new Error(
-      "BLOB_READ_WRITE_TOKEN is not set. Add it to a .env file at the repo root (see README).",
-    );
+    throw new Error(`BLOB_READ_WRITE_TOKEN is not set. Add it to ${dataRoot()}/.env (see README).`);
   }
   await put(pathname, JSON.stringify(data, null, 2), {
     access: "private",

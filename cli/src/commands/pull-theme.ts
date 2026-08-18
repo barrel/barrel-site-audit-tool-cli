@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import chalk from "chalk";
 import type { StoreConfig } from "@barrel/site-audit-shared";
-import { storeConfigPath, storeThemeDir } from "../paths.js";
+import { cliInvocation, storeConfigPath, storeThemeDir } from "../paths.js";
 
 export interface PullThemeArgs {
   slug: string;
@@ -19,7 +19,7 @@ export async function pullThemeCommand({ slug, store, live, theme }: PullThemeAr
   const configPath = storeConfigPath(slug);
   if (!existsSync(configPath)) {
     throw new Error(
-      `No store found for "${slug}". Run "pnpm barrel-audit init-store ${slug} --url <https://...>" first.`,
+      `No store found for "${slug}". Run "${cliInvocation()} init-store ${slug} --url <https://...>" first.`,
     );
   }
   const config = JSON.parse(readFileSync(configPath, "utf-8")) as StoreConfig;
@@ -66,5 +66,5 @@ export async function pullThemeCommand({ slug, store, live, theme }: PullThemeAr
   });
 
   console.log(chalk.green(`\nTheme pulled into stores/${slug}/theme/`));
-  console.log(chalk.gray(`Run: pnpm barrel-audit run ${slug}`));
+  console.log(chalk.gray(`Run: ${cliInvocation()} run ${slug}`));
 }

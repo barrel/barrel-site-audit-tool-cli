@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import chalk from "chalk";
 import { confirm, search } from "@inquirer/prompts";
 import type { StoreConfig } from "@barrel/site-audit-shared";
-import { storeConfigPath, storeThemeDir } from "../paths.js";
+import { cliInvocation, storeConfigPath, storeThemeDir } from "../paths.js";
 import { resolveStore, themeDirHasContent } from "../store.js";
 import { authenticatedCloneUrl, listGithubRepos, type GithubRepoChoice } from "../github.js";
 import { clearCachedGithubToken, getGithubToken } from "../github-auth.js";
@@ -135,5 +135,5 @@ export async function linkRepoInteractive(config: StoreConfig, opts: LinkRepoOpt
 export async function linkRepoCommand({ slug, repo, branch, relogin }: LinkRepoArgs): Promise<void> {
   const config = resolveStore(slug);
   await linkRepoInteractive(config, { repo, branch, relogin });
-  console.log(chalk.gray(`Run: pnpm barrel-audit run ${config.slug}`));
+  console.log(chalk.gray(`Run: ${cliInvocation()} run ${config.slug}`));
 }

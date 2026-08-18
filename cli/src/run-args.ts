@@ -19,9 +19,12 @@ export interface RunAuditBody {
   skipAiSuggestions?: boolean;
   skipSummary?: boolean;
   competitorUrls?: string[];
+  /** The client's ADA scope, pasted verbatim — verified item by item during the run. */
+  adaScope?: string;
 }
 
 const MAX_COMPETITORS = 5;
+const MAX_ADA_SCOPE_CHARS = 20_000;
 
 // A bare slug (existing store) or any http(s) URL — same two forms the CLI's `run` accepts.
 export function validateTarget(value: string, label: string): string {
@@ -71,4 +74,16 @@ export function buildRunArgs(body: RunAuditBody): string[] {
   }
 
   return args;
+}
+
+/** Environment for the spawned `run` process. The pasted ADA scope travels here rather than in
+ * argv: it's multi-line, and a scope pasted with "- " bullets starts with a dash, which commander
+ * would read as the next flag instead of an option value. */
+export function buildRunEnv(body: RunAuditBody): Record<string, string> {
+  const scope = body.adaScope?.trim();
+  if (!scope) return {};
+  if (scope.length > MAX_ADA_SCOPE_CHARS) {
+    throw new Error(`The ADA scope is too long (${scope.length} characters, max ${MAX_ADA_SCOPE_CHARS}).`);
+  }
+  return { BARREL_ADA_SCOPE: scope };
 }

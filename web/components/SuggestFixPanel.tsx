@@ -16,6 +16,9 @@ interface SuggestFixResponse {
   diff: string;
   explanation: string;
   themeCheck: { newErrorCount: number; newWarningCount: number; offenses: { check: string; message: string; line?: number; severity: string }[] };
+  /** True when this store was audited with `run --local-repo <path>` — the fix should be written
+   * straight into that checkout instead of going through a GitHub clone/branch/PR. */
+  isLocalRepo?: boolean;
 }
 
 function DiffView({ diff }: { diff: string }) {
@@ -69,6 +72,7 @@ export function SuggestFixPanel({
   const [pushStatus, setPushStatus] = useState<ActionStatus>("idle");
   const [pushError, setPushError] = useState("");
   const [prUrl, setPrUrl] = useState<string | null>(null);
+  const [appliedPath, setAppliedPath] = useState<string | null>(null);
 
   useEffect(() => {
     if (agent.checking) return;
@@ -273,11 +277,15 @@ export function SuggestFixPanel({
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
-        setPushError(data?.error ?? "Failed to open a pull request.");
+        setPushError(data?.error ?? "Failed to apply the fix.");
         setPushStatus("error");
         return;
       }
-      setPrUrl(data.prUrl);
+      if (data.appliedLocally) {
+        setAppliedPath(data.path);
+      } else {
+        setPrUrl(data.prUrl);
+      }
       setPushStatus("done");
       if (previewPoll.current) clearInterval(previewPoll.current);
     } catch (err: any) {
@@ -323,7 +331,15 @@ export function SuggestFixPanel({
               )}
               <DiffView diff={result.diff} />
 
-              {pushStatus === "done" && prUrl ? (
+              {pushStatus === "done" && appliedPath ? (
+                <div className="space-y-2 bg-[#f0efed] rounded-lg px-4 py-3">
+                  <p className="text-sm text-[#1A1A1A]">
+                    Applied — written directly into your local checkout. Nothing has been committed.
+                  </p>
+                  <p className="text-xs text-[#6B6B6B] break-all">{appliedPath}</p>
+                  <p className="text-xs text-[#6B6B6B]">Review the diff with your own git tooling before committing.</p>
+                </div>
+              ) : pushStatus === "done" && prUrl ? (
                 <div className="space-y-3 bg-[#f0efed] rounded-lg px-4 py-3">
                   <p className="text-sm text-[#1A1A1A]">
                     Pull request opened — it has not been merged. Normal GitHub review still applies.
@@ -336,6 +352,33 @@ export function SuggestFixPanel({
                   >
                     View PR →
                   </a>
+                </div>
+              ) : result.isLocalRepo ? (
+                <div className="space-y-3">
+                  <p className="text-xs font-medium text-[#6B6B6B] uppercase tracking-wide">
+                    Choose how to proceed — nothing has changed yet
+                  </p>
+                  <div className="flex items-center justify-between gap-3 border border-[#E5E5E5] rounded-lg px-3 py-2.5">
+                    <div className="text-sm text-[#1A1A1A]">
+                      <div className="font-medium">Apply to local repo</div>
+                      <div className="text-xs text-[#6B6B6B]">
+                        Writes the change directly into your local checkout, unstaged — review and commit it yourself.
+                      </div>
+                    </div>
+                    <button
+                      onClick={push}
+                      disabled={pushStatus === "pending"}
+                      className="text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-4 py-2 rounded-lg transition-colors disabled:opacity-50 shrink-0"
+                    >
+                      {pushStatus === "pending" ? "Applying…" : "Apply"}
+                    </button>
+                  </div>
+                  {pushStatus === "error" && <p className="text-xs text-[#B91C1C]">{pushError}</p>}
+                  <div>
+                    <button onClick={onClose} className="text-sm font-medium text-[#6B6B6B] hover:text-[#1A1A1A] px-1 py-2">
+                      Cancel
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BarrelFactTicker } from "./BarrelFactTicker";
 import { useLocalAgent, DEFAULT_AGENT_PORT } from "@/lib/use-local-agent";
+import { parseAdaScope } from "@/lib/shared";
 
 interface CheckDef {
   key: string;
@@ -31,6 +32,17 @@ const CHECKS: CheckDef[] = [
 ];
 
 const DEFAULT_INCLUDED: Record<string, boolean> = Object.fromEntries(CHECKS.map((c) => [c.key, true]));
+
+// Shown as the textarea's placeholder — a real, recurring Barrel ADA scope, so it's obvious what
+// to paste and in what shape. Every client's scope differs; this is only an example.
+const ADA_SCOPE_PLACEHOLDER = `Test and ensure basic accessibility features are in place, such as:
+Each link and UI element can be navigated using the TAB key to move to each control on the page
+Focus outlines are visible and noticeable for all links and UI elements when the item receives focus
+Navigation contains a hidden link to skip Navigation content
+Alt text is printed for all images that are fully populated by the Client
+Initial designs that adhere to color contrast ratios between foreground and background elements`;
+
+const MAX_ADA_SCOPE_CHARS = 20_000;
 
 function extractReportLink(log: string): { slug: string; id: string } | null {
   const match = log.match(/reports\/([^/\s]+)\/([^/\s]+)\.json/);
@@ -61,6 +73,7 @@ export function RunAuditForm() {
   const [included, setIncluded] = useState<Record<string, boolean>>(DEFAULT_INCLUDED);
   const [sitespeed, setSitespeed] = useState(false);
   const [competitors, setCompetitors] = useState<string[]>([]);
+  const [adaScope, setAdaScope] = useState("");
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [log, setLog] = useState("");
   const [exitCode, setExitCode] = useState<number | null>(null);
@@ -117,7 +130,12 @@ export function RunAuditForm() {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    const body: Record<string, unknown> = { target, sitespeed, competitorUrls: competitors.filter((c) => c.trim()) };
+    const body: Record<string, unknown> = {
+      target,
+      sitespeed,
+      competitorUrls: competitors.filter((c) => c.trim()),
+      adaScope: adaScope.trim() || undefined,
+    };
     for (const c of CHECKS) body[c.key] = !included[c.key];
 
     const useAgent = agent.detected && agent.token;
@@ -172,6 +190,7 @@ export function RunAuditForm() {
   const running = status === "running";
   const canRunViaAgent = agent.detected && agent.token;
   const currentStage = extractCurrentStage(log);
+  const adaScopeItems = adaScope.trim() ? parseAdaScope(adaScope) : [];
 
   return (
     <div className="space-y-5">
@@ -323,6 +342,38 @@ export function RunAuditForm() {
             </span>
           </label>
         </div>
+      </div>
+
+      <div className="bg-white border border-[#E5E5E5] rounded-lg p-5">
+        <h3 className="text-sm font-semibold text-[#1A1A1A] mb-1.5">ADA scope</h3>
+        <p className="text-xs text-[#9A9A9A] mb-3">
+          Optional — paste the accessibility requirements scoped for this client, one per line (bullets, numbers and a
+          "such as:" preamble are all fine). Each line is verified against axe-core, Google Lighthouse and a live
+          keyboard/focus pass, and anything not yet complete comes back with a developer action item. Saved to the
+          store, so re-running an audit doesn't mean re-pasting it.
+        </p>
+        <textarea
+          value={adaScope}
+          onChange={(e) => setAdaScope(e.target.value.slice(0, MAX_ADA_SCOPE_CHARS))}
+          disabled={running}
+          rows={7}
+          placeholder={ADA_SCOPE_PLACEHOLDER}
+          className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm text-[#1A1A1A] placeholder:text-[#9A9A9A] focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/10 focus:border-[#1A1A1A] disabled:opacity-60 font-mono leading-relaxed"
+        />
+        {adaScopeItems.length > 0 && (
+          <div className="mt-2.5 bg-[#fafafa] border border-[#E5E5E5] rounded-lg px-3.5 py-3">
+            <div className="text-[10px] font-semibold text-[#6B6B6B] uppercase tracking-wider mb-1.5">
+              {adaScopeItems.length} scope item{adaScopeItems.length === 1 ? "" : "s"} detected
+            </div>
+            <ol className="list-decimal pl-5 space-y-0.5 m-0">
+              {adaScopeItems.map((item) => (
+                <li key={item.id} className="text-xs text-[#6B6B6B] leading-relaxed">
+                  {item.text}
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
       </div>
 
       <div className="bg-white border border-[#E5E5E5] rounded-lg p-5">
