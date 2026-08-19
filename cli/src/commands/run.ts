@@ -1,12 +1,21 @@
-import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import chalk from "chalk";
 import ora from "ora";
 import { confirm } from "@inquirer/prompts";
 import { gradeForScore, parseAdaScope, type StoreConfig } from "@barrel/site-audit-shared";
-import { dataRoot, storeConfigPath, storeThemeDir } from "../paths.js";
-import { findThemeRoot, resolveStore, resolveThemeDir, themeDirHasContent } from "../store.js";
+import { cliInvocation, dataRoot, storeConfigPath, storeThemeDir } from "../paths.js";
+import {
+  findThemeRoot,
+  looksLikeShopifyTheme,
+  resolveStore,
+  resolveThemeDir,
+  saveStoreConfig,
+  themeDirHasContent,
+} from "../store.js";
+import { ensureLocalStoreConfig } from "../store-sync.js";
 import { runAudit, type RunOptions } from "../report/generate.js";
+import { installBrowserCleanup } from "../shutdown.js";
 import { linkRepoInteractive } from "./link-repo.js";
 
 export interface RunCommandArgs extends RunOptions {
@@ -44,6 +53,83 @@ function preflightEnv(args: RunCommandArgs): void {
       chalk.yellow(`ANTHROPIC_API_KEY is not set — the executive summary, AI suggestions and`) +
         chalk.yellow(` theme architecture assessment will be skipped.`) +
         chalk.gray(`\n  Add it to ${dataRoot()}/.env to include them. Continuing without.\n`),
+    );
+  }
+}
+
+/** How to name a path in a command the user is meant to copy: relative when that's actually
+ * shorter to read, absolute when the relative form would be a chain of "../"s. */
+function displayPath(dir: string): string {
+  const rel = relative(process.cwd(), dir);
+  return rel && !rel.startsWith("..") ? rel : dir;
+}
+
+/** The immediate subdirectories of `dir` that are themselves Shopify theme roots. A repo that
+ * keeps its theme one level down (theme/, src/, dist/) is the usual reason a perfectly valid
+ * checkout doesn't look like a theme at its root, so the error below can point straight at it
+ * instead of leaving the user to guess. Shallow on purpose — one readdir, no recursive walk. */
+function nestedThemeRoots(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => join(dir, entry.name))
+      .filter(looksLikeShopifyTheme);
+  } catch {
+    return [];
+  }
+}
+
+/** Shared by the --local-repo validation and the preflight below, which reach the same conclusion
+ * from different directions: linting a directory with no layout/theme.liquid reports on the wrong
+ * tree, and the usual cause is a repo that keeps its theme one level down. */
+function notAThemeError(dir: string, subject: string, fallbackHelp: string, slug: string): Error {
+  const nested = nestedThemeRoots(dir);
+  return new Error(
+    `${subject} — it has files in it, but no layout/theme.liquid, the one file every Shopify theme` +
+      ` is required to have. Linting it would report on the wrong tree.` +
+      (nested.length > 0
+        ? `\n\nThe theme looks like it lives one level down. Try:` +
+          nested.map((d) => `\n  ${cliInvocation()} run ${slug} --local-repo ${displayPath(d)}`).join("")
+        : fallbackHelp),
+  );
+}
+
+/** The three ways to give a store some code to review, plus the two ways to run without it. */
+function themeCodeHelp(store: StoreConfig): string {
+  return (
+    `\n\nEither point the audit at some code:` +
+    `\n  ${cliInvocation()} run ${store.slug} --local-repo <path to your theme checkout>` +
+    `\n  ${cliInvocation()} link-repo ${store.slug}      (clone from GitHub into ${storeThemeDir(store.slug)})` +
+    `\n  ${cliInvocation()} pull-theme ${store.slug}     (pull the live theme from Shopify)` +
+    `\n\nOr run without it:` +
+    `\n  ${cliInvocation()} run ${store.slug} --skip-code` +
+    `\n  In the dashboard, untick "Theme code & structure" under "What to run".`
+  );
+}
+
+/** Checked up front for the same reason as preflightEnv: a run that was asked for code review with
+ * nowhere to read code from produces a report whose Theme Code, Theme Structure and Theme
+ * Architecture sections are simply absent — which reads as "nothing to flag" rather than "never
+ * looked", and is indistinguishable from a clean bill of health to whoever opens the report. Stop
+ * before the several-minute Lighthouse/browser passes and say exactly how to resolve it. */
+function preflightThemeCode(store: StoreConfig): void {
+  const themeDir = resolveThemeDir(store);
+  const help = themeCodeHelp(store);
+
+  if (!themeDirHasContent(themeDir)) {
+    throw new Error(
+      `Theme code review was requested for ${store.name}, but there is no theme code to review.` +
+        `\n  Looked in: ${themeDir}${existsSync(themeDir) ? " (empty)" : " (does not exist)"}` +
+        help,
+    );
+  }
+
+  if (!looksLikeShopifyTheme(themeDir)) {
+    throw notAThemeError(
+      themeDir,
+      `Theme code review was requested for ${store.name}, but ${themeDir} doesn't look like a Shopify theme`,
+      help,
+      store.slug,
     );
   }
 }
@@ -88,7 +174,7 @@ function resolveAdaScope(args: RunCommandArgs, store: StoreConfig): string | und
 
   if (store.adaScope?.trim() !== trimmed) {
     store.adaScope = trimmed;
-    writeFileSync(storeConfigPath(store.slug), JSON.stringify(store, null, 2));
+    saveStoreConfig(store);
   }
   console.log(
     chalk.cyan(`ADA scope: ${parseAdaScope(trimmed).length} items to verify (from ${origin}).`) +
@@ -98,7 +184,16 @@ function resolveAdaScope(args: RunCommandArgs, store: StoreConfig): string | und
 }
 
 export async function runCommand(args: RunCommandArgs): Promise<void> {
+  // Before anything launches a browser: this is the only command that does, and a stop request
+  // arriving mid-Lighthouse is exactly when leaving one behind matters.
+  installBrowserCleanup();
+
   preflightEnv(args);
+
+  // A store created in the dashboard (or by a teammate) has no config.json on this machine yet —
+  // pull the shared copy down before resolving, so `run <slug>` works the first time instead of
+  // erroring with "No store found" for a store that plainly exists.
+  await ensureLocalStoreConfig(args.slug);
 
   const store = resolveStore(args.slug);
 
@@ -107,9 +202,15 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
     if (!existsSync(absPath) || !statSync(absPath).isDirectory()) {
       throw new Error(`--local-repo "${args.localRepo}" is not a directory (resolved to ${absPath}).`);
     }
+    // Before the write below, not after: pointing a store's config.json at a directory that turns
+    // out not to be a theme would leave every later run and "Suggest fix" for that store reading
+    // from the wrong tree, long after the typo that caused it.
+    if (!looksLikeShopifyTheme(absPath)) {
+      throw notAThemeError(absPath, `--local-repo "${args.localRepo}" isn't a Shopify theme`, themeCodeHelp(store), store.slug);
+    }
     if (store.localThemeDir !== absPath) {
       store.localThemeDir = absPath;
-      writeFileSync(storeConfigPath(store.slug), JSON.stringify(store, null, 2));
+      saveStoreConfig(store);
       console.log(chalk.gray(`Reading theme code for ${store.name} from ${absPath} (saved to config.json).`));
     }
   } else if (!store.localThemeDir && !themeDirHasContent(storeThemeDir(store.slug))) {
@@ -121,7 +222,7 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
     const detected = findThemeRoot();
     if (detected) {
       store.localThemeDir = detected;
-      writeFileSync(storeConfigPath(store.slug), JSON.stringify(store, null, 2));
+      saveStoreConfig(store);
       console.log(
         chalk.cyan(`Auditing the theme code in ${detected}`) +
           chalk.gray(
@@ -146,6 +247,10 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
       }
     }
   }
+
+  // After the GitHub-link prompt above, so accepting that offer is what resolves this rather than
+  // erroring out on a store that was one confirmation away from having code to review.
+  if (!args.skipCode) preflightThemeCode(store);
 
   const adaScope = resolveAdaScope(args, store);
 

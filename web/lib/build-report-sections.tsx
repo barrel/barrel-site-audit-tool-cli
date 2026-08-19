@@ -13,6 +13,7 @@ import { SitespeedMetrics } from "@/components/SitespeedMetrics";
 import { HealthChecklist } from "@/components/HealthChecklist";
 import { AdaScopeChecklist } from "@/components/AdaScopeChecklist";
 import { PixelAudit } from "@/components/PixelAudit";
+import { ConsentAudit } from "@/components/ConsentAudit";
 import { ThemeStructure } from "@/components/ThemeStructure";
 import { BestPracticesTable } from "@/components/BestPracticesTable";
 import { AnalyticsSection } from "@/components/AnalyticsSection";
@@ -35,6 +36,7 @@ import {
   agentReadinessIssueFindings,
   buildRoadmap,
   type Finding,
+  consentToFindings,
 } from "@/lib/findings";
 
 export type ReportCategory = "overview" | "vitals" | "theme" | "ux" | "seo-geo" | "ada";
@@ -71,7 +73,10 @@ export function collectAllFindings(report: Report): Finding[] {
   const bestPracticeLighthouseFindings = sections.performance
     ? lighthouseFindings(sections.performance.bestPractices, "bp")
     : [];
-  const consentFindings = sections.pixels ? pixelToFindings(sections.pixels.findings) : [];
+  const consentFindings = [
+    ...(sections.pixels ? pixelToFindings(sections.pixels.findings) : []),
+    ...(sections.consent ? consentToFindings(sections.consent) : []),
+  ];
   const consoleErrorFindingsList = sections.performance ? consoleErrorFindings(sections.performance.consoleErrors ?? []) : [];
   const trustFindings = [...bestPracticeLighthouseFindings, ...consentFindings];
   const seoOppFindings = sections.geoSeo ? seoOpportunityFindings(sections.geoSeo.seo.opportunities) : [];
@@ -142,7 +147,10 @@ export function buildReportSections(report: Report): SectionDef[] {
   const bestPracticeLighthouseFindings = sections.performance
     ? lighthouseFindings(sections.performance.bestPractices, "bp")
     : [];
-  const consentFindings = sections.pixels ? pixelToFindings(sections.pixels.findings) : [];
+  const consentFindings = [
+    ...(sections.pixels ? pixelToFindings(sections.pixels.findings) : []),
+    ...(sections.consent ? consentToFindings(sections.consent) : []),
+  ];
   const consoleErrorFindingsList = sections.performance ? consoleErrorFindings(sections.performance.consoleErrors ?? []) : [];
   const trustFindings = [...bestPracticeLighthouseFindings, ...consentFindings];
   const seoOppFindings = sections.geoSeo ? seoOpportunityFindings(sections.geoSeo.seo.opportunities) : [];
@@ -924,6 +932,20 @@ export function buildReportSections(report: Report): SectionDef[] {
               />
             </div>
           )}
+        </ReportSection>
+      ),
+    });
+  }
+
+  if (sections.consent) {
+    const consent = sections.consent;
+    sectionDefs.push({
+      id: "consent-qa",
+      label: "Privacy Compliance",
+      category: "theme",
+      render: (n) => (
+        <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={<GradePill score={consent.score} />}>
+          <ConsentAudit section={consent} />
         </ReportSection>
       ),
     });

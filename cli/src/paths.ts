@@ -1,11 +1,25 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+
+/** Is `dir` the root of a barrel-site-audit checkout? Checking for pnpm-workspace.yaml alone is
+ * not enough: plenty of the client repos this CLI is pointed at (a Shopify theme with a
+ * frontend/ workspace, say) are pnpm workspaces themselves, and treating one of those as the
+ * repo root sends dataRoot() — and with it .env, stores/ and every path derived from them — into
+ * the client's repo instead of ~/.barrel-audit. The package name is the unambiguous marker. */
+function isRepoRoot(dir: string): boolean {
+  if (!existsSync(join(dir, "pnpm-workspace.yaml"))) return false;
+  try {
+    return JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).name === "barrel-site-audit";
+  } catch {
+    return false;
+  }
+}
 
 function findRepoRootOrNull(startDir = process.cwd()): string | null {
   let dir = startDir;
   for (let i = 0; i < 20; i++) {
-    if (existsSync(join(dir, "pnpm-workspace.yaml"))) return dir;
+    if (isRepoRoot(dir)) return dir;
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;
@@ -22,7 +36,7 @@ export function findRepoRoot(startDir = process.cwd()): string {
   const found = findRepoRootOrNull(startDir);
   if (!found) {
     throw new Error(
-      "Could not find repo root (no pnpm-workspace.yaml found in any parent directory). Run barrel-audit from within the barrel-site-audit repo.",
+      "Could not find the barrel-site-audit repo root in any parent directory. Run barrel-audit serve from within the barrel-site-audit repo.",
     );
   }
   return found;

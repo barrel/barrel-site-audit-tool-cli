@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import chalk from "chalk";
 import type { StoreConfig } from "@barrel/site-audit-shared";
 import { cliInvocation, storeConfigPath, storeThemeDir } from "../paths.js";
+import { mirrorStoreConfig } from "../store-sync.js";
 
 export interface PullThemeArgs {
   slug: string;
@@ -33,7 +34,9 @@ export async function pullThemeCommand({ slug, store, live, theme }: PullThemeAr
   }
 
   if (store && config.shopifyDomain !== domain) {
-    writeFileSync(configPath, JSON.stringify({ ...config, shopifyDomain: domain }, null, 2));
+    const updated: StoreConfig = { ...config, shopifyDomain: domain };
+    writeFileSync(configPath, JSON.stringify(updated, null, 2));
+    await mirrorStoreConfig(updated);
   }
 
   const themeDir = storeThemeDir(slug);

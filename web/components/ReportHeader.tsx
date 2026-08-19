@@ -52,9 +52,11 @@ export function ReportHeader({
           <p className="m-0">
             <span className="font-semibold">No theme source code was analyzed for this report.</span> Every
             finding above comes entirely from the live storefront's client-facing code and rendered output —
-            Lighthouse, site health, and pixel/consent checks — not the theme's Liquid/JSON source. Pull or copy
-            the theme into <code className="bg-white px-1 py-0.5 rounded text-xs">stores/{slug}/theme/</code> and
-            re-run the audit to add Theme Check findings.
+            Lighthouse, site health, and pixel/consent checks — not the theme's Liquid/JSON source. To add
+            Theme Check findings, re-run the audit with the code: point &ldquo;Theme code location&rdquo; on the
+            Run Audit page at a local checkout (or pass{" "}
+            <code className="bg-white px-1 py-0.5 rounded text-xs">--local-repo &lt;path&gt;</code>), or pull the
+            theme into <code className="bg-white px-1 py-0.5 rounded text-xs">stores/{slug}/theme/</code>.
           </p>
         </div>
       )}

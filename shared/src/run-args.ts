@@ -1,6 +1,7 @@
-// Shared by the `serve` HTTP agent (and reusable by any future in-process caller) for turning a
-// dashboard-submitted run request into the exact argv `run` itself expects — validated up front
-// so nothing unvalidated reaches a spawned child process's argv.
+// Turns a dashboard-submitted run request into the exact argv `run` itself expects, validated up
+// front so nothing unvalidated reaches a spawned child process's argv. Lives in shared/ because
+// three separate callers need to agree on it exactly: the `serve` local agent, the local-dev
+// /api/run route, and the cloud runner that assembles the same command inside a sandbox.
 
 export interface RunAuditBody {
   target: string;
@@ -21,6 +22,11 @@ export interface RunAuditBody {
   competitorUrls?: string[];
   /** The client's ADA scope, pasted verbatim — verified item by item during the run. */
   adaScope?: string;
+  /** Absolute path to a theme checkout to read code from, i.e. `run --local-repo <path>`. The
+   * dashboard needs this because `run`'s "audit the theme I'm standing in" auto-detection works off
+   * the process's cwd, and a dashboard-triggered run is spawned in the data root — never in the
+   * repo the user is actually working on. */
+  localRepo?: string;
 }
 
 const MAX_COMPETITORS = 5;
@@ -39,6 +45,20 @@ export function validateTarget(value: string, label: string): string {
   }
   if (!/^[a-z0-9][a-z0-9-]*$/i.test(trimmed)) {
     throw new Error(`${label} must be a store slug (letters/numbers/hyphens) or a full https:// URL.`);
+  }
+  return trimmed;
+}
+
+/** Absolute only: a relative path would resolve against the spawned process's cwd (the data root),
+ * not the directory the person filling in the dashboard has in mind. The leading-dash check keeps a
+ * path from being read as the next flag — argv here is an array, never a shell string, so this is
+ * about commander's parsing rather than injection. */
+export function validateLocalRepo(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/")) {
+    throw new Error(
+      `The theme code path must be absolute — e.g. /Users/you/code/client-theme — not "${trimmed}".`,
+    );
   }
   return trimmed;
 }
@@ -64,6 +84,8 @@ export function buildRunArgs(body: RunAuditBody): string[] {
   // Always — stdin isn't a TTY when spawned this way anyway, but a hung confirm() prompt with
   // nothing able to answer it would otherwise wedge the request forever.
   args.push("--skip-github");
+
+  if (body.localRepo?.trim()) args.push("--local-repo", validateLocalRepo(body.localRepo));
 
   const competitors = (body.competitorUrls ?? []).map((c) => c.trim()).filter(Boolean);
   if (competitors.length > MAX_COMPETITORS) {

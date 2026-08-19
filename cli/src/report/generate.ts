@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { average, reportBlobPath, type AiUsage, type Report, type StoreConfig } from "@barrel/site-audit-shared";
+import { average, consentScreenshotBlobPath, reportBlobPath, type AiUsage, type Report, type StoreConfig } from "@barrel/site-audit-shared";
 import { analyzeCode, themeDirHasContent } from "../analyzers/code.js";
 import { analyzePerformance } from "../analyzers/performance.js";
 import { analyzeAccessibility } from "../analyzers/accessibility.js";
@@ -8,6 +8,7 @@ import { analyzeSitespeed } from "../analyzers/sitespeed.js";
 import { generateThemeArchitecture } from "../analyzers/theme-architecture.js";
 import { analyzeHealth } from "../analyzers/health.js";
 import { analyzePixels } from "../analyzers/pixels.js";
+import { analyzeConsent } from "../analyzers/consent/index.js";
 import { analyzeThemeStructure } from "../analyzers/theme-structure.js";
 import { analyzeAnalytics } from "../analyzers/analytics.js";
 import { analyzeCompetitor } from "../analyzers/competitors.js";
@@ -22,6 +23,7 @@ import { resolveThemeDir } from "../store.js";
 import { writeBlobJson, writeBlobBinary } from "../blob.js";
 import { normalizeAuditUrl } from "../url.js";
 import { appendToManifest } from "./manifest.js";
+import { finishRunRecord, runnerInfo, startRunRecord, updateRunStage } from "./run-record.js";
 
 export interface RunOptions {
   skipCode?: boolean;
@@ -30,6 +32,9 @@ export interface RunOptions {
   skipThemeArchitecture?: boolean;
   skipHealth?: boolean;
   skipPixels?: boolean;
+  /** Skip the behavioural consent QA suite. It drives the banner through five browser states,
+   * so it costs about a minute or two on top of the rest of the run. */
+  skipConsent?: boolean;
   skipAnalytics?: boolean;
   skipSummary?: boolean;
   skipScreenshots?: boolean;
@@ -83,9 +88,19 @@ export interface RunHooks {
   onStage?: (stage: string) => void;
 }
 
-export async function runAudit(store: StoreConfig, options: RunOptions, hooks: RunHooks = {}): Promise<Report> {
+export async function runAudit(store: StoreConfig, options: RunOptions, callerHooks: RunHooks = {}): Promise<Report> {
   const start = Date.now();
   const id = `${new Date().toISOString().replace(/[:.]/g, "-")}-${nanoid(6)}`;
+
+  // Every stage line goes to the run record as well as to whoever asked for it (the spinner, or
+  // the "→ stage" lines a piped caller reads). No-op unless BARREL_RUN_ID is set.
+  await startRunRecord(store, store.url);
+  const hooks: RunHooks = {
+    onStage: (stage) => {
+      updateRunStage(stage);
+      callerHooks.onStage?.(stage);
+    },
+  };
 
   const sections: Report["sections"] = {};
   const themeDir = resolveThemeDir(store);
@@ -163,8 +178,20 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
   }
 
   if (!options.skipPixels) {
-    hooks.onStage?.("Auditing marketing pixels & consent (live browser)");
+    hooks.onStage?.("Detecting marketing pixels (live browser)");
     sections.pixels = await analyzePixels(auditUrl);
+  }
+
+  if (!options.skipConsent) {
+    hooks.onStage?.("Privacy Compliance: driving the banner (5 browser states)");
+    // Never fatal to the run: a site that bot-walls headless Chrome should still produce a
+    // report for every other section rather than losing the lot.
+    sections.consent =
+      (await analyzeConsent(auditUrl, {
+        onStage: hooks.onStage,
+        uploadScreenshot: (state, image) =>
+          writeBlobBinary(consentScreenshotBlobPath(store.slug, id, state), image, "image/jpeg"),
+      }).catch(() => null)) ?? undefined;
   }
 
   if (!options.skipGeoSeo) {
@@ -264,6 +291,7 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
   if (sections.sitespeed) scores.push(sections.sitespeed.score);
   if (sections.health) scores.push(sections.health.score);
   if (sections.pixels) scores.push(sections.pixels.score);
+  if (sections.consent) scores.push(sections.consent.score);
   if (sections.geoSeo) scores.push(sections.geoSeo.healthRating);
   if (sections.agentReadiness) scores.push(sections.agentReadiness.score);
   if (sections.ux) scores.push(sections.ux.score);
@@ -279,6 +307,7 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
     durationMs: Date.now() - start,
     overallScore,
     sections,
+    runner: runnerInfo(),
   };
 
   if (!options.skipAiSuggestions) {
@@ -315,7 +344,10 @@ export async function runAudit(store: StoreConfig, options: RunOptions, hooks: R
     storeUrl: store.url,
     createdAt: report.createdAt,
     overallScore,
+    runner: report.runner,
   });
+
+  await finishRunRecord({ status: "succeeded", reportId: id, overallScore });
 
   return report;
 }

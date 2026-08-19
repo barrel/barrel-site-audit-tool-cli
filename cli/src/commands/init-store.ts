@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import chalk from "chalk";
 import type { StoreConfig } from "@barrel/site-audit-shared";
 import { cliInvocation, storeConfigPath, storeDir, storeThemeDir } from "../paths.js";
+import { mirrorStoreConfig } from "../store-sync.js";
 
 export interface InitStoreArgs {
   slug: string;
@@ -11,7 +12,7 @@ export interface InitStoreArgs {
   ga4PropertyId?: string;
 }
 
-export function initStore({ slug, name, url, shopifyDomain, ga4PropertyId }: InitStoreArgs): void {
+export async function initStore({ slug, name, url, shopifyDomain, ga4PropertyId }: InitStoreArgs): Promise<void> {
   const dir = storeDir(slug);
   const configPath = storeConfigPath(slug);
   const themeDir = storeThemeDir(slug);
@@ -30,6 +31,7 @@ export function initStore({ slug, name, url, shopifyDomain, ga4PropertyId }: Ini
     ...(ga4PropertyId ? { ga4PropertyId } : {}),
   };
   writeFileSync(storeConfigPath(slug), JSON.stringify(config, null, 2));
+  await mirrorStoreConfig(config);
 
   writeFileSync(
     `${dir}/README.md`,

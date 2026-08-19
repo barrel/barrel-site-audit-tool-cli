@@ -8,6 +8,7 @@ import { cliInvocation, storeConfigPath, storeThemeDir } from "../paths.js";
 import { resolveStore, themeDirHasContent } from "../store.js";
 import { authenticatedCloneUrl, listGithubRepos, type GithubRepoChoice } from "../github.js";
 import { clearCachedGithubToken, getGithubToken } from "../github-auth.js";
+import { mirrorStoreConfig } from "../store-sync.js";
 
 export interface LinkRepoArgs {
   slug: string;
@@ -124,10 +125,11 @@ export async function linkRepoInteractive(config: StoreConfig, opts: LinkRepoOpt
 
   const configPath = storeConfigPath(config.slug);
   const latest = existsSync(configPath) ? (JSON.parse(readFileSync(configPath, "utf-8")) as StoreConfig) : config;
-  writeFileSync(
-    configPath,
-    JSON.stringify({ ...latest, githubRepo: fullName, ...(branch ? { githubBranch: branch } : {}) }, null, 2),
-  );
+  const linked: StoreConfig = { ...latest, githubRepo: fullName, ...(branch ? { githubBranch: branch } : {}) };
+  writeFileSync(configPath, JSON.stringify(linked, null, 2));
+  // Awaited, unlike saveStoreConfig's background mirror: this is the fact a cloud run depends on
+  // (which repo to clone), and this command has nothing else to do afterwards.
+  await mirrorStoreConfig(linked);
 
   console.log(chalk.green(`Cloned ${fullName} into stores/${config.slug}/theme/`));
 }

@@ -94,12 +94,16 @@ export async function analyzePixels(url: string): Promise<PixelSection> {
   const consentMechanismDetected = CONSENT_SIGNALS.some((re) => re.test(html));
 
   const findings: PixelFinding[] = [];
+  // Whether consent actually *works* is the Privacy Compliance section's job — it drives the banner
+  // through five browser states, where this analyzer only ever sees one unclicked page load.
+  // Duplicating a verdict here would let the two sections contradict each other in the same
+  // report, so this one now reports presence and stops there.
   const firingPlatforms = platforms.filter((p) => p.status === "firing");
   if (firingPlatforms.length > 0 && !consentMechanismDetected) {
     findings.push({
       severity: "error",
       title: "Marketing pixels fire without a cookie-consent mechanism",
-      detail: `${firingPlatforms.map((p) => p.name).join(", ")} fired on page load with no consent banner or Shopify Customer Privacy API usage detected.`,
+      detail: `${firingPlatforms.map((p) => p.name).join(", ")} fired on page load with no consent banner or Shopify Customer Privacy API usage detected. See the Privacy Compliance section for the behavioural detail.`,
       recommendation:
         "Migrate pixel tracking to Shopify's Customer Events (Settings > Customer events > Add custom pixel), which auto-gates firing behind the Customer Privacy API, or install a consent-management app (OneTrust, Cookiebot) configured to block marketing pixels until consent is granted.",
     });

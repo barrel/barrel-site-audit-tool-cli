@@ -9,18 +9,40 @@ import { deployCommand } from "./commands/deploy.js";
 import { pullThemeCommand } from "./commands/pull-theme.js";
 import { linkRepoCommand } from "./commands/link-repo.js";
 import { serveCommand } from "./commands/serve.js";
+import { consentScanCommand } from "./commands/consent-scan.js";
 import { dataRoot } from "./paths.js";
+import { recordRunFailure } from "./report/run-record.js";
+import { syncAllStores } from "./store-sync.js";
+import { cliVersion } from "./version.js";
 
 // dataRoot() is the repo root inside a barrel-site-audit checkout, or ~/.barrel-audit when the
 // CLI is installed globally and run elsewhere — loadEnv() itself is a silent no-op if the file
 // doesn't exist, so no try/catch is needed either way.
 loadEnv({ path: `${dataRoot()}/.env` });
 
+// The dashboard streams this process's stdout/stderr into a browser, where the raw log sits behind
+// a collapsed toggle — an error printed only as red text there is easy to miss entirely. Fence it
+// in markers (the same convention as __BARREL_AUDIT_DONE__, which the dashboard already parses) so
+// the reason can be shown as the headline of the failure instead. Only when stderr isn't a TTY, so
+// an interactive terminal run looks exactly as it did before.
+function reportRunFailure(err: any): void {
+  const message = String(err?.message ?? err);
+  if (process.stderr.isTTY) {
+    console.error(chalk.red(`\n${message}`));
+  } else {
+    console.error(`\n__BARREL_AUDIT_ERROR__\n${message}\n__BARREL_AUDIT_ERROR_END__`);
+  }
+  process.exitCode = 1;
+}
+
 const program = new Command();
 
 program
   .name("barrel-audit")
-  .description("Reusable code / performance / site-health audit tool for Shopify storefronts");
+  .description("Reusable code / performance / site-health audit tool for Shopify storefronts")
+  // Read from package.json rather than hardcoded, so it can't drift from what was published.
+  // Also what a cloud run stamps onto its report as `runner.cliVersion`.
+  .version(cliVersion(), "-v, --version", "Print the installed CLI version");
 
 program
   .command("init-store <slug>")
@@ -29,8 +51,13 @@ program
   .option("--name <name>", "Display name for the store (defaults to slug)")
   .option("--shopify-domain <domain>", "The store's *.myshopify.com domain, for pull-theme")
   .option("--ga4-property-id <id>", "GA4 numeric property ID, for the Traffic & Revenue section (see docs/ga4-setup.md)")
-  .action((slug: string, opts: { url: string; name?: string; shopifyDomain?: string; ga4PropertyId?: string }) => {
-    initStore({ slug, url: opts.url, name: opts.name, shopifyDomain: opts.shopifyDomain, ga4PropertyId: opts.ga4PropertyId });
+  .action(async (slug: string, opts: { url: string; name?: string; shopifyDomain?: string; ga4PropertyId?: string }) => {
+    try {
+      await initStore({ slug, url: opts.url, name: opts.name, shopifyDomain: opts.shopifyDomain, ga4PropertyId: opts.ga4PropertyId });
+    } catch (err: any) {
+      console.error(chalk.red(`\n${err?.message ?? err}`));
+      process.exitCode = 1;
+    }
   });
 
 program
@@ -71,6 +98,26 @@ program
   });
 
 program
+  .command("sync-stores")
+  .description(
+    "Push every store on this machine to the shared registry in Blob, so they show up in the " +
+      "dashboard's store picker and can be audited by a cloud run. Only needed once — every " +
+      "command that writes a store's config.json mirrors it from then on. Machine-specific " +
+      "fields (the --local-repo path) are never shared.",
+  )
+  .action(async () => {
+    try {
+      const { synced, skipped } = await syncAllStores();
+      console.log(chalk.green(`Synced ${synced.length} store(s) to the shared registry.`));
+      if (synced.length > 0) console.log(chalk.gray(`  ${synced.join(", ")}`));
+      if (skipped.length > 0) console.log(chalk.yellow(`  Skipped (unreadable config.json): ${skipped.join(", ")}`));
+    } catch (err: any) {
+      console.error(chalk.red(`\n${err?.message ?? err}`));
+      process.exitCode = 1;
+    }
+  });
+
+program
   .command("run <slug-or-url>")
   .description(
     "Run a full audit (code, theme structure, performance, axe-core accessibility scan, site health, pixel/consent audit) and write a report, " +
@@ -87,7 +134,8 @@ program
   .option("--skip-theme-architecture", "Skip the AI theme architecture & Shopify platform-fit assessment")
   .option("--sitespeed", "Also run sitespeed.io (Browsertime + Coach) as a second, independent performance signal — slow, off by default")
   .option("--skip-health", "Skip storefront health checks")
-  .option("--skip-pixels", "Skip live marketing pixel / consent audit")
+  .option("--skip-pixels", "Skip live marketing pixel detection")
+  .option("--skip-consent", "Skip the behavioural Privacy Compliance suite (5 browser states, adds ~1-2 min)")
   .option("--skip-geo-seo", "Skip SEO opportunities & AI/agentic-commerce readiness (GEO) audit")
   .option("--skip-agent-readiness", "Skip the agent-readiness audit (per-SKU schema, hydration, policy data, feed drift)")
   .option("--skip-ux", "Skip the UX/conversion audit (one collection page + one product page)")
@@ -131,6 +179,7 @@ program
         sitespeed?: boolean;
         skipHealth?: boolean;
         skipPixels?: boolean;
+        skipConsent?: boolean;
         skipGeoSeo?: boolean;
         skipAgentReadiness?: boolean;
         skipUx?: boolean;
@@ -155,6 +204,7 @@ program
           sitespeed: opts.sitespeed,
           skipHealth: opts.skipHealth,
           skipPixels: opts.skipPixels,
+          skipConsent: opts.skipConsent,
           skipGeoSeo: opts.skipGeoSeo,
           skipAgentReadiness: opts.skipAgentReadiness,
           skipUx: opts.skipUx,
@@ -167,6 +217,64 @@ program
           adaScopeFile: opts.adaScopeFile,
           localRepo: opts.localRepo,
           competitorUrls: opts.competitor,
+        });
+      } catch (err: any) {
+        // Before reportRunFailure, so the dashboard's copy of the failure is written even if the
+        // process is about to be killed by whoever spawned it.
+        await recordRunFailure(String(err?.message ?? err));
+        reportRunFailure(err);
+      }
+    },
+  );
+
+program
+  .command("consent-scan [target]")
+  .description(
+    "Behavioural cookie-consent QA. Drives each site's banner for real — reject, accept, granular, " +
+      "returning visitor — and asserts that trackers actually stop and start, rather than only checking " +
+      "that a banner exists. With no argument it scans every active site in sites.yml; pass a registry " +
+      "slug for one of them, or any URL to scan a site that isn't in the registry. " +
+      "Exits non-zero when a blocker-severity test fails, so it can gate CI unchanged.",
+  )
+  .option("--seed", "Draft sites.yml from the local stores/ folder instead of scanning (never overwrites existing entries)")
+  .option("--from-repos", "With --seed, also list GitHub repos that have no production URL on record")
+  .option("--inventory", "Presence only: report which CMP is installed where, skipping the behavioural suites")
+  .option("--region <region>", "Region the scan represents (us | eu | ca-us). v1 always runs from your real location.", "us")
+  .option("--concurrency <n>", "How many sites to scan at once", "4")
+  .option("--no-retry", "Don't re-run a site to confirm blocker-severity failures")
+  .option("--no-upload", "Don't publish results to Blob or capture evidence screenshots")
+  .option("--json <path>", "Also write the full fleet report as JSON to this path")
+  .option("--junit <path>", "Also write JUnit XML to this path, for CI")
+  .option("--budget <minutes>", "Wall-clock budget per site before remaining states are reported blocked", "6")
+  .action(
+    async (
+      target: string | undefined,
+      opts: {
+        seed?: boolean;
+        fromRepos?: boolean;
+        inventory?: boolean;
+        region: string;
+        concurrency: string;
+        retry: boolean;
+        upload: boolean;
+        json?: string;
+        junit?: string;
+        budget: string;
+      },
+    ) => {
+      try {
+        await consentScanCommand({
+          target,
+          seed: opts.seed,
+          fromRepos: opts.fromRepos,
+          inventory: opts.inventory,
+          region: opts.region,
+          concurrency: Number(opts.concurrency),
+          retry: opts.retry,
+          upload: opts.upload,
+          json: opts.json,
+          junit: opts.junit,
+          budgetMinutes: Number(opts.budget),
         });
       } catch (err: any) {
         console.error(chalk.red(`\n${err?.message ?? err}`));

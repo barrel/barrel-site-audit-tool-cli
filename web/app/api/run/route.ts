@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -65,6 +65,11 @@ interface RunAuditBody {
   /** The client's ADA scope, pasted verbatim — verified item by item during the run. Passed to
    * the child through the environment rather than argv (see buildEnv below). */
   adaScope?: string;
+  /** Absolute path to a theme checkout to read code from, i.e. `run --local-repo <path>`. Needed
+   * because `run`'s "audit the theme I'm standing in" auto-detection works off the process's cwd,
+   * which for a dashboard-triggered run is the repo root — never the client theme being worked on.
+   * Mirrors validateLocalRepo() in cli/src/run-args.ts. */
+  localRepo?: string;
 }
 
 const MAX_COMPETITORS = 5;
@@ -80,6 +85,17 @@ function buildEnv(body: RunAuditBody): Record<string, string> {
     throw new Error(`The ADA scope is too long (${scope.length} characters, max ${MAX_ADA_SCOPE_CHARS}).`);
   }
   return { BARREL_ADA_SCOPE: scope };
+}
+
+// Absolute only: a relative path would resolve against the spawned process's cwd, not the directory
+// the person filling in the dashboard has in mind. Mirrors validateLocalRepo() in
+// cli/src/run-args.ts, which the local agent uses — web/ deploys standalone and can't import it.
+function validateLocalRepo(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("/")) {
+    throw new Error(`The theme code path must be absolute — e.g. /Users/you/code/client-theme — not "${trimmed}".`);
+  }
+  return trimmed;
 }
 
 function buildArgs(body: RunAuditBody): string[] {
@@ -104,6 +120,8 @@ function buildArgs(body: RunAuditBody): string[] {
   // able to answer it would otherwise wedge the request forever.
   args.push("--skip-github");
 
+  if (body.localRepo?.trim()) args.push("--local-repo", validateLocalRepo(body.localRepo));
+
   const competitors = (body.competitorUrls ?? []).map((c) => c.trim()).filter(Boolean);
   if (competitors.length > MAX_COMPETITORS) {
     throw new Error(`At most ${MAX_COMPETITORS} competitor URLs are supported.`);
@@ -115,10 +133,50 @@ function buildArgs(body: RunAuditBody): string[] {
   return args;
 }
 
+/** Stops a spawned audit and everything it started. An audit is a tree, not a process: `pnpm`
+ * execs the CLI, which launches headless Chrome (Lighthouse, axe, pixels, screenshots) and
+ * possibly sitespeed.io. Killing only the direct child would leave every one of those running —
+ * burning CPU and holding the profile dirs the next run wants — and with `pnpm` in the middle it
+ * wouldn't even stop the audit itself. So the child is spawned `detached` (making it a
+ * process-group leader) and the negative pid signals the whole group: SIGTERM first so the CLI's
+ * own cleanup can run, then SIGKILL for anything still alive.
+ * Mirrored in killRunTree() in cli/src/commands/serve.ts, which does the same for agent-run
+ * audits — web/ deploys standalone and can't import from cli/. */
+function killRunTree(child: ChildProcess): void {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  const pid = child.pid;
+  const signal = (sig: NodeJS.Signals) => {
+    try {
+      process.kill(-pid, sig);
+    } catch {
+      // ESRCH — the group is already gone, which is the outcome we wanted anyway.
+    }
+  };
+  signal("SIGTERM");
+  const escalate = setTimeout(() => signal("SIGKILL"), 5_000);
+  escalate.unref();
+  child.once("close", () => clearTimeout(escalate));
+}
+
 // Single-flight — two concurrent CLI runs would fight over the same headless-Chrome resources
 // on one machine. Module-scoped state is fine here: this route only makes sense against a
-// single local dev server process, never a scaled/serverless deployment.
-let activeRun: { target: string; startedAt: number } | null = null;
+// single local dev server process, never a scaled/serverless deployment. The child is held on to
+// so a stop request — and the dev server's own shutdown — can take the whole tree down.
+let activeRun: { target: string; startedAt: number; child?: ChildProcess } | null = null;
+
+// `detached` means the run no longer shares the dev server's process group, so Ctrl+C in the
+// terminal running `pnpm dev` stops reaching it. Without this, restarting the dev server would
+// leave a multi-minute audit (and its Chrome instances) running with nothing watching it.
+// Hooked on "exit" rather than SIGINT/SIGTERM deliberately: registering a signal listener
+// suppresses Node's default terminate-on-signal behaviour, and whether Ctrl+C still stopped the
+// dev server would then depend on Next's own handler running after ours. "exit" runs on the way
+// out either way, and the SIGTERM half of killRunTree is synchronous, which is all an exit handler
+// is allowed to be.
+if (!process.env.VERCEL) {
+  process.once("exit", () => {
+    if (activeRun?.child) killRunTree(activeRun.child);
+  });
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -156,33 +214,64 @@ export async function POST(req: NextRequest) {
   activeRun = { target: body.target, startedAt: Date.now() };
 
   const encoder = new TextEncoder();
+  let activeChild: ChildProcess | null = null;
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
+      // detached: true so the run is its own process group and killRunTree() can stop Chrome and
+      // friends along with it — see there for why.
       const child = spawn("pnpm", args, {
         cwd: repoRoot,
         env: { ...process.env, ...runEnv },
         stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
       });
+      if (activeRun) activeRun.child = child;
 
-      const forward = (chunk: Buffer) => controller.enqueue(encoder.encode(chunk.toString("utf-8")));
+      // Every write to the stream goes through here because once the client has disconnected —
+      // which is exactly what Stop does — enqueue() throws on the dead controller. Unguarded, that
+      // threw out of the close handler before `activeRun = null` ever ran, and the single-flight
+      // lock below then rejected every later run for the life of the dev server.
+      const send = (text: string) => {
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          // Nobody is listening any more; the child's own exit handling is what matters now.
+        }
+      };
+      const forward = (chunk: Buffer) => send(chunk.toString("utf-8"));
       child.stdout.on("data", forward);
       child.stderr.on("data", forward);
 
-      child.on("error", (err) => {
-        controller.enqueue(encoder.encode(`\nFailed to start: ${err.message}\n`));
+      let settled = false;
+      const finish = (trailer: string) => {
+        if (settled) return;
+        settled = true;
+        // First, so it happens whatever the stream does.
         activeRun = null;
-        controller.close();
-      });
+        send(trailer);
+        try {
+          controller.close();
+        } catch {
+          // Already closed by the client's cancellation.
+        }
+      };
 
-      child.on("close", (code) => {
-        controller.enqueue(encoder.encode(`\n__BARREL_AUDIT_DONE__${code ?? -1}__\n`));
-        activeRun = null;
-        controller.close();
-      });
+      child.on("error", (err) => finish(`\nFailed to start: ${err.message}\n`));
+      child.on("close", (code) => finish(`\n__BARREL_AUDIT_DONE__${code ?? -1}__\n`));
 
+      // The dashboard's "Stop audit" button aborts its fetch, which lands here. Anything else that
+      // drops the connection (closed tab, lost network) means nobody is watching the output, so the
+      // run stops for that too rather than continuing invisibly to completion.
       req.signal.addEventListener("abort", () => {
-        child.kill();
+        killRunTree(child);
       });
+      activeChild = child;
+    },
+    // Fires when the consumer of the response body goes away, which is the most direct signal that
+    // the dashboard's Stop button (or a closed tab) ended the run — req.signal covers the same
+    // ground, and either one alone is enough; killRunTree is idempotent.
+    cancel() {
+      if (activeChild) killRunTree(activeChild);
     },
   });
 

@@ -5,7 +5,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import { cliInvocation, dataRoot, storeFixDir } from "../paths.js";
-import { buildRunArgs, buildRunEnv, type RunAuditBody } from "../run-args.js";
+import { buildRunArgs, buildRunEnv, type RunAuditBody } from "@barrel/site-audit-shared";
 import { resolveStore, resolveThemeDir } from "../store.js";
 import { suggestFix, type SuggestFixParams } from "../analyzers/ai-fix.js";
 import {
@@ -34,6 +34,29 @@ const selfScript = (() => {
   return existsSync(compiled) ? compiled : process.argv[1];
 })();
 
+/** Stops a spawned audit and everything it started. An audit is a tree, not a process: this CLI
+ * re-invokes itself, which in turn launches headless Chrome (Lighthouse, axe, pixels, screenshots)
+ * and possibly sitespeed.io. Killing only the direct child would leave those running — burning CPU
+ * and holding the ports/profile dirs the next run wants — which is why the child is spawned
+ * `detached` (making it a process-group leader) and the negative pid signals the whole group.
+ * SIGTERM first so the CLI's own cleanup can run, then SIGKILL for anything still alive. */
+function killRunTree(child: ChildProcess): void {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  const pid = child.pid;
+  const signal = (sig: NodeJS.Signals) => {
+    try {
+      process.kill(-pid, sig);
+    } catch {
+      // ESRCH — the group is already gone, which is the outcome we wanted anyway.
+    }
+  };
+  signal("SIGTERM");
+  const escalate = setTimeout(() => signal("SIGKILL"), 5_000);
+  // Don't hold the event loop open for 5s after a clean exit.
+  escalate.unref();
+  child.once("close", () => clearTimeout(escalate));
+}
+
 // Lets the dashboard trigger real local audits from anywhere it's viewed — including the
 // deployed Vercel site — since the browser talks directly to this port on the same machine it's
 // running on, never through Vercel. Bound to loopback only (never the network), and every run
@@ -48,7 +71,9 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
   mkdirSync(root, { recursive: true });
   const token = randomBytes(24).toString("hex");
 
-  let activeRun: { target: string; startedAt: number } | null = null;
+  // Carries the child process too, so Ctrl+C here (and an explicit Stop from the dashboard) can
+  // take the whole audit down with it rather than orphaning a detached process group.
+  let activeRun: { target: string; startedAt: number; child: ChildProcess } | null = null;
   // Independent from activeRun on purpose: a fix operation never touches stores/<slug>/theme/
   // (all git/GitHub work happens in its own disposable clone), so there's no correctness reason
   // to block it behind an unrelated multi-minute audit. This only needs to stop *duplicate*
@@ -86,6 +111,9 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
 
   process.on("SIGINT", () => {
     for (const key of [...activePreviews.keys()]) stopPreview(key);
+    // `detached` puts the run in its own process group, so it no longer receives the terminal's
+    // Ctrl+C on its own — this is what stops it from outliving the agent that started it.
+    if (activeRun) killRunTree(activeRun.child);
     process.exit(0);
   });
 
@@ -154,37 +182,53 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
         return;
       }
 
-      activeRun = { target: body.target, startedAt: Date.now() };
       res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
 
       // Re-invoke this exact CLI build rather than `pnpm barrel-audit`, which only resolves
       // inside the monorepo (and would pick the checkout's build over the global one).
       // execArgv carries any loader flags (e.g. tsx's --import) so a TS-source dev run re-spawns
-      // itself the same way it was started.
+      // itself the same way it was started. detached: true so the run is its own process group and
+      // killRunTree() can stop Chrome and friends along with it — see there for why.
       const child = spawn(process.execPath, [...process.execArgv, selfScript, ...args], {
         cwd: root,
         env: { ...process.env, ...runEnv },
         stdio: ["ignore", "pipe", "pipe"],
+        detached: true,
       });
+      activeRun = { target: body.target, startedAt: Date.now(), child };
 
-      const forward = (chunk: Buffer) => res.write(chunk);
+      // Guarded because a stopped run means the response socket is already gone, and writing to a
+      // destroyed response emits an error rather than returning quietly.
+      const send = (chunk: string | Buffer) => {
+        if (!res.writableEnded && !res.destroyed) res.write(chunk);
+      };
+      const forward = (chunk: Buffer) => send(chunk);
       child.stdout.on("data", forward);
       child.stderr.on("data", forward);
 
-      child.on("error", (err) => {
-        res.write(`\nFailed to start: ${err.message}\n`);
+      let settled = false;
+      const finish = (trailer: string) => {
+        if (settled) return;
+        settled = true;
+        // First, so a dead socket can't strand the single-flight lock and lock out every later run.
         activeRun = null;
-        res.end();
-      });
+        send(trailer);
+        if (!res.writableEnded) res.end();
+      };
 
-      child.on("close", (code) => {
-        res.write(`\n__BARREL_AUDIT_DONE__${code ?? -1}__\n`);
-        activeRun = null;
-        res.end();
-      });
+      child.on("error", (err) => finish(`\nFailed to start: ${err.message}\n`));
+      child.on("close", (code) => finish(`\n__BARREL_AUDIT_DONE__${code ?? -1}__\n`));
 
-      req.on("close", () => {
-        if (!res.writableEnded) child.kill();
+      // The dashboard's "Stop audit" button aborts its fetch, which lands here. Anything else that
+      // drops the connection (closed tab, lost network) means nobody is watching the output, so the
+      // run stops for that too rather than continuing invisibly to completion.
+      //
+      // On `res`, not `req`: readJsonBody() above consumes the request stream to its end, and Node
+      // closes a fully-consumed readable right away — so a listener added afterwards never hears
+      // req's "close" and the stop silently did nothing. res emits "close" when the response
+      // finishes *or* the connection is destroyed, and writableEnded tells the two apart.
+      res.on("close", () => {
+        if (!res.writableEnded) killRunTree(child);
       });
       return;
     }

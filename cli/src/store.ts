@@ -3,6 +3,16 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import type { StoreConfig } from "@barrel/site-audit-shared";
 import { cliInvocation, storeConfigPath, storesDir, storeThemeDir } from "./paths.js";
+import { mirrorStoreConfig } from "./store-sync.js";
+
+/** The one place a store's config.json is written. Writes the local copy synchronously (every
+ * reader in the CLI reads it that way) and pushes the shared copy to Blob in the background, so
+ * a store created in a terminal shows up in the dashboard's store picker without a second step.
+ * The mirror is deliberately not awaited: it must never delay, or fail, a local operation. */
+export function saveStoreConfig(store: StoreConfig): void {
+  writeFileSync(storeConfigPath(store.slug), JSON.stringify(store, null, 2));
+  void mirrorStoreConfig(store);
+}
 
 function isUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
@@ -64,7 +74,7 @@ export function resolveStore(slugOrUrl: string): StoreConfig {
 
     const store: StoreConfig = { slug, name: new URL(slugOrUrl).hostname, url: slugOrUrl };
     mkdirSync(storeThemeDir(slug), { recursive: true });
-    writeFileSync(configPath, JSON.stringify(store, null, 2));
+    saveStoreConfig(store);
     console.log(chalk.gray(`No store found — created stores/${slug}/ automatically.`));
     console.log(chalk.gray(`Drop theme code into stores/${slug}/theme/ to include code review in future audits.`));
     return store;

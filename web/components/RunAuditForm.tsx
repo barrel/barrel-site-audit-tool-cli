@@ -16,7 +16,7 @@ interface CheckDef {
 // One entry per CLI `--skip-*` flag (cli/src/index.ts) — shown inverted as "include this check,"
 // checked by default, since that reads more naturally than a wall of pre-checked "skip" boxes.
 const CHECKS: CheckDef[] = [
-  { key: "skipCode", label: "Theme code & structure", detail: "Theme Check lint + orphaned files/page-builder detection. No-ops if the store has no theme code yet." },
+  { key: "skipCode", label: "Theme code & structure", detail: "Theme Check lint + orphaned files/page-builder detection. Needs theme code — the run stops immediately if this store has none, rather than quietly leaving those sections out of the report." },
   { key: "skipThemeArchitecture", label: "AI theme architecture", detail: "Claude-written platform-fit assessment. Needs theme code + ANTHROPIC_API_KEY.", indent: true },
   { key: "skipPerformance", label: "Performance (Lighthouse)", detail: "Multi-page, multi-device Lighthouse pass — the slowest analyzer, expect several minutes." },
   { key: "skipAxe", label: "Accessibility (axe-core)", detail: "A second, independent accessibility signal beyond Lighthouse." },
@@ -43,6 +43,24 @@ Alt text is printed for all images that are fully populated by the Client
 Initial designs that adhere to color contrast ratios between foreground and background elements`;
 
 const MAX_ADA_SCOPE_CHARS = 20_000;
+
+const DONE_MARKER = /__BARREL_AUDIT_DONE__(-?\d+)__/;
+
+// The CLI fences a failed run's message in these whenever its stderr isn't a TTY — which is always
+// the case here, since it's a spawned/piped process either way (see reportRunFailure in
+// cli/src/index.ts). Without it the reason would only exist inside the collapsed raw log, so a run
+// that stopped at second zero for a fixable reason ("no theme code to review") would read as a bare
+// "exit 1". The fence is replaced by the message itself in the displayed log, not removed, so the
+// raw output still reads as a normal terminal session.
+const ERROR_MARKER = /__BARREL_AUDIT_ERROR__\n?([\s\S]*?)\n?__BARREL_AUDIT_ERROR_END__/;
+
+function displayableLog(raw: string): string {
+  return raw.replace(ERROR_MARKER, "$1").replace(DONE_MARKER, "").trimEnd();
+}
+
+function extractFailureReason(raw: string): string | null {
+  return raw.match(ERROR_MARKER)?.[1]?.trim() || null;
+}
 
 function extractReportLink(log: string): { slug: string; id: string } | null {
   const match = log.match(/reports\/([^/\s]+)\/([^/\s]+)\.json/);
@@ -88,8 +106,15 @@ export function RunAuditForm() {
   const [sitespeed, setSitespeed] = useState(false);
   const [competitors, setCompetitors] = useState<string[]>([]);
   const [adaScope, setAdaScope] = useState("");
-  const [status, setStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [localRepo, setLocalRepo] = useState("");
+  const [status, setStatus] = useState<"idle" | "running" | "done" | "error" | "stopped">("idle");
   const [log, setLog] = useState("");
+  // Pulled out of the stream separately from `log` so the failure can headline the modal instead of
+  // only existing somewhere inside the raw CLI output.
+  const [failureReason, setFailureReason] = useState<string | null>(null);
+  // Stopping an audit throws away several minutes of Lighthouse and browser work with no report to
+  // show for it, and the button sits one stray click away from a run you wanted — so it asks first.
+  const [confirmStop, setConfirmStop] = useState(false);
   const [exitCode, setExitCode] = useState<number | null>(null);
   const [usedBackend, setUsedBackend] = useState<"agent" | "server" | null>(null);
   const [elapsed, setElapsed] = useState(0);
@@ -129,7 +154,13 @@ export function RunAuditForm() {
     if (!showModal) return;
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
-        if (status !== "running") {
+        // While the "stop this audit?" interstitial is up, Escape backs out of it rather than the
+        // modal — dismissing the whole thing here would read as an answer to a question about
+        // killing the run.
+        if (confirmStop) {
+          e.preventDefault();
+          setConfirmStop(false);
+        } else if (status !== "running") {
           e.preventDefault();
           setShowModal(false);
         }
@@ -152,7 +183,7 @@ export function RunAuditForm() {
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [showModal, status]);
+  }, [showModal, status, confirmStop]);
 
   function toggle(key: string) {
     setIncluded((prev) => {
@@ -177,11 +208,11 @@ export function RunAuditForm() {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
-      const doneMatch = buffer.match(/__BARREL_AUDIT_DONE__(-?\d+)__/);
-      setLog(doneMatch ? buffer.replace(doneMatch[0], "").trimEnd() : buffer);
+      setLog(displayableLog(buffer));
       logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
     }
-    const finalMatch = buffer.match(/__BARREL_AUDIT_DONE__(-?\d+)__/);
+    setFailureReason(extractFailureReason(buffer));
+    const finalMatch = buffer.match(DONE_MARKER);
     return finalMatch ? Number(finalMatch[1]) : null;
   }
 
@@ -193,6 +224,8 @@ export function RunAuditForm() {
     setUsedBackend(null);
     setElapsed(0);
     setShowRawOutput(false);
+    setFailureReason(null);
+    setConfirmStop(false);
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -201,6 +234,7 @@ export function RunAuditForm() {
       sitespeed,
       competitorUrls: competitors.filter((c) => c.trim()),
       adaScope: adaScope.trim() || undefined,
+      localRepo: included.skipCode ? localRepo.trim() || undefined : undefined,
     };
     for (const c of CHECKS) body[c.key] = !included[c.key];
 
@@ -247,10 +281,15 @@ export function RunAuditForm() {
     }
   }
 
-  function cancel() {
+  // Aborting the request is what actually stops the audit: both backends treat a dropped
+  // connection as "stop" and kill the whole spawned process group — the CLI, its headless Chrome
+  // instances and anything else it started (killRunTree in web/app/api/run/route.ts and
+  // cli/src/commands/serve.ts). The modal stays up afterwards, on a "stopped" screen, so it's clear
+  // the run ended because you ended it and not because it finished.
+  function stopAudit() {
     abortRef.current?.abort();
-    setStatus("idle");
-    setShowModal(false);
+    setConfirmStop(false);
+    setStatus("stopped");
   }
 
   const reportLink = status === "done" ? extractReportLink(log) : null;
@@ -411,6 +450,31 @@ export function RunAuditForm() {
         </div>
       </div>
 
+      {/* Only meaningful alongside code review, so it appears with it. The CLI can auto-detect a
+          theme from the directory it was invoked in, but a dashboard run is spawned in the data root
+          — so from here the path has to be given explicitly or there is nothing to detect. */}
+      {included.skipCode && (
+        <div className="bg-white border border-[#E5E5E5] rounded-lg p-5">
+          <h3 className="text-sm font-semibold text-[#1A1A1A] mb-1.5">Theme code location</h3>
+          <p className="text-xs text-[#9A9A9A] mb-3">
+            Absolute path to a local theme checkout to review — the folder containing{" "}
+            <code className="bg-[#fafafa] px-1 rounded">layout/theme.liquid</code>. Saved to the store, so
+            later runs and &ldquo;Suggest fix&rdquo; reuse it without re-entering it. Leave blank to use
+            whatever this store already has (a path saved earlier, or a theme pulled into its own folder)
+            — if there&apos;s nothing there, the run stops right away instead of producing a report with no
+            code findings in it.
+          </p>
+          <input
+            type="text"
+            value={localRepo}
+            onChange={(e) => setLocalRepo(e.target.value)}
+            disabled={running}
+            placeholder="/Users/you/code/client-theme"
+            className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm text-[#1A1A1A] font-mono placeholder:text-[#9A9A9A] placeholder:font-sans focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/10 focus:border-[#1A1A1A] disabled:opacity-60"
+          />
+        </div>
+      )}
+
       <div className="bg-white border border-[#E5E5E5] rounded-lg p-5">
         <h3 className="text-sm font-semibold text-[#1A1A1A] mb-1.5">ADA scope</h3>
         <p className="text-xs text-[#9A9A9A] mb-3">
@@ -527,7 +591,7 @@ export function RunAuditForm() {
               </button>
             )}
 
-            {running && (
+            {running && !confirmStop && (
               <>
                 <div className="flex items-center justify-center gap-3 mb-1">
                   <span className="text-2xl" style={{ animation: "fadein 1.2s ease-in-out infinite alternate" }}>
@@ -557,12 +621,65 @@ export function RunAuditForm() {
                 <div className="mt-5">
                   <button
                     type="button"
-                    onClick={cancel}
-                    className="text-sm font-medium text-[#6B6B6B] hover:text-[#1A1A1A] border border-[#E5E5E5] hover:bg-[#fafafa] px-4 py-2 rounded-lg transition-colors"
+                    onClick={() => setConfirmStop(true)}
+                    className="text-sm font-medium text-[#6B6B6B] hover:text-[#B91C1C] border border-[#E5E5E5] hover:border-[#B91C1C]/40 hover:bg-[#fafafa] px-4 py-2 rounded-lg transition-colors"
                   >
-                    Cancel run
+                    Stop audit
                   </button>
                 </div>
+              </>
+            )}
+
+            {/* Takes over the dialog rather than sitting alongside the progress it is about to
+                destroy — the only two things worth clicking at this point are the two answers. */}
+            {running && confirmStop && (
+              <>
+                <div className="flex items-center justify-center gap-3 mb-1">
+                  <span className="text-2xl">🛑</span>
+                  <h3 id="run-modal-title" className="text-lg font-semibold text-[#1A1A1A]">
+                    Stop this audit?
+                  </h3>
+                </div>
+                <p className="text-sm text-[#6B6B6B] mb-5 max-w-[460px] mx-auto">
+                  The run is terminated on your machine straight away — Lighthouse, the live browser
+                  passes and any AI calls all stop where they are. Nothing is kept: no report is
+                  written, and the {formatElapsed(elapsed)} it has spent so far is discarded.
+                </p>
+                <div className="flex items-center justify-center gap-2.5">
+                  <button
+                    type="button"
+                    autoFocus
+                    onClick={() => setConfirmStop(false)}
+                    className="text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-4 py-2.5 rounded-lg transition-colors"
+                  >
+                    Keep running
+                  </button>
+                  <button
+                    type="button"
+                    onClick={stopAudit}
+                    className="text-sm font-semibold text-[#B91C1C] border border-[#B91C1C]/40 hover:bg-[#B91C1C]/5 px-4 py-2.5 rounded-lg transition-colors"
+                  >
+                    Yes, stop audit
+                  </button>
+                </div>
+              </>
+            )}
+
+            {status === "stopped" && (
+              <>
+                <div className="flex items-center justify-center gap-3 mb-1">
+                  <span className="text-2xl">🛑</span>
+                  <h3 id="run-modal-title" className="text-lg font-semibold text-[#1A1A1A]">
+                    Audit stopped
+                  </h3>
+                </div>
+                <p className="text-sm text-[#6B6B6B] mb-2">
+                  {displayTarget(target)} · stopped by you after {formatElapsed(elapsed)}. No report was
+                  written — nothing partial is saved.
+                </p>
+                <p className="text-xs text-[#9A9A9A]">
+                  Your settings below are untouched, so you can adjust what to run and start again.
+                </p>
               </>
             )}
 
@@ -610,6 +727,14 @@ export function RunAuditForm() {
                   {displayTarget(target)} · stopped after {formatElapsed(elapsed)}. The full CLI output is
                   below, and stays on the page after you close this.
                 </p>
+                {/* The reason, when the CLI gave one — an audit that refuses at second zero because
+                    a requested check has nothing to work with (no theme code, no Blob token) is
+                    fixable in a few seconds, but only if you can see what it said. */}
+                {failureReason && (
+                  <pre className="text-left text-xs text-[#1A1A1A] bg-[#B91C1C]/5 border border-[#B91C1C]/20 rounded-lg px-3.5 py-3 mb-2 whitespace-pre-wrap font-mono leading-relaxed overflow-auto max-h-[280px]">
+                    {failureReason}
+                  </pre>
+                )}
               </>
             )}
 
@@ -649,6 +774,11 @@ export function RunAuditForm() {
             {status === "error" && (
               <span className="text-[10px] font-semibold text-[#F87171] uppercase tracking-wider">
                 Failed{exitCode !== null ? ` (exit ${exitCode})` : ""}
+              </span>
+            )}
+            {status === "stopped" && (
+              <span className="text-[10px] font-semibold text-[#FBBF24] uppercase tracking-wider">
+                Stopped
               </span>
             )}
           </div>

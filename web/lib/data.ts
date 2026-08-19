@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { get, put } from "@vercel/blob";
-import type { Manifest, ManifestEntry, Report } from "./shared";
+import type { ConsentFleetReport, Manifest, ManifestEntry, Report } from "./shared";
 
 const MANIFEST_BLOB_PATH = "reports/manifest.json";
 
@@ -117,3 +117,37 @@ export async function writeManifest(manifest: Manifest): Promise<void> {
     allowOverwrite: true,
   });
 }
+
+/* ── Consent QA fleet scans ──────────────────────────────────────────────────────────────── */
+
+const CONSENT_INDEX_BLOB_PATH = "consent/index.json";
+
+function consentFleetBlobPath(scanId: string): string {
+  return `consent/${scanId}.json`;
+}
+
+export interface ConsentIndexEntry {
+  id: string;
+  createdAt: string;
+  region: string;
+  totals: ConsentFleetReport["totals"];
+}
+
+export const getConsentIndex = cache(async (): Promise<ConsentIndexEntry[]> => {
+  // Same reasoning as the report manifest: rewritten on every scan, so never serve a cached copy
+  // or a fresh scan appears to have vanished.
+  const index = await readBlobJson<{ scans: ConsentIndexEntry[] }>(CONSENT_INDEX_BLOB_PATH, false);
+  return index?.scans ?? [];
+});
+
+export const getConsentScan = cache(async (scanId: string): Promise<ConsentFleetReport | null> => {
+  return await readBlobJson<ConsentFleetReport>(consentFleetBlobPath(scanId));
+});
+
+/** The most recent scan, which is what /consent shows by default. */
+export const getLatestConsentScan = cache(async (): Promise<ConsentFleetReport | null> => {
+  const index = await getConsentIndex();
+  if (index.length === 0) return null;
+  const newest = [...index].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  return await getConsentScan(newest.id);
+});

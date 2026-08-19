@@ -1,8 +1,9 @@
 # barrel-site-audit
 
 A reusable tool for auditing client Shopify storefronts: theme code quality and structure,
-Lighthouse performance/accessibility/SEO, storefront health, live marketing-pixel and
-consent auditing, a best-practices verdict table, and an AI-written executive summary.
+Lighthouse performance/accessibility/SEO, storefront health, live marketing-pixel detection,
+behavioural cookie-consent QA across the whole client fleet, a best-practices verdict table,
+and an AI-written executive summary.
 Reports are generated from the CLI and published to a password-protected web app on Vercel.
 
 **Live report site:** https://barrel-site-audit.vercel.app (password-protected — ask in
@@ -203,9 +204,21 @@ subfolder works too), that checkout is used automatically and saved the same way
 which directory it picked. This only kicks in when the store has no theme code of its own, so a
 managed store set up via `link-repo`/`pull-theme` is never silently overridden by whatever
 directory you happened to be standing in. Pass `--local-repo <path>` explicitly to override the
-detection, and note that a store whose code has never been located just skips code review
-entirely — if you see `No theme code found ... skipping code analysis`, you were outside a theme
-checkout. This is the natural
+detection.
+
+**Auto-detection can't work from the dashboard.** It reads the process's working directory, and a
+dashboard-triggered run is spawned in the data root, never in the theme repo you're working on —
+so from `/run` the path has to be given explicitly, in the **Theme code location** field (see
+[Running an audit from the dashboard](#running-an-audit-from-the-dashboard)). It's the same
+`--local-repo` value, saved to `config.json` the same way.
+
+**A run that was asked for code review with no code to review now fails immediately** rather than
+returning a report whose theme sections are simply absent — indistinguishable, to whoever opens
+the report, from a clean bill of health. The error names the directory it looked in and lists both
+ways out (point it at some code, or `--skip-code`). The same preflight rejects a path that has no
+`layout/theme.liquid`, and suggests the subfolder if your repo keeps the theme one level down —
+checked *before* the path is written to `config.json`, so a typo can't leave a store permanently
+pointed at the wrong tree. This is the natural
 fit for a dev who already has the theme repo checked out locally — one dev per repo, one
 audit at a time — as opposed to `link-repo`/`pull-theme`, which clone a fresh managed copy
 and suit auditing many stores you don't otherwise have on disk.
@@ -434,7 +447,10 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   inline in the Lighthouse Vitals and Competitor Benchmark sections. Skip with
   `--skip-screenshots`.
 
-Flags: `--skip-code`, `--skip-performance`, `--skip-axe`, `--skip-theme-architecture`, `--skip-health`, `--skip-pixels`, `--skip-geo-seo`, `--skip-agent-readiness`, `--skip-ux`, `--skip-analytics`, `--skip-screenshots`, `--skip-ai-suggestions`, `--skip-summary`, `--skip-github`, `--competitor <url>` (repeatable), `--ada-scope <text>` / `--ada-scope-file <path>`, `--sitespeed` (opt-in, off by default).
+Flags: `--skip-code`, `--skip-performance`, `--skip-axe`, `--skip-theme-architecture`, `--skip-health`, `--skip-pixels`, `--skip-geo-seo`, `--skip-agent-readiness`, `--skip-ux`, `--skip-analytics`, `--skip-screenshots`, `--skip-ai-suggestions`, `--skip-summary`, `--skip-github`, `--competitor <url>` (repeatable), `--ada-scope <text>` / `--ada-scope-file <path>`, `--sitespeed` (opt-in, off by default), `--local-repo <path>`.
+
+Without `--skip-code`, the run refuses to start unless it can find theme code to review — see
+[Auditing a repo you already have cloned](#auditing-a-repo-you-already-have-cloned).
 
 ### Rate limits & quotas
 
@@ -510,7 +526,11 @@ app, never touched by the CLI.
 `/run` (a "+ Run Audit" button on the landing page) is a form-based alternative to typing CLI
 flags: enter a store slug or URL, check the boxes for which analyzers to include (inverted from
 the CLI's `--skip-*` flags — checked means "run it"), optionally add up to 5 competitor URLs,
-and click **Run audit**. It POSTs to `/api/run`, which spawns `pnpm barrel-audit run ...` as a
+and click **Run audit**. With **Theme code & structure** checked, the **Theme code location** field
+is where you put the absolute path to a local theme checkout (the folder containing
+`layout/theme.liquid`) — it becomes `--local-repo` and is saved to the store, so it's entered once
+per store. Leave it blank to use whatever the store already has; leave it blank with nothing there
+and the run stops in its first second rather than producing a report with no code findings in it. It POSTs to `/api/run`, which spawns `pnpm barrel-audit run ...` as a
 real local child process (args passed as an array, never through a shell, so nothing you type
 can inject extra flags) and streams the CLI's own stdout/stderr straight into the page as it
 runs; once it finishes, a "View report" link appears automatically.
@@ -521,9 +541,31 @@ those when its stdout isn't a TTY, i.e. exactly when it's being driven this way,
 `cli/src/commands/run.ts`), and a rotating "did you know?" barrel-history fact
 (`web/lib/barrel-facts.ts`) to make a multi-minute Lighthouse pass less of a staring contest. The
 raw log is still one click away ("Show raw CLI output"), and the plain terminal-style view comes
-back once the run finishes or fails. This only updates live as long as both the browser tab and
-whatever's actually running the CLI (the terminal, or the `serve` agent below) stay open — closing
-either one stops the run.
+back once the run finishes or fails. If it fails, the reason is shown on the failure screen itself,
+not just buried in that log — the CLI fences a failed run's message in `__BARREL_AUDIT_ERROR__`
+markers when its stderr isn't a TTY, alongside the `__BARREL_AUDIT_DONE__<code>__` trailer the page
+already parsed. This only updates live as long as both the browser tab and whatever's actually
+running the CLI (the terminal, or the `serve` agent below) stay open — closing either one stops the
+run.
+
+**Stop audit** (on the progress screen, behind a confirmation, since nothing partial is saved) ends
+the run for real. It works by aborting the request, which both backends treat as "stop", and the
+kill has to reach three things:
+
+- **The process group, not just the child.** `/api/run` spawns `pnpm`, which execs the CLI, so
+  killing the direct child wouldn't even stop the audit. Both backends spawn `detached` and signal
+  the negative pid — SIGTERM, then SIGKILL five seconds later (`killRunTree`, duplicated in
+  `web/app/api/run/route.ts` and `cli/src/commands/serve.ts` because `web/` deploys standalone).
+- **Headless Chrome, which the group kill misses.** chrome-launcher spawns each browser `detached`
+  too, in its own group, reparented to init — verified by watching a Chrome keep running, and keep
+  spawning renderers, a minute after its parent audit was killed. So the CLI installs signal
+  handlers (`cli/src/shutdown.ts`) that call chrome-launcher's `killAll()` — which closes only the
+  browsers that process opened, never yours — before exiting. This is why SIGTERM gets five seconds
+  before SIGKILL: SIGKILL can't run a cleanup handler.
+- **The single-flight lock.** Clearing it has to happen before anything touches the response
+  stream: enqueueing to a controller whose consumer has disconnected throws, which previously threw
+  out of the exit handler before the lock was released — leaving "an audit is already running"
+  stuck for the life of the process.
 
 By itself this only works when the report site is running locally (`pnpm dev` in `web/`) — it
 spawns the CLI on whatever machine is running the Next.js server, and the deployed Vercel site
@@ -557,11 +599,45 @@ Blob. Same single-flight rule as above: one run at a time per agent.
 
 `serve` works from any directory, including a client theme repo with no `package.json` of its
 own — it stores stores/reports under whichever root [`dataRoot()`](cli/src/paths.ts) resolves to
-(this checkout if you're inside one, otherwise `~/.barrel-audit/`, created on first run) and
+(this checkout if you're inside one — matched on the root `package.json` name, so a client repo
+that happens to be a pnpm workspace isn't mistaken for it — otherwise `~/.barrel-audit/`, created
+on first run) and
 re-invokes its own binary for each audit rather than shelling out to `pnpm`. Note that `pnpm
 barrel-audit serve` only works *inside* this checkout: `pnpm <script>` needs a `package.json` in
 the current directory, so from anywhere else drop the `pnpm` and call `barrel-audit serve`
 directly (see [Installing the CLI outside this repo](#installing-the-cli-outside-this-repo)).
+
+## Privacy Compliance
+
+Behavioural cookie-consent testing across every client site at once. It drives each banner for
+real — reject, accept, analytics-only, returning visitor — and asserts that trackers actually stop
+and start, rather than only checking that a banner exists.
+
+```bash
+pnpm barrel-audit consent-scan                      # every active site in sites.yml
+pnpm barrel-audit consent-scan waterloo             # one registry entry, by slug
+pnpm barrel-audit consent-scan https://example.com  # ad hoc, not in the registry
+pnpm barrel-audit consent-scan --inventory          # which CMP is where — fast, presence only
+pnpm barrel-audit consent-scan --seed               # draft sites.yml from stores/
+```
+
+25 tests across 7 suites, run in five fresh incognito browser states plus a Global Privacy Control
+probe. Results land on **/consent** in the dashboard (worst sites first) and, for a single site,
+as a **Privacy Compliance** section in its normal report. The command exits non-zero on any
+blocker-severity failure, so it can gate CI unchanged.
+
+The list of sites to scan lives in `sites.yml` at the repo root — a reviewed file, seeded from
+`stores/` and hand-completed once. A theme repo almost never contains its own production domain,
+so that one pass is unavoidable; `--seed --from-repos` at least lists the repos it couldn't place.
+
+Supported CMPs: Cookiebot, OneTrust, Osano, CookieYes, Shopify Customer Privacy, plus a heuristic
+adapter so an unrecognised banner still gets driven rather than silently dropping out of coverage.
+
+**This reports technical behaviour, not legal compliance.** "Meta Pixel fired before consent" is a
+fact; what it means under a given statute is counsel's call.
+
+Full test plan, result-state semantics, and how to add a CMP adapter or tracker:
+[`docs/consent-qa.md`](docs/consent-qa.md).
 
 ## Baseline & Reporting
 

@@ -307,7 +307,19 @@ export default function InstructionsPage() {
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-3">
             The "+ Run Audit" button on the landing page opens a form — paste a URL, check the
-            boxes for what to include, click "Run audit," and watch it go.
+            boxes for what to include, click "Run audit," and watch it go. Changed your mind, or
+            picked the wrong store? "Stop audit" on the progress screen ends the run on your
+            machine straight away (it asks first, since nothing is saved).
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            If you leave "Theme code &amp; structure" checked, the audit needs the theme's actual
+            source code. Put the folder path in the "Theme code location" box — the folder that
+            contains <span className="font-mono text-[#1A1A1A]">layout/theme.liquid</span>, e.g.{" "}
+            <span className="font-mono text-[#1A1A1A]">/Users/you/code/client-theme</span>. It's
+            remembered for that store, so you only enter it once. If it's left blank and the store
+            has no code saved from before, the run stops immediately and tells you — rather than
+            spending ten minutes and handing back a report that quietly has no code findings in it.
+            Auditing a prospect whose code you don't have? Untick that box.
           </p>
           <p className="text-sm text-[#6B6B6B] mb-3">
             To use this from the hosted version of the site (not just when running it on your

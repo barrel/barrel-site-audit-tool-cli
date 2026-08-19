@@ -12,6 +12,50 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.13",
+    date: "2026-08-19",
+    title: "Privacy Compliance — renamed, and taught the difference between broken and by-design",
+    notes: [
+      "**Consent QA is now Privacy Compliance**, in the report section, the dashboard page and the nav. Same tests, a name that means something to a client. The `/consent` URL is unchanged, so existing links still work.",
+      "**The fleet view is now a table.** One row per site, sorted worst-first, with status, score, blocker count and the failing test IDs as chips you can hover for the detail — built to stay readable at fifty sites rather than four.",
+      "**New: fixes that span more than one site.** Any failure appearing on two or more sites is rolled up with the list of sites and the remediation, because six sites failing the same test is one piece of work, not six.",
+      "**Fixed a false positive that flagged correct implementations.** A Google tag that has been denied consent still calls home — cookieless, carrying `gcs=G100` — precisely to report the denial. The scanner counted that as \"marketing fired after reject\" and raised a blocker on sites doing exactly the right thing. It now reads the Consent Mode state on each request, so a denial is scored as a denial.",
+      "**Fixed Osano banner detection.** Osano keeps a fully-rendered banner hidden in the page under an implied-consent configuration, so the old check reported a banner on sites that prompt nobody — passing the banner test and then failing to explain why nothing could be clicked.",
+      "**\"We could not test this\" no longer looks like \"this failed.\"** Where a CMP reports an implied-consent model, the choice-driven suites are marked not-applicable with the vendor's own jurisdiction quoted, instead of 14 blocked results. Inferred only from the CMP's own configuration — a banner that is merely broken still reads as a coverage gap.",
+      "**Hardened for large fleets.** Every browser state now runs under a hard deadline so one hung page cannot stall a scan, and a failed browser connection can no longer leak a Chrome process per site.",
+    ],
+  },
+  {
+    version: "1.12",
+    date: "2026-08-19",
+    title: "Consent QA — testing whether consent actually works",
+    notes: [
+      "New `consent-scan` command and a **Consent QA** section in every report. It drives the cookie banner for real — reject, accept, analytics-only, returning visitor — each in its own fresh incognito browser, and checks that trackers genuinely stop and start. 25 tests across 7 suites.",
+      "This replaces the only consent check we had, which was a regex looking for the word \"cookiebot\" in the page source. A banner that renders but blocks nothing passed that check; it fails almost everything here.",
+      "The new **Consent QA** page lists every client site, worst first, with the failing test IDs and the actual request URLs behind them. Run `pnpm barrel-audit consent-scan` to populate it.",
+      "It tests that accepting works too, not just that rejecting does. A banner that blocks everything forever looks perfectly compliant and is quietly destroying the client's attribution — that's test D1.",
+      "Findings distinguish \"failed\" from \"blocked\". A site that was down or never showed its banner is reported as untested, never as non-compliant — you can trust a clean result to mean something.",
+      "Blocker-severity failures are automatically re-run once to confirm before being reported, and anything that disagrees between the two runs is marked flaky rather than stated as fact.",
+      "Speaks Cookiebot, OneTrust, Osano, CookieYes and Shopify's Customer Privacy API, preferring each vendor's own JS API over clicking buttons. An unrecognised banner falls back to matching \"Reject\"-style button text, so a newly swapped CMP still gets tested instead of silently dropping out of coverage.",
+      "Which sites get scanned lives in `sites.yml` at the repo root — `consent-scan --seed` drafts it from your existing stores. See docs/consent-qa.md for the full test plan.",
+      "It reports technical behaviour, not legal compliance. \"Meta Pixel fired before consent\" is a fact; what it means under a given law is counsel's call, and the report says so.",
+    ],
+  },
+  {
+    version: "1.11",
+    date: "2026-08-18",
+    title: "Stop audit, and no more silently code-less reports",
+    notes: [
+      "\"Stop audit\" on the run progress screen now genuinely stops the run — it asks to confirm first, then kills the CLI and every headless browser it opened on your machine, and the screen says the run was stopped by you rather than pretending it finished.",
+      "Two bugs behind that: stopping a run started through the local agent never actually stopped anything, and a stopped run left the \"an audit is already running\" lock stuck, refusing every later run until the process was restarted. Both fixed.",
+      "New \"Theme code location\" box on the Run Audit form: point it at a local theme checkout (the folder with layout/theme.liquid) and the audit reviews that code. Saved per store, so you enter it once. Previously the only way to do this from the dashboard was to have already pulled the theme into the tool's own folder — the CLI's \"audit the theme I'm standing in\" shortcut can't work from the dashboard, which is why runs came back with no code findings.",
+      "If \"Theme code & structure\" is checked and there is no code to review, the run now stops in the first second and says exactly how to fix it, instead of running for minutes and returning a report whose theme sections are simply missing — which read as \"nothing to flag\".",
+      "Same check catches pointing at the wrong folder: if the path has no layout/theme.liquid, it says so, and suggests the subfolder if your repo keeps the theme one level down.",
+      "When a run fails, the reason is now shown on the failure screen instead of only inside the collapsed CLI output.",
+      "Fixed the globally-installed CLI mistaking a client repo for the tool's own: any repo with a `pnpm-workspace.yaml` (plenty of Shopify themes have one) was treated as the barrel-site-audit checkout, so it looked for `.env` and `stores/` inside the client repo and stopped with \"BLOB_READ_WRITE_TOKEN is not set\" even though `~/.barrel-audit/.env` had it. It now checks the repo is actually barrel-site-audit.",
+    ],
+  },
+  {
     version: "1.10",
     date: "2026-08-18",
     title: "Run progress takes over the screen",

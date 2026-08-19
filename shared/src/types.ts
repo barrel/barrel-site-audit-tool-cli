@@ -440,6 +440,7 @@ export interface ReportSections {
   agentReadiness?: AgentReadinessSection;
   health?: HealthSection;
   pixels?: PixelSection;
+  consent?: ConsentSection;
   themeStructure?: ThemeStructureSection;
   bestPractices?: BestPracticesSection;
   analytics?: AnalyticsSection;
@@ -458,6 +459,18 @@ export interface AiUsage {
   estimatedCostUsd: number;
 }
 
+/** Where an audit physically ran. Recorded because Lighthouse numbers are a property of the
+ * machine as much as the site: a 4-vCPU sandbox in iad1 and an M-series laptop on office wifi do
+ * not produce comparable scores, and Baseline & Reporting exists to compare a store to itself. */
+export interface RunnerInfo {
+  mode: RunMode;
+  /** Version of @barrel/site-audit-cli that produced the report. */
+  cliVersion?: string;
+  /** Cloud runs only — the sandbox region and size the numbers came off. */
+  region?: string;
+  vcpus?: number;
+}
+
 export interface Report {
   id: string;
   storeSlug: string;
@@ -469,6 +482,8 @@ export interface Report {
   sections: ReportSections;
   /** Claude token usage for the AI-generated executive summary, if one was produced. */
   aiUsage?: AiUsage;
+  /** Absent on reports produced before cloud runs existed — treat those as local. */
+  runner?: RunnerInfo;
 }
 
 export interface ManifestEntry {
@@ -485,6 +500,9 @@ export interface ManifestEntry {
    * blob, Baseline & Reporting history, and direct link all keep working. Set/cleared only
    * from the web app, never touched by the CLI. */
   archived?: boolean;
+  /** Copied from the report so progress/delta views can flag a cross-runner comparison without
+   * fetching every report blob. Absent on entries written before cloud runs existed. */
+  runner?: RunnerInfo;
 }
 
 export interface Manifest {
@@ -505,6 +523,10 @@ export interface StoreConfig {
   githubRepo?: string;
   /** Branch last cloned via `link-repo` — omitted when the repo's default branch was used. */
   githubBranch?: string;
+  /** Path *within* the repo to the Shopify theme root, for repos that keep the theme one level
+   * down (theme/, src/, dist/). Omitted when the theme sits at the repo root. Only a cloud run
+   * needs this recorded: a local run finds the theme root by walking up from where you are. */
+  themeSubdir?: string;
   /** Absolute path to a local git checkout to read theme code from directly, set via
    * `run --local-repo <path>` — an alternative to the managed stores/<slug>/theme/ copy for a
    * dev auditing (and fixing) a repo they already have cloned. When set, "Suggest fix" writes
@@ -515,4 +537,223 @@ export interface StoreConfig {
    * the same scope doesn't have to be re-pasted every time. */
   adaScope?: string;
   notes?: string;
+}
+
+export type RunMode = "local" | "cloud";
+
+export type RunStatus = "queued" | "running" | "succeeded" | "failed" | "stopped";
+
+/** The live status of one audit run, written to Blob by the CLI process actually doing the work —
+ * see runRecordBlobPath(). This, not an open HTTP stream, is what the dashboard follows: a run
+ * survives a closed tab, a reload, and (in cloud mode) the machine that started it going to sleep.
+ * Every field is set by the runner except `sandboxName`/`cmdId`, which only the web app that
+ * created the sandbox knows. */
+export interface RunRecord {
+  runId: string;
+  mode: RunMode;
+  status: RunStatus;
+  storeSlug: string;
+  storeName: string;
+  /** Exactly what was submitted — a slug or a full URL. */
+  target: string;
+  startedAt: string;
+  finishedAt?: string;
+  /** The most recent `onStage` line, i.e. what the run is doing right now. */
+  stage?: string;
+  /** Set once the report has been written to Blob. */
+  reportId?: string;
+  overallScore?: number;
+  /** Failure message, shown as the headline of the failure screen. */
+  error?: string;
+  cliVersion?: string;
+  /** Cloud runs only — how to reach the sandbox again for logs or a stop request. */
+  sandboxName?: string;
+  cmdId?: string;
+}
+
+/** Newest first, capped — the dashboard's "recent runs" list. */
+export interface RunsIndex {
+  runs: RunRecord[];
+}
+
+/** Newest-first list of the stores mirrored to Blob, so the dashboard can offer a store picker
+ * without a local stores/ directory. */
+export interface StoresIndex {
+  stores: Array<{ slug: string; name: string; url: string; updatedAt: string }>;
+}
+
+/* ── Consent QA ─────────────────────────────────────────────────────────────────────────────
+ * Behavioral cookie-consent testing: the banner is actually driven (reject / accept / granular)
+ * and assertions are made on the *difference between states*, not on a snapshot of one page.
+ * Deliberately separate from PixelSection, which answers the much weaker "is a CMP present?".
+ */
+
+export type CmpVendor = "cookiebot" | "onetrust" | "osano" | "cookieyes" | "shopify-native" | "heuristic" | "none";
+
+export type TrackerCategory = "essential" | "analytics" | "marketing" | "preferences";
+
+/** The five browser states each site is driven through, each in its own fresh incognito context. */
+export type ConsentStateId = "clean" | "reject" | "accept" | "granular" | "returning";
+
+/** `blocked` (site down / bot-walled / banner never appeared) is deliberately NOT `fail`.
+ * Conflating "we couldn't test it" with "it failed" is how a compliance report loses its
+ * audience. `skipped` means the CMP genuinely has no such capability. */
+export type ConsentTestStatus = "pass" | "fail" | "blocked" | "skipped" | "flaky";
+
+export type ConsentSuiteId = "A" | "B" | "C" | "D" | "E" | "F" | "G";
+
+/** Separate from the shared `Severity` because consent needs a level above `error`: a blocker
+ * fails the whole run's exit code, which nothing else in the audit does. */
+export type ConsentSeverity = "blocker" | "error" | "warning" | "info";
+
+export interface ConsentCookie {
+  name: string;
+  domain: string;
+  category: TrackerCategory;
+  /** ISO timestamp, or "session" for a session cookie. */
+  expires: string;
+}
+
+/** What a test result is grounded in. A compliance finding without evidence is an accusation,
+ * not a bug report — nobody can act on "consent is broken". */
+export interface ConsentEvidence {
+  cookies?: ConsentCookie[];
+  /** Full URLs of the tracker requests that triggered this result. */
+  requests?: string[];
+  notes?: string[];
+  /** Blob pathname of the banner screenshot for the state this test read from. */
+  screenshotPath?: string;
+}
+
+export interface ConsentTestResult {
+  /** Stable test ID, e.g. "B1" — the contract between the report, the docs and the runbook. */
+  id: string;
+  suite: ConsentSuiteId;
+  title: string;
+  severity: ConsentSeverity;
+  status: ConsentTestStatus;
+  detail: string;
+  recommendation?: string;
+  evidence?: ConsentEvidence;
+}
+
+/** The `gtag('consent', …)` calls recorded by an init script injected *before* navigation —
+ * the only way to see the default, which by definition fires before any tag loads. */
+export interface ConsentModeSignals {
+  default?: Record<string, string>;
+  update?: Record<string, string>;
+}
+
+export interface ShopifyConsentState {
+  analyticsAllowed?: boolean;
+  marketingAllowed?: boolean;
+  preferencesAllowed?: boolean;
+  saleOfDataAllowed?: boolean;
+}
+
+export interface ConsentStateCapture {
+  state: ConsentStateId;
+  reached: boolean;
+  /** Why the state couldn't be reached — set only when `reached` is false. */
+  blockedReason?: string;
+  cookies: ConsentCookie[];
+  /** IDs of trackers that fired in this state. */
+  trackers: string[];
+  requestCount: number;
+  consentMode?: ConsentModeSignals;
+  shopifyConsent?: ShopifyConsentState;
+  screenshotPath?: string;
+}
+
+export interface ConsentTrackerHit {
+  id: string;
+  name: string;
+  category: TrackerCategory;
+  /** Which states this tracker fired in — the raw material for the state × tracker matrix. */
+  firedIn: ConsentStateId[];
+}
+
+export interface ConsentTotals {
+  pass: number;
+  fail: number;
+  blocked: number;
+  skipped: number;
+  flaky: number;
+  /** Failures at `blocker` severity — the ones that drive a non-zero exit code. */
+  blockers: number;
+}
+
+export interface ConsentSection {
+  score: number;
+  cmp: CmpVendor;
+  cmpDetail: string;
+  /** Which region the scan ran from. v1 is always "us"; the field exists so a later EU run is
+   * distinguishable in an archived report rather than silently comparable to a US one. */
+  region: string;
+  states: ConsentStateCapture[];
+  trackers: ConsentTrackerHit[];
+  tests: ConsentTestResult[];
+  totals: ConsentTotals;
+  /** Set when the CMP reports an implied-consent model — no prompt, consent assumed. Carries the
+   * vendor's own wording so the report can say why the choice-driven suites are not applicable
+   * rather than leaving a wall of untested results with no explanation. */
+  impliedConsent?: string;
+}
+
+/* ── Fleet scan ─────────────────────────────────────────────────────────────────────────── */
+
+export type ConsentFleetStatus = "ok" | "issues" | "blocked" | "error";
+
+export interface ConsentFleetRow {
+  slug: string;
+  client: string;
+  url: string;
+  cmp: CmpVendor;
+  status: ConsentFleetStatus;
+  score: number;
+  totals: ConsentTotals;
+  /** Test IDs that failed, e.g. ["B1","C1"] — enough for the fleet table without the full section. */
+  failedIds: string[];
+  /** The failing and flaky results in full, with their evidence. Carried on the row so the fleet
+   * view is actionable on its own: a list of IDs tells you a site is broken but not what to fix,
+   * and passing results are the bulk of the payload while being the part nobody reads. */
+  failedTests: ConsentTestResult[];
+  /** Set when status is "error": the site could not be scanned at all. */
+  error?: string;
+  durationMs: number;
+}
+
+export interface ConsentFleetReport {
+  id: string;
+  createdAt: string;
+  durationMs: number;
+  region: string;
+  rows: ConsentFleetRow[];
+  totals: { sites: number; ok: number; issues: number; blocked: number; errored: number };
+}
+
+/* ── Registry (sites.yml) ───────────────────────────────────────────────────────────────── */
+
+export interface ConsentSiteExpectations {
+  banner?: boolean;
+  /** Whether marketing tags are permitted to fire before any consent choice. Effectively always
+   * false; present so a site with a documented, signed-off exception can record it here. */
+  preConsentMarketing?: boolean;
+  consentModeV2?: boolean;
+}
+
+export interface ConsentSiteEntry {
+  slug: string;
+  client?: string;
+  url: string;
+  repo?: string;
+  cmp?: CmpVendor | "unknown";
+  regions?: string[];
+  expect?: ConsentSiteExpectations;
+  owner?: string;
+  status?: "active" | "paused" | "offboarded";
+}
+
+export interface ConsentRegistry {
+  sites: ConsentSiteEntry[];
 }

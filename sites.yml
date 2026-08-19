@@ -1,0 +1,56 @@
+# Consent QA registry — the reviewable source of truth for `barrel-audit consent-scan`.
+#
+# One entry per production storefront. Only entries with status: active are scanned by default.
+# Seed or refresh candidates with `barrel-audit consent-scan --seed`; it never overwrites an
+# entry that already exists, so hand-edits here always win.
+#
+#   cmp:        cookiebot | onetrust | osano | cookieyes | shopify-native | none | unknown
+#   regions:    us | eu | ca-us   (v1 scans from the US only; the field records intent)
+#   expect:     per-site overrides — set preConsentMarketing: true only for a signed-off exception
+#   status:     active | paused | offboarded
+
+sites:
+  - slug: drink-waterloo-myshopify-com
+    client: drink-waterloo.myshopify.com
+    url: https://drink-waterloo.myshopify.com/
+    cmp: unknown
+    regions:
+      - us
+    status: paused
+    repo: barrel/waterloo
+  - slug: drinkwaterloo-com
+    client: www.drinkwaterloo.com
+    url: https://www.drinkwaterloo.com/
+    cmp: unknown
+    regions:
+      - us
+    status: active
+  - slug: hellocarepodau
+    client: hellocarepodau
+    url: https://hellocarepod.com/
+    cmp: unknown
+    regions:
+      - us
+    status: active
+  - slug: hellotushy-com
+    client: hellotushy.com
+    url: https://hellotushy.com/
+    cmp: unknown
+    regions:
+      - us
+    status: active
+  - slug: sacheu-com
+    client: sacheu.com
+    url: https://sacheu.com/
+    cmp: unknown
+    regions:
+      - us
+    status: active
+  - slug: wamsutta-com
+    client: wamsutta.com
+    url: https://wamsutta.com/
+    cmp: unknown
+    regions:
+      - us
+    status: active
+    repo: barrel/wamsutta

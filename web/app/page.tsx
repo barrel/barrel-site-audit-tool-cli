@@ -37,6 +37,9 @@ export default async function HomePage({
             <Link href="/progress" className="text-sm font-medium text-[#1A1A1A] hover:text-[#6B6B6B]">
               Baseline & Reporting
             </Link>
+            <Link href="/consent" className="text-sm font-medium text-[#1A1A1A] hover:text-[#6B6B6B]">
+              Privacy Compliance
+            </Link>
             <Link
               href="/run"
               className="text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-3.5 py-2 rounded-lg transition-colors"

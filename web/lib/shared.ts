@@ -403,6 +403,7 @@ export interface ReportSections {
   agentReadiness?: AgentReadinessSection;
   health?: HealthSection;
   pixels?: PixelSection;
+  consent?: ConsentSection;
   themeStructure?: ThemeStructureSection;
   bestPractices?: BestPracticesSection;
   analytics?: AnalyticsSection;
@@ -451,6 +452,182 @@ export interface ManifestEntry {
 
 export interface Manifest {
   reports: ManifestEntry[];
+}
+
+/* ── Consent QA ─────────────────────────────────────────────────────────────────────────────
+ * Behavioral cookie-consent testing: the banner is actually driven (reject / accept / granular)
+ * and assertions are made on the *difference between states*, not on a snapshot of one page.
+ * Deliberately separate from PixelSection, which answers the much weaker "is a CMP present?".
+ */
+
+export type CmpVendor = "cookiebot" | "onetrust" | "osano" | "cookieyes" | "shopify-native" | "heuristic" | "none";
+
+export type TrackerCategory = "essential" | "analytics" | "marketing" | "preferences";
+
+/** The five browser states each site is driven through, each in its own fresh incognito context. */
+export type ConsentStateId = "clean" | "reject" | "accept" | "granular" | "returning";
+
+/** `blocked` (site down / bot-walled / banner never appeared) is deliberately NOT `fail`.
+ * Conflating "we couldn't test it" with "it failed" is how a compliance report loses its
+ * audience. `skipped` means the CMP genuinely has no such capability. */
+export type ConsentTestStatus = "pass" | "fail" | "blocked" | "skipped" | "flaky";
+
+export type ConsentSuiteId = "A" | "B" | "C" | "D" | "E" | "F" | "G";
+
+/** Separate from the shared `Severity` because consent needs a level above `error`: a blocker
+ * fails the whole run's exit code, which nothing else in the audit does. */
+export type ConsentSeverity = "blocker" | "error" | "warning" | "info";
+
+export interface ConsentCookie {
+  name: string;
+  domain: string;
+  category: TrackerCategory;
+  /** ISO timestamp, or "session" for a session cookie. */
+  expires: string;
+}
+
+/** What a test result is grounded in. A compliance finding without evidence is an accusation,
+ * not a bug report — nobody can act on "consent is broken". */
+export interface ConsentEvidence {
+  cookies?: ConsentCookie[];
+  /** Full URLs of the tracker requests that triggered this result. */
+  requests?: string[];
+  notes?: string[];
+  /** Blob pathname of the banner screenshot for the state this test read from. */
+  screenshotPath?: string;
+}
+
+export interface ConsentTestResult {
+  /** Stable test ID, e.g. "B1" — the contract between the report, the docs and the runbook. */
+  id: string;
+  suite: ConsentSuiteId;
+  title: string;
+  severity: ConsentSeverity;
+  status: ConsentTestStatus;
+  detail: string;
+  recommendation?: string;
+  evidence?: ConsentEvidence;
+}
+
+/** The `gtag('consent', …)` calls recorded by an init script injected *before* navigation —
+ * the only way to see the default, which by definition fires before any tag loads. */
+export interface ConsentModeSignals {
+  default?: Record<string, string>;
+  update?: Record<string, string>;
+}
+
+export interface ShopifyConsentState {
+  analyticsAllowed?: boolean;
+  marketingAllowed?: boolean;
+  preferencesAllowed?: boolean;
+  saleOfDataAllowed?: boolean;
+}
+
+export interface ConsentStateCapture {
+  state: ConsentStateId;
+  reached: boolean;
+  /** Why the state couldn't be reached — set only when `reached` is false. */
+  blockedReason?: string;
+  cookies: ConsentCookie[];
+  /** IDs of trackers that fired in this state. */
+  trackers: string[];
+  requestCount: number;
+  consentMode?: ConsentModeSignals;
+  shopifyConsent?: ShopifyConsentState;
+  screenshotPath?: string;
+}
+
+export interface ConsentTrackerHit {
+  id: string;
+  name: string;
+  category: TrackerCategory;
+  /** Which states this tracker fired in — the raw material for the state × tracker matrix. */
+  firedIn: ConsentStateId[];
+}
+
+export interface ConsentTotals {
+  pass: number;
+  fail: number;
+  blocked: number;
+  skipped: number;
+  flaky: number;
+  /** Failures at `blocker` severity — the ones that drive a non-zero exit code. */
+  blockers: number;
+}
+
+export interface ConsentSection {
+  score: number;
+  cmp: CmpVendor;
+  cmpDetail: string;
+  /** Which region the scan ran from. v1 is always "us"; the field exists so a later EU run is
+   * distinguishable in an archived report rather than silently comparable to a US one. */
+  region: string;
+  states: ConsentStateCapture[];
+  trackers: ConsentTrackerHit[];
+  tests: ConsentTestResult[];
+  totals: ConsentTotals;
+  /** Set when the CMP reports an implied-consent model — no prompt, consent assumed. Carries the
+   * vendor's own wording so the report can say why the choice-driven suites are not applicable
+   * rather than leaving a wall of untested results with no explanation. */
+  impliedConsent?: string;
+}
+
+/* ── Fleet scan ─────────────────────────────────────────────────────────────────────────── */
+
+export type ConsentFleetStatus = "ok" | "issues" | "blocked" | "error";
+
+export interface ConsentFleetRow {
+  slug: string;
+  client: string;
+  url: string;
+  cmp: CmpVendor;
+  status: ConsentFleetStatus;
+  score: number;
+  totals: ConsentTotals;
+  /** Test IDs that failed, e.g. ["B1","C1"] — enough for the fleet table without the full section. */
+  failedIds: string[];
+  /** The failing and flaky results in full, with their evidence. Carried on the row so the fleet
+   * view is actionable on its own: a list of IDs tells you a site is broken but not what to fix,
+   * and passing results are the bulk of the payload while being the part nobody reads. */
+  failedTests: ConsentTestResult[];
+  /** Set when status is "error": the site could not be scanned at all. */
+  error?: string;
+  durationMs: number;
+}
+
+export interface ConsentFleetReport {
+  id: string;
+  createdAt: string;
+  durationMs: number;
+  region: string;
+  rows: ConsentFleetRow[];
+  totals: { sites: number; ok: number; issues: number; blocked: number; errored: number };
+}
+
+/* ── Registry (sites.yml) ───────────────────────────────────────────────────────────────── */
+
+export interface ConsentSiteExpectations {
+  banner?: boolean;
+  /** Whether marketing tags are permitted to fire before any consent choice. Effectively always
+   * false; present so a site with a documented, signed-off exception can record it here. */
+  preConsentMarketing?: boolean;
+  consentModeV2?: boolean;
+}
+
+export interface ConsentSiteEntry {
+  slug: string;
+  client?: string;
+  url: string;
+  repo?: string;
+  cmp?: CmpVendor | "unknown";
+  regions?: string[];
+  expect?: ConsentSiteExpectations;
+  owner?: string;
+  status?: "active" | "paused" | "offboarded";
+}
+
+export interface ConsentRegistry {
+  sites: ConsentSiteEntry[];
 }
 
 export type Grade = "A" | "B" | "C" | "D" | "F";

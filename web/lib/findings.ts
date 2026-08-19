@@ -1,4 +1,4 @@
-import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity } from "./shared";
+import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsentSection, ConsentTestResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity } from "./shared";
 import { stripMarkdownLinks, extractMarkdownLinkUrl } from "./format";
 
 export type FindingSeverity = "critical" | "high" | "medium" | "low" | "good";
@@ -224,6 +224,30 @@ export function pixelToFindings(findings: PixelFinding[]): Finding[] {
     scope: "Site-wide",
     recommendation: f.recommendation,
   }));
+}
+
+/** Consent test failures, so they reach the Prioritized Roadmap and Dev To-Do rather than
+ * living only inside their own section. Passes and skips are omitted — a roadmap is a list of
+ * work, and a `blocked` result is a coverage gap to re-run, not a fix to assign. */
+export function consentToFindings(section: ConsentSection): Finding[] {
+  const rank: Record<ConsentTestResult["severity"], FindingSeverity> = {
+    blocker: "critical",
+    error: "high",
+    warning: "medium",
+    info: "low",
+  };
+  return section.tests
+    .filter((t) => t.status === "fail" || t.status === "flaky")
+    .map((t) => ({
+      id: `consent-${t.id}`,
+      title: `${t.id} · ${t.title}`,
+      // A flaky result is never critical: we could not reproduce it, and putting an unconfirmed
+      // finding at the top of a client roadmap is how the roadmap stops being believed.
+      severity: t.status === "flaky" ? "medium" : rank[t.severity],
+      description: t.detail,
+      scope: "Site-wide",
+      recommendation: t.recommendation,
+    }));
 }
 
 const SEVERITY_RANK: Record<FindingSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3, good: 4 };
