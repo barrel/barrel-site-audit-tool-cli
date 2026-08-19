@@ -258,7 +258,7 @@ function errorRow(site: ConsentSiteEntry, error: string, durationMs: number): Co
     url: site.url,
     cmp: "none",
     status: "error",
-    score: 0,
+    score: null,
     totals: { pass: 0, fail: 0, blocked: 0, skipped: 0, flaky: 0, blockers: 0 },
     failedIds: [],
     failedTests: [],

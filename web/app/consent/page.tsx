@@ -199,7 +199,18 @@ export default async function PrivacyCompliancePage({ searchParams }: { searchPa
                               {style.label}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right font-semibold tabular-nums text-[#1A1A1A]">{row.score}</td>
+                          <td className="px-4 py-3 text-right font-semibold tabular-nums text-[#1A1A1A]">
+                            {row.score === null ? (
+                              <span
+                                className="text-[#9A9A9A] font-normal text-xs"
+                                title="Too little was confirmed to score — a number here would rate the site rather than the coverage."
+                              >
+                                n/s
+                              </span>
+                            ) : (
+                              row.score
+                            )}
+                          </td>
                           <td
                             className="px-4 py-3 text-right font-semibold tabular-nums"
                             style={{ color: row.totals.blockers > 0 ? "#B91C1C" : "#9A9A9A" }}
@@ -292,7 +303,9 @@ export default async function PrivacyCompliancePage({ searchParams }: { searchPa
               Reports observed technical behaviour, not legal compliance. Scanned from the{" "}
               {report.region.toUpperCase()} region only. A <strong>blocked</strong> site was not proven either way — it is a
               gap in coverage to re-run, not a finding. Results marked <strong>n/a</strong> are tests the site&apos;s consent
-              model makes inapplicable.
+              model makes inapplicable. A score of <strong>n/s</strong> means too little was confirmed to score at all.
+              Scores are a weighted proportion of the tests that applied and were confirmed, so a site with a confirmed
+              blocker-severity failure always falls below 50.
             </p>
           </>
         )}

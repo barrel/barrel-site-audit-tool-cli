@@ -12,6 +12,19 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.16",
+    date: "2026-08-19",
+    title: "Privacy Compliance — a score that actually ranks anything",
+    notes: [
+      "**Every site was scoring 0.** The old score subtracted a flat penalty from 100 with a blocker costing 35, so three blockers floored a site at zero — and most storefronts have three. A site passing nineteen tests and one passing two were indistinguishable. Across a 23-site fleet, 21 scored exactly 0.",
+      "The score is now a **weighted proportion of the tests that applied and were confirmed**. A site showing no banner has fourteen inapplicable tests, and judging it out of a fixed 100 marked it down for questions that were never asked.",
+      "**Unknown is not half-good.** Flaky and blocked results are excluded from both sides of the ratio instead of earning partial credit. Modelling this against the real fleet caught the alternative red-handed: crediting them put the one site we had entirely failed to load at the *top* of the ranking.",
+      "**A confirmed blocker always shows.** Any blocker-severity failure scales the result into the bottom half, so \"leaks data after opt-out\" can never present as a passing grade — while still separating one blocker from four.",
+      "**Sites with too little confirmed are marked `n/s`, not 0.** A number there rates the site when it should rate the coverage. Those sites are also skipped in the overall report score rather than counted as a zero.",
+      "On the same fleet the range is now 1–40 with sensible ordering: Waterloo 34, Wamsutta 11, Pavise 1, and the two sites nobody could test marked not-scored.",
+    ],
+  },
+  {
     version: "1.15",
     date: "2026-08-19",
     title: "Privacy Compliance — separating \"the script loaded\" from \"data was sent\"",

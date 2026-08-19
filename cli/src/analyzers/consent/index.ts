@@ -36,9 +36,14 @@ export interface AnalyzeConsentOptions {
   budgetMs?: number;
 }
 
-const PENALTY: Record<string, number> = { blocker: 35, error: 15, warning: 5, info: 2 };
-/** A flaky result is a partial signal — it costs something, but far less than a confirmed fail. */
-const FLAKY_PENALTY = 8;
+/** Relative weight of each severity when scoring. A blocker is worth ten warnings because the
+ * things it covers — data transmitted after an opt-out — are the only findings that carry real
+ * consequence; a missing "Do Not Sell" link should never move the number much. */
+const WEIGHT: Record<string, number> = { blocker: 10, error: 4, warning: 1, info: 0.5 };
+
+/** Below this many confirmed results there is nothing worth scoring, and a number would be read
+ * as a verdict on the site rather than on how little we managed to test. */
+const MIN_CONFIRMED = 5;
 
 export async function analyzeConsent(url: string, options: AnalyzeConsentOptions = {}): Promise<ConsentSection> {
   const region = options.region ?? "us";
@@ -182,17 +187,35 @@ function tally(tests: ConsentTestResult[]): ConsentTotals {
   return totals;
 }
 
-function scoreOf(tests: ConsentTestResult[], engine: EngineResult): number {
-  if (engine.fatalError) return 0;
-  const evaluated = tests.filter((t) => t.status === "pass" || t.status === "fail" || t.status === "flaky");
-  // Nothing actually got tested — a 100 here would read as "compliant" when it means "unknown".
-  if (evaluated.length === 0) return 0;
-  const penalty = tests.reduce((sum, t) => {
-    if (t.status === "fail") return sum + (PENALTY[t.severity] ?? 5);
-    if (t.status === "flaky") return sum + FLAKY_PENALTY;
-    return sum;
-  }, 0);
-  return Math.max(0, 100 - penalty);
+/** A weighted proportion of what was actually confirmed, or null when too little was.
+ *
+ * The previous scoring subtracted a flat penalty from 100, with a blocker costing 35. Three
+ * blockers therefore floored any site at zero — and since most storefronts have three, the score
+ * was zero almost everywhere and ranked nothing. A site passing nineteen tests and one passing two
+ * were indistinguishable.
+ *
+ * Three properties this needs and that one lacked:
+ *
+ * - **Proportional to what applied.** A site that shows no banner has fourteen inapplicable tests;
+ *   judging it out of a fixed 100 marks it down for questions that were never asked.
+ * - **Unknown is not half-good.** Flaky and blocked results are excluded from both sides of the
+ *   ratio rather than given partial credit. Modelled against a real fleet, crediting them put the
+ *   one site we had entirely failed to test at the top of the ranking.
+ * - **A blocker is always visible.** Any confirmed blocker-severity failure scales the result into
+ *   the bottom half, so "leaks data after opt-out" can never present as a passing grade — while
+ *   still separating one blocker from four. */
+function scoreOf(tests: ConsentTestResult[], engine: EngineResult): number | null {
+  if (engine.fatalError) return null;
+  const confirmed = tests.filter((t) => t.status === "pass" || t.status === "fail");
+  if (confirmed.length < MIN_CONFIRMED) return null;
+
+  const possible = confirmed.reduce((sum, t) => sum + (WEIGHT[t.severity] ?? 1), 0);
+  if (possible === 0) return null;
+  const earned = confirmed.reduce((sum, t) => sum + (t.status === "pass" ? (WEIGHT[t.severity] ?? 1) : 0), 0);
+
+  const raw = (100 * earned) / possible;
+  const hasBlocker = confirmed.some((t) => t.severity === "blocker" && t.status === "fail");
+  return Math.round(hasBlocker ? raw * 0.49 : raw);
 }
 
 /** HEAD first, falling back to GET: a surprising number of storefront policy pages reject HEAD

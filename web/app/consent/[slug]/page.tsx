@@ -192,7 +192,7 @@ export default async function ConsentSiteReport({
               ["Consent platform", detail?.cmpDetail ?? row.cmp],
               ["Region", report.region.toUpperCase()],
               ["Scanned", formatDate(report.createdAt)],
-              ["Score", String(row.score)],
+              ["Score", row.score === null ? "Not scored" : String(row.score)],
               ["Blockers", String(row.totals.blockers)],
             ].map(([label, value]) => (
               <div key={label}>

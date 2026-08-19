@@ -291,7 +291,9 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
   if (sections.sitespeed) scores.push(sections.sitespeed.score);
   if (sections.health) scores.push(sections.health.score);
   if (sections.pixels) scores.push(sections.pixels.score);
-  if (sections.consent) scores.push(sections.consent.score);
+  // Skipped rather than counted as zero: a section we could not test should not drag the overall
+  // score down as if it had failed.
+  if (sections.consent && sections.consent.score !== null) scores.push(sections.consent.score);
   if (sections.geoSeo) scores.push(sections.geoSeo.healthRating);
   if (sections.agentReadiness) scores.push(sections.agentReadiness.score);
   if (sections.ux) scores.push(sections.ux.score);

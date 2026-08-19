@@ -556,7 +556,9 @@ export interface ConsentTotals {
 }
 
 export interface ConsentSection {
-  score: number;
+  /** Null when too little was confirmed to score honestly — a number would read as a verdict on
+   * the site rather than on how little could be tested. */
+  score: number | null;
   cmp: CmpVendor;
   cmpDetail: string;
   /** Which region the scan ran from. v1 is always "us"; the field exists so a later EU run is
@@ -582,7 +584,8 @@ export interface ConsentFleetRow {
   url: string;
   cmp: CmpVendor;
   status: ConsentFleetStatus;
-  score: number;
+  /** Null when too little was confirmed to score — see ConsentSection.score. */
+  score: number | null;
   totals: ConsentTotals;
   /** Test IDs that failed, e.g. ["B1","C1"] — enough for the fleet table without the full section. */
   failedIds: string[];

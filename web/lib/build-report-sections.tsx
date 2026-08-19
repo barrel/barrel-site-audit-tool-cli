@@ -944,7 +944,7 @@ export function buildReportSections(report: Report): SectionDef[] {
       label: "Privacy Compliance",
       category: "theme",
       render: (n) => (
-        <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={<GradePill score={consent.score} />}>
+        <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={consent.score === null ? undefined : <GradePill score={consent.score} />}>
           <ConsentAudit section={consent} />
         </ReportSection>
       ),
