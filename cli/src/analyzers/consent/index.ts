@@ -55,8 +55,8 @@ export async function analyzeConsent(url: string, options: AnalyzeConsentOptions
   const policyLinkStatus = await checkPolicyLink(engine);
   let tests = runTests({ engine, expect, region, policyLinkStatus });
 
-  if (options.retryOnBlocker !== false && tests.some((t) => t.severity === "blocker" && t.status === "fail")) {
-    stage?.("Consent: confirming blocker findings (second pass)");
+  if (options.retryOnBlocker !== false && needsConfirmation(tests)) {
+    stage?.("Consent: confirming findings (second pass)");
     const second = await runConsentEngine(url, {
       expectedCmp: options.expectedCmp,
       onStage: undefined,
@@ -86,6 +86,22 @@ export async function analyzeConsent(url: string, options: AnalyzeConsentOptions
     totals,
     impliedConsent: engine.optOutModel ? engine.optOutReason : undefined,
   };
+}
+
+/** The tests worth paying a second full scan to be sure about.
+ *
+ * A blocker that failed is one of them, and always was. The addition is a blocker that *passed*
+ * on the reject and analytics-only states — because "nothing was transmitted after the visitor
+ * opted out" is a negative claim, and one observation is thin evidence for a negative. A tag that
+ * fires on nine loads in ten produces a clean pass on the tenth, and a report that says consent
+ * is working when it intermittently isn't is the most damaging error this scan can make: every
+ * other mistake is visible in the evidence, and this one looks exactly like success.
+ *
+ * Scoped to sites where a choice could actually be driven, so the sites that show no banner —
+ * the majority — never pay for it. */
+function needsConfirmation(tests: ConsentTestResult[]): boolean {
+  if (tests.some((t) => t.severity === "blocker" && t.status === "fail")) return true;
+  return tests.some((t) => (t.id === "C1" || t.id === "F2") && t.status === "pass");
 }
 
 /** Where the two passes disagree, the honest answer is neither verdict. */

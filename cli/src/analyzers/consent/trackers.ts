@@ -11,6 +11,13 @@ export interface TrackerSignature {
   name: string;
   category: TrackerCategory;
   pattern: RegExp;
+  /** Paths that are this vendor's plumbing rather than measurement — fetching a web font, or
+   * asking for the geo-IP that decides which signup form to render.
+   *
+   * Narrow by design, and an allowlist of the known-innocuous rather than of the known-tracking:
+   * an endpoint nobody has catalogued still counts as a transmission, so the failure mode is a
+   * finding that can be checked against its evidence rather than one that is never raised. */
+  infrastructure?: RegExp;
 }
 
 export const TRACKERS: TrackerSignature[] = [
@@ -28,7 +35,15 @@ export const TRACKERS: TrackerSignature[] = [
   { id: "rakuten", name: "Rakuten", category: "marketing", pattern: /linksynergy\.com|rakutenmarketing\.com/i },
   { id: "impact", name: "Impact", category: "marketing", pattern: /impactradius-event\.com|impact\.com/i },
   { id: "attentive", name: "Attentive", category: "marketing", pattern: /attentivemobile\.com|attn\.tv/i },
-  { id: "klaviyo", name: "Klaviyo", category: "marketing", pattern: /klaviyo\.com|static\.klaviyo\.com/i },
+  {
+    id: "klaviyo",
+    name: "Klaviyo",
+    category: "marketing",
+    pattern: /klaviyo\.com|static\.klaviyo\.com/i,
+    // Fonts, form definitions and the geo-IP lookup that picks one. Klaviyo's actual measurement
+    // lives at /onsite/track-analytics, /client/events and /api/track, none of which match here.
+    infrastructure: /\/custom-fonts\/|\/forms\/api\/|\/onsite\/js\/|\/media\/js\//i,
+  },
 
   // ── Analytics ────────────────────────────────────────────────────────────────────────────
   { id: "ga4", name: "Google Analytics 4", category: "analytics", pattern: /google-analytics\.com\/(g|j)\/collect|googletagmanager\.com\/gtag\/js/i },
@@ -106,6 +121,66 @@ export function isConsentDeniedPing(url: string, category: TrackerCategory): boo
   return false;
 }
 
+/** Static assets a vendor serves: its own library, plus the fonts and images that come with it. */
+const ASSET_PATH = /\.(js|mjs|cjs|css|map|woff2?|ttf|eot|png|jpe?g|gif|svg|webp|ico|html?)$/i;
+
+/** Endpoints that are unambiguously a measurement beacon even though the path looks static. */
+const KNOWN_BEACONS = /\/(collect|tr|pixel|track|action\/[0-9]|ccm\/|rmkt\/|pagead\/(conversion|1p-user-list)|v3\/|user\/)/i;
+
+export type RequestKind = "script" | "transmission";
+
+/** Fetching a vendor's library, or telling that vendor about this visitor?
+ *
+ * These are different claims and only one of them is what a consent choice is about. Downloading
+ * `fbevents.js` discloses an IP and a referrer; `facebook.com/tr?id=…&ev=PageView` sends Meta an
+ * identified event. Reporting both as "the pixel fired" hands a client's developer a finding they
+ * can correctly dismiss — and once one blocker is dismissed, the real ones go with it.
+ *
+ * Judged on the path rather than a per-vendor allowlist so an endpoint nobody has catalogued yet
+ * is treated as a transmission. Erring toward "this transmitted" is the safe direction: it can be
+ * checked against the quoted evidence, whereas a missed transmission is invisible. */
+export function classifyRequest(url: string, signature?: TrackerSignature): RequestKind {
+  let path: string;
+  try {
+    path = new URL(url).pathname;
+  } catch {
+    return "transmission";
+  }
+  // The file extension is checked first and wins. `analytics.tiktok.com/i18n/pixel/events.js`
+  // contains "pixel" and is still just a script download — letting a path segment outrank the
+  // extension reported the library fetch as an identified event.
+  if (ASSET_PATH.test(path)) return "script";
+  if (signature?.infrastructure?.test(path)) return "script";
+  if (KNOWN_BEACONS.test(path)) return "transmission";
+  return "transmission";
+}
+
+/** The query parameters that make a request evidence rather than an assertion.
+ *
+ * A finding that says "Meta Pixel transmitted after the visitor opted out" is worth exactly as
+ * much as the reader's ability to verify it. Naming the pixel ID and the event lets them do that
+ * without trusting us. Deliberately a fixed allowlist of well-known, non-personal fields — the
+ * point is to identify the transmission, not to capture whatever the page happened to send. */
+const IDENTIFYING_PARAMS = [
+  "id", "tid", "ev", "en", "event", "pid", "cid", "aid", "gcs", "npa", "us_privacy", "gdpr",
+  "gdpr_consent", "dl", "t", "ti",
+];
+
+export function describeTransmission(url: string): string {
+  try {
+    const parsed = new URL(url);
+    const parts: string[] = [];
+    for (const key of IDENTIFYING_PARAMS) {
+      const value = parsed.searchParams.get(key);
+      if (value) parts.push(`${key}=${value.slice(0, 60)}`);
+    }
+    const where = `${parsed.host}${parsed.pathname}`;
+    return parts.length > 0 ? `${where} (${parts.join(", ")})` : where;
+  } catch {
+    return url.slice(0, 120);
+  }
+}
+
 /** Which trackers actually fired, judged per request rather than against one joined haystack.
  *
  * Per-request matching is what makes the denial check above possible at all: a tag that sends ten
@@ -121,6 +196,42 @@ export function matchTrackers(urls: string[]): TrackerSignature[] {
     }
   }
   return TRACKERS.filter((t) => fired.has(t.id));
+}
+
+/** Trackers that sent this vendor data about the visitor — script loads excluded.
+ *
+ * This is what every blocker-severity assertion reads. `matchTrackers` stays as it is, because
+ * "is this vendor present on the page at all" is still a question worth answering. */
+export function matchTransmissions(urls: string[]): TrackerSignature[] {
+  const fired = new Set<string>();
+  for (const url of urls) {
+    for (const t of TRACKERS) {
+      if (fired.has(t.id) || !t.pattern.test(url)) continue;
+      if (classifyRequest(url, t) !== "transmission") continue;
+      if (isConsentDeniedPing(url, t.category)) continue;
+      fired.add(t.id);
+    }
+  }
+  return TRACKERS.filter((t) => fired.has(t.id));
+}
+
+/** Trackers whose library was fetched without any data being sent. */
+export function matchScriptLoads(urls: string[]): TrackerSignature[] {
+  const transmitted = new Set(matchTransmissions(urls).map((t) => t.id));
+  const loaded = new Set<string>();
+  for (const url of urls) {
+    for (const t of TRACKERS) {
+      if (loaded.has(t.id) || transmitted.has(t.id) || !t.pattern.test(url)) continue;
+      if (classifyRequest(url, t) === "script") loaded.add(t.id);
+    }
+  }
+  return TRACKERS.filter((t) => loaded.has(t.id));
+}
+
+/** Whether this specific URL is a transmission for the tracker that matched it. Used by the
+ * evidence renderer so a quoted URL always supports the sentence above it. */
+export function isTransmissionFor(url: string, t: TrackerSignature): boolean {
+  return classifyRequest(url, t) === "transmission" && !isConsentDeniedPing(url, t.category);
 }
 
 export function trackersInCategory(ids: string[], category: TrackerCategory): TrackerSignature[] {

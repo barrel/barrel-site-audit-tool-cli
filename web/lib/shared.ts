@@ -590,6 +590,12 @@ export interface ConsentFleetRow {
    * view is actionable on its own: a list of IDs tells you a site is broken but not what to fix,
    * and passing results are the bulk of the payload while being the part nobody reads. */
   failedTests: ConsentTestResult[];
+  /** Every result, including the passes — what the fleet view's per-site detail reads.
+   *
+   * Evidence is stripped from anything that isn't a failure: it is the bulk of the payload, and
+   * a screenshot proving a test passed is not something anyone opens. Optional because scans
+   * archived before this field existed still have to render. */
+  tests?: ConsentTestResult[];
   /** Set when status is "error": the site could not be scanned at all. */
   error?: string;
   durationMs: number;

@@ -9,7 +9,7 @@ import type {
   ConsentTestStatus,
 } from "@barrel/site-audit-shared";
 import type { EngineResult, RawStateCapture } from "./engine.js";
-import { isConsentDeniedPing, trackerById } from "./trackers.js";
+import { describeTransmission, isConsentDeniedPing, isTransmissionFor, trackerById } from "./trackers.js";
 
 export interface TestContext {
   engine: EngineResult;
@@ -77,6 +77,34 @@ function urlsFor(ids: string[], urls: string[]): string[] {
     // fire: quoting one under "this tag fired after reject" hands the reader a URL that, read
     // closely, says the opposite.
     .filter((u) => sigs.some((s) => s.pattern.test(u) && !isConsentDeniedPing(u, s.category)))
+    .slice(0, 10);
+}
+
+/** Cookies Shopify sets itself, rather than a third-party tag setting them.
+ *
+ * They are still marketing/analytics cookies dropped before a choice, so they are still reported.
+ * What differs is the remedy: there is no script tag to block, because Shopify writes these and
+ * gates them through its own Customer Privacy API. Listing them beside `_fbp` under "block these
+ * tags" prescribes a fix that cannot be applied, which is how a report earns the reputation of
+ * not knowing the platform it is auditing. */
+const SHOPIFY_OWNED = /^_shopify_/i;
+
+function splitByOwner(cookies: ConsentCookie[]): { shopify: ConsentCookie[]; thirdParty: ConsentCookie[] } {
+  return {
+    shopify: cookies.filter((c) => SHOPIFY_OWNED.test(c.name)),
+    thirdParty: cookies.filter((c) => !SHOPIFY_OWNED.test(c.name)),
+  };
+}
+
+/** Evidence for a transmission finding: the endpoint plus the parameters that identify it.
+ *
+ * A reader has to be able to check the claim without trusting us, and a bare URL buried in a
+ * hundred query parameters does not let them. `pixel id, event name` does. */
+function transmissionEvidence(ids: string[], urls: string[]): string[] {
+  const sigs = ids.map((id) => trackerById(id)).filter((s): s is NonNullable<typeof s> => Boolean(s));
+  return urls
+    .filter((u) => sigs.some((s) => s.pattern.test(u) && isTransmissionFor(u, s)))
+    .map(describeTransmission)
     .slice(0, 10);
 }
 
@@ -208,13 +236,22 @@ const B1: TestDef = {
     if (ctx.expect.preConsentMarketing === true) return skip("sites.yml records a signed-off exception for pre-consent marketing.");
     return requireState(ctx, "clean", (s) => {
       const hits = s.cookies.filter((c) => c.category === "marketing");
-      return hits.length === 0
-        ? ok("No marketing cookies were set before a consent choice.")
-        : bad(
-            `${hits.length} marketing cookie(s) set before any consent choice: ${cookieNames(hits)}.`,
-            "Block these tags until consent is granted — via the CMP's script blocking, or by moving the tag into Shopify Customer Events.",
-            { cookies: hits },
-          );
+      if (hits.length === 0) return ok("No marketing cookies were set before a consent choice.");
+      const { shopify, thirdParty } = splitByOwner(hits);
+      const detail =
+        thirdParty.length > 0 && shopify.length > 0
+          ? `${thirdParty.length} third-party marketing cookie(s) set before any consent choice: ${cookieNames(thirdParty)}. Shopify also set ${cookieNames(shopify)} itself.`
+          : thirdParty.length > 0
+            ? `${thirdParty.length} marketing cookie(s) set before any consent choice: ${cookieNames(thirdParty)}.`
+            : `${shopify.length} Shopify-set marketing cookie(s) before any consent choice: ${cookieNames(shopify)}.`;
+      const fix =
+        thirdParty.length > 0
+          ? "Block these tags until consent is granted — via the CMP's script blocking, or by moving the tag into Shopify Customer Events." +
+            (shopify.length > 0
+              ? " The `_shopify_*` cookies are set by Shopify itself and have no script tag to block; they stop when the CMP is wired to Shopify's Customer Privacy API (see C4)."
+              : "")
+          : "These are set by Shopify itself, not by a third-party tag, so there is nothing to block. Wire the CMP to Shopify's Customer Privacy API so Shopify gates them (see C4).";
+      return bad(detail, fix, { cookies: hits });
     });
   },
 };
@@ -222,18 +259,18 @@ const B1: TestDef = {
 const B2: TestDef = {
   id: "B2",
   suite: "B",
-  title: "No marketing network calls before any interaction",
+  title: "No marketing data transmitted before any interaction",
   severity: "blocker",
   run(ctx) {
     if (ctx.expect.preConsentMarketing === true) return skip("sites.yml records a signed-off exception for pre-consent marketing.");
     return requireState(ctx, "clean", (s) => {
-      const hits = marketingIn(s.trackersPre);
+      const hits = marketingIn(s.transmissionsPre);
       return hits.length === 0
-        ? ok("No marketing tags fired before a consent choice.")
+        ? ok("No marketing tag transmitted anything before a consent choice.")
         : bad(
-            `${names(hits)} fired before any consent choice was made.`,
-            "Gate these tags behind the CMP. Under GDPR and CPRA the request itself is the disclosure — blocking the cookie but still calling the endpoint is not sufficient.",
-            { requests: urlsFor(hits, s.requestsPre) },
+            `${names(hits)} transmitted visitor data before any consent choice was made.`,
+            "Gate these tags behind the CMP so no request carrying visitor data is made until consent is granted — via the CMP's script blocking, or by moving the tag into Shopify Customer Events.",
+            { requests: transmissionEvidence(hits, s.requestsPre) },
           );
     });
   },
@@ -247,15 +284,19 @@ const B3: TestDef = {
   run(ctx) {
     return requireState(ctx, "clean", (s) => {
       const cookies = s.cookies.filter((c) => c.category === "analytics");
-      const tags = analyticsIn(s.trackersPre);
+      const tags = analyticsIn(s.transmissionsPre);
       if (cookies.length === 0 && tags.length === 0) return ok("No analytics activity before a consent choice.");
       const parts: string[] = [];
       if (tags.length) parts.push(`${names(tags)} fired`);
       if (cookies.length) parts.push(`${cookies.length} analytics cookie(s) set (${cookieNames(cookies)})`);
+      const { shopify } = splitByOwner(cookies);
       return bad(
         `${parts.join("; ")} before any consent choice.`,
-        "Set Google Consent Mode defaults to denied and let the CMP grant analytics_storage on acceptance, so GA4 runs in cookieless ping mode until then.",
-        { cookies, requests: urlsFor(tags, s.requestsPre) },
+        "Set Google Consent Mode defaults to denied and let the CMP grant analytics_storage on acceptance, so GA4 runs in cookieless ping mode until then." +
+          (shopify.length > 0
+            ? ` The ${cookieNames(shopify)} cookie(s) are Shopify's own and are gated by its Customer Privacy API rather than by a script tag (see C4).`
+            : ""),
+        { cookies, requests: transmissionEvidence(tags, s.requestsPre) },
       );
     });
   },
@@ -288,22 +329,42 @@ const B4: TestDef = {
   },
 };
 
+const B5: TestDef = {
+  id: "B5",
+  suite: "B",
+  title: "No marketing vendor's script is loaded before any interaction",
+  severity: "warning",
+  run(ctx) {
+    if (ctx.expect.preConsentMarketing === true) return skip("sites.yml records a signed-off exception for pre-consent marketing.");
+    return requireState(ctx, "clean", (s) => {
+      const hits = marketingIn(s.scriptLoadsPre);
+      return hits.length === 0
+        ? ok("No marketing vendor's script was fetched before a consent choice.")
+        : bad(
+            `${names(hits)} had its script fetched before any consent choice, though no visitor data was sent.`,
+            "Weaker than a transmission and reported separately for that reason: fetching the script discloses the visitor's IP address and the page they were on to the vendor, which some readings of GDPR treat as a transfer in itself. If that reading matters for this site's audience, block the script tag until consent is granted rather than only the events.",
+            { requests: urlsFor(hits, s.requestsPre) },
+          );
+    });
+  },
+};
+
 /* ── Suite C · Reject ────────────────────────────────────────────────────────────────────── */
 
 const C1: TestDef = {
   id: "C1",
   suite: "C",
-  title: "Marketing trackers do not fire after reject",
+  title: "No marketing data is transmitted after reject",
   severity: "blocker",
   run(ctx) {
     return requireState(ctx, "reject", (s) => {
-      const hits = marketingIn(s.trackersPost);
+      const hits = marketingIn(s.transmissionsPost);
       return hits.length === 0
-        ? ok("No marketing tags fired after rejecting.")
+        ? ok("No marketing tag transmitted anything after the visitor rejected.")
         : bad(
-            `${names(hits)} fired even after the visitor rejected consent.`,
+            `${names(hits)} transmitted visitor data even after the visitor rejected consent.`,
             "This is the core failure this scan exists to find. Check that these tags are registered with the CMP's blocking mechanism — a tag injected by an app or hardcoded in theme.liquid is invisible to a CMP that only rewrites script tags it knows about.",
-            { requests: urlsFor(hits, s.requestsPost) },
+            { requests: transmissionEvidence(hits, s.requestsPost) },
           );
     });
   },
@@ -372,6 +433,25 @@ const C4: TestDef = {
   },
 };
 
+const C5: TestDef = {
+  id: "C5",
+  suite: "C",
+  title: "No marketing vendor's script is loaded after reject",
+  severity: "warning",
+  run(ctx) {
+    return requireState(ctx, "reject", (s) => {
+      const hits = marketingIn(s.scriptLoadsPost);
+      return hits.length === 0
+        ? ok("No marketing vendor's script was fetched after rejecting.")
+        : bad(
+            `${names(hits)} had its script fetched after the visitor rejected, though no visitor data was sent.`,
+            "No event data left the browser, so this is not the same failure as C1. It still means the vendor was told the visitor's IP and the page they were on after they opted out — worth closing if this site serves an audience where that reading applies.",
+            { requests: urlsFor(hits, s.requestsPost) },
+          );
+    });
+  },
+};
+
 /* ── Suite D · Accept ────────────────────────────────────────────────────────────────────── */
 
 const D1: TestDef = {
@@ -390,7 +470,7 @@ const D1: TestDef = {
       });
       if (gateable.length === 0) return skip("No marketing or analytics tags were observed on this storefront at all.");
 
-      const fired = [...marketingIn(s.trackersPost), ...analyticsIn(s.trackersPost)];
+      const fired = [...marketingIn(s.transmissionsPost), ...analyticsIn(s.transmissionsPost)];
       return fired.length > 0
         ? ok(`${names(fired)} fired after accepting, so consent is being honoured in both directions.`)
         : bad(
@@ -536,9 +616,9 @@ const F1: TestDef = {
     return requireState(ctx, "granular", (s) => {
       const anywhere = new Set(ctx.engine.states.flatMap((st) => [...st.trackersPre, ...st.trackersPost]));
       if (analyticsIn([...anywhere]).length === 0) return skip("No analytics tags exist on this storefront to grant.");
-      const fired = analyticsIn(s.trackersPost);
+      const fired = analyticsIn(s.transmissionsPost);
       return fired.length > 0
-        ? ok(`${names(fired)} fired under an analytics-only choice, as expected.`)
+        ? ok(`${names(fired)} transmitted under an analytics-only choice, as expected.`)
         : bad(
             "Granting analytics only did not release any analytics tag.",
             "The CMP's analytics category is probably not mapped to these tags — check the category assignment in the vendor dashboard.",
@@ -554,7 +634,7 @@ const F2: TestDef = {
   severity: "error",
   run(ctx) {
     return requireState(ctx, "granular", (s) => {
-      const leaked = marketingIn(s.trackersPost);
+      const leaked = marketingIn(s.transmissionsPost);
       return leaked.length === 0
         ? ok("No marketing tags fired under an analytics-only choice.")
         : bad(
@@ -644,7 +724,7 @@ const G4: TestDef = {
   },
 };
 
-export const TEST_DEFS: TestDef[] = [A1, A2, A3, A4, B1, B2, B3, B4, C1, C2, C3, C4, D1, D2, D3, E1, E2, E3, E4, F1, F2, G1, G2, G3, G4];
+export const TEST_DEFS: TestDef[] = [A1, A2, A3, A4, B1, B2, B3, B4, B5, C1, C2, C3, C4, C5, D1, D2, D3, E1, E2, E3, E4, F1, F2, G1, G2, G3, G4];
 
 export const SUITE_NAMES: Record<ConsentSuiteId, string> = {
   A: "Presence",

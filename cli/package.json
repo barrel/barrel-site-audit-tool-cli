@@ -1,6 +1,6 @@
 {
   "name": "@barrel/site-audit-cli",
-  "version": "1.6.0",
+  "version": "1.8.0",
   "description": "CLI for auditing Shopify store code quality, performance, and site health",
   "type": "module",
   "repository": {

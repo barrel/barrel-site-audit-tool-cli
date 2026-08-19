@@ -12,6 +12,32 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.15",
+    date: "2026-08-19",
+    title: "Privacy Compliance — separating \"the script loaded\" from \"data was sent\"",
+    notes: [
+      "**A blocker now means data actually left the browser.** Downloading `connect.facebook.net/en_US/fbevents.js` is fetching a library; sending `facebook.com/tr?id=…&ev=PageView` is telling Meta about the visitor. The scan reported both as \"the pixel fired\" — which hands a client\'s developer a blocker they can correctly dismiss, and once one blocker is dismissed the genuine ones go with it. Every blocker-severity test now reads transmissions only.",
+      "**Script loads are still reported, at warning severity** (new B5 and C5), stating the weaker claim honestly: the vendor learns an IP address and a referring URL, which some readings of GDPR treat as a transfer in itself. Anthony\'s Goods is the shape of it — Meta, Google and Klaviyo genuinely transmitted pre-consent, while TikTok had only fetched its script.",
+      "**Findings now quote the identifying parameters**, so a claim proves itself: `px.ads.linkedin.com/db_sync (pid=12608, gdpr=0)` rather than a bare URL buried in a hundred query parameters.",
+      "**A request that never arrived no longer counts as a fire.** Responses are tracked, not just requests, so a tag the CMP aborted stops reading as a tag that leaked. A 4xx still counts — the vendor received it and answered.",
+      "**Passing opt-out results are now confirmed by a second pass.** \"Nothing was transmitted after the visitor opted out\" is a negative claim, and one observation is thin evidence for a negative. A tag firing on nine loads in ten produced a clean pass on the tenth. Found immediately: one site\'s Klaviyo transmits after rejection intermittently, and is now reported flaky rather than confidently passed.",
+      "Two classifier bugs fixed in the process — `analytics.tiktok.com/i18n/pixel/events.js` was read as an event because its path contains \"pixel\", and Klaviyo\'s web fonts and geo-IP lookup were counted as tracking.",
+    ],
+  },
+  {
+    version: "1.14",
+    date: "2026-08-19",
+    title: "Privacy Compliance — bulk scanning and a report you can hand to a client",
+    notes: [
+      "**New: a comprehensive per-site report** at `/consent/<site>`, reachable from any row in the fleet table. It leads with a tag × consent-state matrix that answers the question clients actually ask — *I opted out, did Meta stop?* — as an explicit **OK / FAIL / Silent** verdict for every tag under every choice, rather than a colour you have to decode.",
+      "**Silent is its own verdict.** A tag that stays down when the visitor permitted it isn\'t a compliance problem, it\'s a destroyed-attribution problem — and a report that only looks for over-firing never finds it.",
+      "Below the matrix: every test with its status, detail, fix and evidence; then each state\'s cookies, Consent Mode signals, Shopify Customer Privacy state and banner screenshot. **Print → Save as PDF** is styled for it, so the PDF keeps selectable text and live links instead of being a screenshot.",
+      "**New: bulk scanning** at `/consent/run`. Paste any number of URLs or slugs — one per line or comma-separated, bare domains fine — and scan them independently of the per-store audit, with the CLI\'s output streaming live. `consent-scan` now takes as many targets as you pass on the command line too, and collapses duplicates. A bare domain like `blueair.com` is understood as a site rather than rejected as a missing registry slug — which is how a pasted column of domains actually arrives.",
+      "Scanning drives a real browser, so it runs from a local checkout. On the deployed site that page becomes a **command builder** rather than a dead button — paste the list, copy the exact invocation, run it locally. Results publish to Blob either way, so the deployed dashboard shows them the moment the scan finishes.",
+      "Per-site detail is stored as its own blob rather than folded into the fleet payload, so the table everyone opens doesn\'t pay to load the cookie lists and evidence almost nobody scrolls to.",
+    ],
+  },
+  {
     version: "1.13",
     date: "2026-08-19",
     title: "Privacy Compliance — renamed, and taught the difference between broken and by-design",

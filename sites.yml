@@ -54,3 +54,153 @@ sites:
       - us
     status: active
     repo: barrel/wamsutta
+  - slug: anthonysgoods-com
+    client: Anthony's Goods
+    url: https://anthonysgoods.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: bhufoods-com
+    client: Bhu Foods
+    url: https://bhufoods.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: blueair-com
+    client: Blueair
+    url: https://www.blueair.com/
+    cmp: onetrust
+    regions:
+      - us
+    status: active
+  - slug: cabotcreamery-com
+    client: Cabot Creamery
+    url: https://cabotcreamery.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: drink818-com
+    client: 818 Tequila
+    url: https://drink818.com/
+    cmp: onetrust
+    regions:
+      - us
+    status: active
+  - slug: eatmiltons-com
+    client: Milton's
+    url: https://eatmiltons.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: eatmush-com
+    client: Mush
+    url: https://eatmush.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: instantpot-com
+    client: Instant Pot
+    url: https://instantpot.com/
+    cmp: osano
+    regions:
+      - us
+    status: active
+  - slug: khloudfoods-com
+    client: Khloud Foods
+    url: https://khloudfoods.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: mackweldon-com
+    client: Mack Weldon
+    url: https://mackweldon.com/
+    cmp: onetrust
+    regions:
+      - us
+    status: active
+  # First pass failed to load and every result came back flaky — re-run to get a clean read.
+  - slug: mccormick-com
+    client: McCormick (US)
+    url: https://www.mccormick.com/
+    cmp: onetrust
+    regions:
+      - us
+    status: active
+  - slug: mccormickde-com
+    client: McCormick (DE)
+    url: https://mccormickde.com/
+    cmp: onetrust
+    regions:
+      - eu
+    status: active
+  - slug: pavise-com
+    client: Pavise
+    url: https://pavise.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: revisionskincare-com
+    client: Revision Skincare
+    url: https://revisionskincare.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: schwartz-co-uk
+    client: Schwartz (UK)
+    url: https://www.schwartz.co.uk/
+    cmp: onetrust
+    regions:
+      - eu
+    status: active
+  - slug: sweetlorens-com
+    client: Sweet Loren's
+    url: https://sweetlorens.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  # Host is unstable — failed DNS on one check and resolved with no CMP on another. Confirm the URL.
+  - slug: uk-roti-com
+    client: Roti (UK)
+    url: https://uk.roti.com/
+    cmp: unknown
+    regions:
+      - eu
+    status: active
+  - slug: vahine-fr
+    client: Vahine (FR)
+    url: https://www.vahine.fr/
+    cmp: onetrust
+    regions:
+      - eu
+    status: active
+  # No CMP detected and 7 console errors — most likely bot detection against headless Chrome, not an absent CMP.
+  - slug: walmart-com
+    client: Walmart
+    url: https://www.walmart.com/
+    cmp: unknown
+    regions:
+      - us
+    status: active
+  - slug: weareplainspeak-com
+    client: Plainspeak
+    url: https://weareplainspeak.com/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active
+  - slug: whileonearth-co
+    client: While On Earth
+    url: https://whileonearth.co/
+    cmp: shopify-native
+    regions:
+      - us
+    status: active

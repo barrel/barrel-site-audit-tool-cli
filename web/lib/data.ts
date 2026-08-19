@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { get, put } from "@vercel/blob";
-import type { ConsentFleetReport, Manifest, ManifestEntry, Report } from "./shared";
+import type { ConsentFleetReport, ConsentSection, Manifest, ManifestEntry, Report } from "./shared";
 
 const MANIFEST_BLOB_PATH = "reports/manifest.json";
 
@@ -118,12 +118,16 @@ export async function writeManifest(manifest: Manifest): Promise<void> {
   });
 }
 
-/* ── Consent QA fleet scans ──────────────────────────────────────────────────────────────── */
+/* ── Privacy Compliance fleet scans ──────────────────────────────────────────────────────────────── */
 
 const CONSENT_INDEX_BLOB_PATH = "consent/index.json";
 
 function consentFleetBlobPath(scanId: string): string {
   return `consent/${scanId}.json`;
+}
+
+function consentSiteBlobPath(scanId: string, slug: string): string {
+  return `consent/${scanId}/${slug}.json`;
 }
 
 export interface ConsentIndexEntry {
@@ -142,6 +146,13 @@ export const getConsentIndex = cache(async (): Promise<ConsentIndexEntry[]> => {
 
 export const getConsentScan = cache(async (scanId: string): Promise<ConsentFleetReport | null> => {
   return await readBlobJson<ConsentFleetReport>(consentFleetBlobPath(scanId));
+});
+
+/** One site's full section from one scan — every test with its evidence, every state, every
+ * cookie, and the tracker matrix. Read only by the per-site report, which is why it is a separate
+ * blob rather than part of the fleet payload. */
+export const getConsentSiteDetail = cache(async (scanId: string, slug: string): Promise<ConsentSection | null> => {
+  return await readBlobJson<ConsentSection>(consentSiteBlobPath(scanId, slug));
 });
 
 /** The most recent scan, which is what /consent shows by default. */

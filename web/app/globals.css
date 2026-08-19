@@ -20,3 +20,35 @@ body {
     transform: translateY(0);
   }
 }
+
+/* Print / Save-as-PDF for the Privacy Compliance per-site report.
+   The browser's own print pipeline is the PDF renderer, so the output keeps selectable text and
+   live links — and the deployed instance needs no headless Chrome of its own. */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  /* Backgrounds carry meaning here — a status chip printed without its tint is just grey text. */
+  * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A finding split across a page break loses the evidence that justifies it. */
+  .break-inside-avoid {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 9px;
+    color: #6b6b6b;
+    word-break: break-all;
+  }
+}

@@ -33,6 +33,16 @@ export function consentFleetBlobPath(scanId: string): string {
 
 export const CONSENT_INDEX_BLOB_PATH = "consent/index.json";
 
+/** The full section for one site in one fleet scan — every test with its evidence, every state,
+ * every cookie, and the tracker matrix.
+ *
+ * Kept out of the fleet blob on purpose. The fleet view loads its blob on every request to render
+ * a table; folding fifty sites' cookie lists and evidence into it would make the page everyone
+ * opens pay for the detail almost nobody scrolls to. */
+export function consentSiteBlobPath(scanId: string, slug: string): string {
+  return `consent/${scanId}/${slug}.json`;
+}
+
 /** Evidence captured for one consent state (the banner as it appeared when the choice was made).
  * Without it a failed test is an assertion nobody can verify.
  *

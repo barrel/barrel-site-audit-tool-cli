@@ -228,12 +228,12 @@ program
   );
 
 program
-  .command("consent-scan [target]")
+  .command("consent-scan [targets...]")
   .description(
     "Behavioural cookie-consent QA. Drives each site's banner for real — reject, accept, granular, " +
       "returning visitor — and asserts that trackers actually stop and start, rather than only checking " +
       "that a banner exists. With no argument it scans every active site in sites.yml; pass a registry " +
-      "slug for one of them, or any URL to scan a site that isn't in the registry. " +
+      "slug for one of them, or any number of URLs/slugs to scan sites that aren't in the registry. " +
       "Exits non-zero when a blocker-severity test fails, so it can gate CI unchanged.",
   )
   .option("--seed", "Draft sites.yml from the local stores/ folder instead of scanning (never overwrites existing entries)")
@@ -248,7 +248,7 @@ program
   .option("--budget <minutes>", "Wall-clock budget per site before remaining states are reported blocked", "6")
   .action(
     async (
-      target: string | undefined,
+      targets: string[] | undefined,
       opts: {
         seed?: boolean;
         fromRepos?: boolean;
@@ -264,7 +264,7 @@ program
     ) => {
       try {
         await consentScanCommand({
-          target,
+          targets,
           seed: opts.seed,
           fromRepos: opts.fromRepos,
           inventory: opts.inventory,

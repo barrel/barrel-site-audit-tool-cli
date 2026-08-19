@@ -8,7 +8,7 @@ import type {
   ShopifyConsentState,
 } from "@barrel/site-audit-shared";
 import { type CmpAdapter, type CmpCategoryState, type CmpPosture, detectCmp } from "./adapters/index.js";
-import { categorizeCookie, matchTrackers } from "./trackers.js";
+import { categorizeCookie, matchScriptLoads, matchTrackers, matchTransmissions } from "./trackers.js";
 
 /** How long to wait for a consent banner to appear before calling the state unreachable. */
 const BANNER_TIMEOUT_MS = 12_000;
@@ -21,6 +21,19 @@ const POST_CHOICE_SETTLE_MS = 5_000;
 
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+/** One network request and whether it actually got through. */
+export interface ObservedRequest {
+  url: string;
+  completed: boolean;
+  status?: number;
+}
+
+/** URLs of requests that completed. A 4xx/5xx still counts: the vendor received it and answered,
+ * which is precisely the disclosure at issue — only a request that never arrived is discounted. */
+export function deliveredUrls(requests: ObservedRequest[]): string[] {
+  return requests.filter((r) => r.completed).map((r) => r.url);
+}
 
 export interface ButtonProbe {
   found: boolean;
@@ -46,6 +59,15 @@ export interface RawStateCapture {
   trackersPre: string[];
   /** Tracker IDs that fired after the consent choice. */
   trackersPost: string[];
+  /** Trackers that actually sent the vendor data about the visitor, script loads excluded. This
+   * is what every blocker-severity assertion reads. */
+  transmissionsPre: string[];
+  transmissionsPost: string[];
+  /** Trackers whose library was fetched without any data being sent. Reported separately and at
+   * lower severity: the vendor learns an IP and a referrer, which is a weaker and more arguable
+   * disclosure than an identified event. */
+  scriptLoadsPre: string[];
+  scriptLoadsPost: string[];
   requestsPre: string[];
   requestsPost: string[];
   requestCount: number;
@@ -270,7 +292,7 @@ async function isBannerVisible(page: Page, adapter: CmpAdapter | null): Promise<
 
 interface StateContext {
   page: Page;
-  requests: string[];
+  requests: ObservedRequest[];
   consoleErrors: string[];
   /** Index into `requests` marking the moment the consent choice was made. */
   choiceAt: number;
@@ -287,7 +309,10 @@ async function openState(browser: Browser, url: string, opts: OpenOptions = {}):
   // storage bleed between states would make "did rejecting change anything?" unanswerable.
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
-  const requests: string[] = [];
+  const requests: ObservedRequest[] = [];
+  // Keyed by the request object rather than the URL: a page fires the same URL repeatedly, and
+  // matching responses back by string would attribute one request's outcome to another.
+  const byRequest = new Map<unknown, ObservedRequest>();
   const consoleErrors: string[] = [];
 
   await page.setUserAgent(USER_AGENT);
@@ -296,7 +321,25 @@ async function openState(browser: Browser, url: string, opts: OpenOptions = {}):
   await page.evaluateOnNewDocument(CONSENT_RECORDER);
   if (opts.initScript) await page.evaluateOnNewDocument(opts.initScript);
 
-  page.on("request", (req) => requests.push(req.url()));
+  page.on("request", (req) => {
+    const record: ObservedRequest = { url: req.url(), completed: false };
+    requests.push(record);
+    byRequest.set(req, record);
+  });
+  // A request that was blocked, aborted or never answered did not tell anyone anything. Counting
+  // it as a fire is the mirror image of the script-load problem: it reports a CMP that worked as
+  // one that failed.
+  page.on("response", (res) => {
+    const record = byRequest.get(res.request());
+    if (record) {
+      record.completed = true;
+      record.status = res.status();
+    }
+  });
+  page.on("requestfailed", (req) => {
+    const record = byRequest.get(req);
+    if (record) record.completed = false;
+  });
   page.on("console", (msg) => {
     if (msg.type() === "error") consoleErrors.push(msg.text().slice(0, 300));
   });
@@ -362,8 +405,10 @@ async function finishCapture(
   adapter: CmpAdapter | null,
   opts: { screenshots: boolean; preChoiceCookies?: ConsentCookie[] },
 ): Promise<RawStateCapture> {
-  const pre = sc.requests.slice(0, sc.choiceAt || sc.requests.length);
-  const post = sc.choiceAt ? sc.requests.slice(sc.choiceAt) : [];
+  // Only delivered requests count. A request the CMP aborted, or that never got an answer, told
+  // the vendor nothing — and reporting it as a fire turns a working CMP into a failing one.
+  const pre = deliveredUrls(sc.requests.slice(0, sc.choiceAt || sc.requests.length));
+  const post = deliveredUrls(sc.choiceAt ? sc.requests.slice(sc.choiceAt) : []);
 
   const capture: RawStateCapture = {
     state,
@@ -372,6 +417,10 @@ async function finishCapture(
     preChoiceCookies: opts.preChoiceCookies ?? [],
     trackersPre: matchTrackers(pre).map((t) => t.id),
     trackersPost: matchTrackers(post).map((t) => t.id),
+    transmissionsPre: matchTransmissions(pre).map((t) => t.id),
+    transmissionsPost: matchTransmissions(post).map((t) => t.id),
+    scriptLoadsPre: matchScriptLoads(pre).map((t) => t.id),
+    scriptLoadsPost: matchScriptLoads(post).map((t) => t.id),
     requestsPre: evidenceUrls(pre),
     requestsPost: evidenceUrls(post),
     requestCount: sc.requests.length,
@@ -398,6 +447,10 @@ function unreachable(state: ConsentStateId, reason: string): RawStateCapture {
     preChoiceCookies: [],
     trackersPre: [],
     trackersPost: [],
+    transmissionsPre: [],
+    transmissionsPost: [],
+    scriptLoadsPre: [],
+    scriptLoadsPost: [],
     requestsPre: [],
     requestsPost: [],
     requestCount: 0,
@@ -623,7 +676,7 @@ async function runReturningState(browser: Browser, url: string, adapter: CmpAdap
     const beforeNav = sc.requests.length;
     await sc.page.goto(secondUrl, { waitUntil: "networkidle2", timeout: 45_000 }).catch(() => undefined);
     await sleep(LOAD_SETTLE_MS);
-    const trackersAfterNavigate = matchTrackers(sc.requests.slice(beforeNav)).map((t) => t.id);
+    const trackersAfterNavigate = matchTrackers(deliveredUrls(sc.requests.slice(beforeNav))).map((t) => t.id);
     const cmpStateAfterNavigate = await adapter.readState(sc.page).catch(() => null);
 
     const capture = await finishCapture("returning", sc, adapter, { screenshots });
@@ -657,7 +710,7 @@ async function runGpcProbe(browser: Browser, url: string, adapter: CmpAdapter | 
     const sc = opened.state;
     await sleep(POST_CHOICE_SETTLE_MS);
 
-    const marketing = matchTrackers(sc.requests)
+    const marketing = matchTransmissions(deliveredUrls(sc.requests))
       .filter((t) => t.category === "marketing")
       .map((t) => t.id);
 
@@ -704,7 +757,7 @@ export async function runCmpInventory(url: string, expectedCmp?: CmpVendor | "un
       cmp: adapter?.id ?? "none",
       cmpLabel: adapter?.label ?? "None detected",
       bannerVisible: adapter ? await adapter.waitForBanner(opened.state.page, BANNER_TIMEOUT_MS).catch(() => false) : false,
-      trackers: matchTrackers(opened.state.requests).map((t) => t.id),
+      trackers: matchTrackers(deliveredUrls(opened.state.requests)).map((t) => t.id),
     };
   } catch (err: any) {
     return { cmp: "none", cmpLabel: "Unreachable", bannerVisible: false, trackers: [], error: String(err?.message ?? err).slice(0, 200) };

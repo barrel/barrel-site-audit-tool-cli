@@ -23,6 +23,13 @@ pnpm barrel-audit consent-scan --inventory          # which CMP is where, no beh
 pnpm barrel-audit consent-scan --seed               # draft sites.yml from stores/
 ```
 
+Targets are variadic — pass as many slugs and URLs as you like, mixed freely, and duplicates
+(including bare trailing-slash and `www.` variants of the same URL) are collapsed:
+
+```bash
+pnpm barrel-audit consent-scan https://a.com https://b.com waterloo
+```
+
 Useful flags: `--concurrency <n>` (default 4), `--json <path>`, `--junit <path>` for CI,
 `--no-upload` to skip Blob and evidence screenshots, `--no-retry` to skip blocker confirmation.
 
@@ -30,10 +37,44 @@ A single site takes about 90 seconds — five browser states plus a GPC probe, e
 fresh incognito context. The scan exits non-zero when any blocker-severity test fails, so it can
 gate CI unchanged.
 
-Privacy Compliance also runs as part of a normal `barrel-audit run`, appearing as its own report section.
-Skip it with `--skip-consent`.
+Skip it in a per-store run with `--skip-consent`.
 
 In Claude Code, `/consent-scan` runs the scan and explains the failures in plain English.
+
+---
+
+## The three views
+
+**`/consent`** — the fleet table. One row per site, worst first, with status, score, blocker count
+and the failing test IDs. Below it, a roll-up of any failure appearing on more than one site,
+because the same fix on six sites is one piece of work rather than six.
+
+**`/consent/<slug>`** — the comprehensive per-site report, and the thing to send a client. Leads
+with a tag × consent-state matrix answering the question clients actually ask — *I opted out, did
+Meta stop?* — as an explicit verdict per tag per state rather than a colour:
+
+| Verdict | Meaning |
+|---------|---------|
+| `OK` | Behaved as the visitor's choice requires — fired when permitted, stayed down when not |
+| `FAIL` | Fired when the visitor's choice should have blocked it |
+| `Silent` | Stayed down when it was permitted — an attribution problem, not a compliance one |
+| `n/a` | Essential, not gated by consent |
+| `—` | That state could not be tested |
+
+Then every test with its status, detail, fix and evidence; then each state's cookies, Consent Mode
+signals, Shopify Customer Privacy state and banner screenshot. Print-styled, so the browser's own
+Print → Save as PDF produces the PDF with selectable text and live links.
+
+**`/consent/run`** — paste any number of URLs or slugs and scan them, independently of the
+per-store audit. Streams the CLI's output live.
+
+Scanning runs from a local checkout, because it drives a real browser. On the deployed site the
+same page becomes a command builder: paste the list, copy the exact `consent-scan` invocation, run
+it locally. Results publish to Blob either way, so the deployed dashboard shows them the moment the
+scan finishes — only the *running* is local.
+
+Privacy Compliance also runs inside every normal `barrel-audit run`, so a per-store audit carries
+its own section without anyone asking for it.
 
 ---
 
@@ -85,14 +126,16 @@ Severity drives the exit code: only a **blocker** fails the run.
 | ID | Test | Severity |
 |----|------|----------|
 | B1 | No marketing cookies before any interaction | blocker |
-| B2 | No marketing network calls before any interaction | blocker |
+| B2 | No marketing **data transmitted** before any interaction | blocker |
+| B5 | No marketing vendor's **script fetched** before any interaction | warning |
 | B3 | No analytics cookies or calls before any interaction | error |
 | B4 | Google Consent Mode v2 default is `denied` | error |
 
 ### Suite C · Reject (S1)
 | ID | Test | Severity |
 |----|------|----------|
-| C1 | Marketing trackers do not fire after reject | blocker |
+| C1 | No marketing **data transmitted** after reject | blocker |
+| C5 | No marketing vendor's **script fetched** after reject | warning |
 | C2 | Non-essential cookies set before the choice are cleared | error |
 | C3 | Consent Mode update fires with denied signals | error |
 | C4 | Shopify Customer Privacy API reflects the rejection | error |
@@ -175,6 +218,29 @@ exactly like a site that passed.
 many tags are injected by a tag manager reacting to the consent event, so they land well after the
 click, and a shorter window produces false passes on precisely the sites that matter most.
 
+**Transmission vs script load.** The single most important distinction in the report, and the one
+that decides whether a finding survives contact with the client's developer.
+
+Downloading `connect.facebook.net/en_US/fbevents.js` is the browser fetching a library. Sending
+`facebook.com/tr?id=…&ev=PageView` is telling Meta about this visitor. Reporting both as "the pixel
+fired" hands the developer a blocker they can correctly dismiss — and once one blocker is
+dismissed, the genuine ones go with it.
+
+Every blocker-severity assertion therefore reads *transmissions only*. Script loads are reported
+separately at warning severity (B5, C5), stating the weaker claim honestly: the vendor learns an IP
+address and a referring URL, which some readings of GDPR treat as a transfer in its own right.
+
+Classification is by request path, extension first — `analytics.tiktok.com/i18n/pixel/events.js`
+contains "pixel" and is still a script. Vendors may declare an `infrastructure` pattern for their
+own plumbing (Klaviyo's web fonts, form definitions and geo-IP lookup). That list is an allowlist
+of the known-innocuous, never of the known-tracking: an uncatalogued endpoint still counts as a
+transmission, so the failure mode is a finding that can be checked against its evidence rather than
+one that is never raised.
+
+**Delivered requests only.** A request that was aborted or never answered told the vendor nothing,
+and counting it as a fire reports a CMP that worked as one that failed. A 4xx or 5xx still counts:
+the vendor received it and replied, which is exactly the disclosure at issue.
+
 **Consent Mode-aware matching.** A Google tag that has been denied consent still calls home:
 cookieless, with `gcs=G100` and `npa=1`, precisely to report that consent was withheld. Counting that
 as "marketing fired" flags the correct implementation and the broken one identically, which is worse
@@ -190,9 +256,19 @@ implied-consent model, those suites are marked `skipped` with the vendor's juris
 verbatim. This is asserted from the CMP's configuration, never inferred from a missing banner —
 a banner that is simply broken produces identical silence and must keep reading as `blocked`.
 
-**Retry.** When a blocker-severity test fails, the whole site is scanned a second time and any
-result that disagrees is downgraded to `flaky`. Scoped to blockers on purpose: those are the
-findings that start a client conversation, and a clean site never pays the cost.
+**Retry.** The whole site is scanned a second time, and any result the two passes disagree on is
+downgraded to `flaky`, when either:
+
+- a blocker-severity test **failed** — those are the findings that start a client conversation, so
+  they are worth a second full run before being stated as fact; or
+- C1 or F2 **passed** — "nothing was transmitted after the visitor opted out" is a negative claim,
+  and one observation is thin evidence for a negative. A tag that fires on nine loads in ten yields
+  a clean pass on the tenth, and a report asserting that consent works when it intermittently does
+  not is the most damaging error this scan can make: every other mistake is visible in the
+  evidence, and this one looks exactly like success.
+
+Sites that show no banner — the majority — never reach C1 or F2 and so never pay for the second
+pass.
 
 ---
 

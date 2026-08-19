@@ -8,7 +8,7 @@ import type {
   ConsentSection,
   ConsentSiteEntry,
 } from "@barrel/site-audit-shared";
-import { CONSENT_INDEX_BLOB_PATH, consentFleetBlobPath, consentScreenshotBlobPath } from "@barrel/site-audit-shared";
+import { CONSENT_INDEX_BLOB_PATH, consentFleetBlobPath, consentScreenshotBlobPath, consentSiteBlobPath } from "@barrel/site-audit-shared";
 import { analyzeConsent } from "../analyzers/consent/index.js";
 import { runCmpInventory } from "../analyzers/consent/engine.js";
 import { activeSites, loadRegistryWithProblems, registryPath, seedRegistry } from "../analyzers/consent/registry.js";
@@ -20,6 +20,8 @@ export interface ConsentScanOptions {
   /** A slug from sites.yml, or a bare URL for an ad-hoc scan of a site not in the registry. */
   target?: string;
   site?: string;
+  /** The variadic form: any mix of registry slugs and URLs. Duplicates are collapsed. */
+  targets?: string[];
   seed?: boolean;
   fromRepos?: boolean;
   inventory?: boolean;
@@ -67,6 +69,12 @@ export async function consentScanCommand(options: ConsentScanOptions): Promise<v
             : (state, image) => writeBlobBinary(consentScreenshotBlobPath(site.slug, scanId, state), image, "image/jpeg"),
       });
       printSiteLine(site, section);
+      // The comprehensive per-site report reads this. Written per site rather than folded into
+      // the fleet blob so the fleet table doesn't pay for detail it never renders. Never fatal:
+      // losing the detail blob must not lose the scan.
+      if (options.upload !== false) {
+        await writeBlobJson(consentSiteBlobPath(scanId, site.slug), section).catch(() => undefined);
+      }
       return toRow(site, section, Date.now() - siteStart);
     } catch (err: any) {
       const message = String(err?.message ?? err).slice(0, 200);
@@ -107,24 +115,67 @@ export async function consentScanCommand(options: ConsentScanOptions): Promise<v
 
 /* ── targets ─────────────────────────────────────────────────────────────────────────────── */
 
-function resolveTargets(options: ConsentScanOptions): ConsentSiteEntry[] {
-  const target = options.target ?? options.site;
+/** A bare hostname is a site, not a registry slug.
+ *
+ * Slugs are dot-free by construction (`drinkwaterloo-com`), so the dot is what separates the two
+ * without ambiguity. Worth handling because the overwhelmingly common way to arrive here is a
+ * pasted column of domains, and rejecting `blueair.com` with "no such site in sites.yml" is a
+ * confusing answer to an obviously well-formed request. */
+function looksLikeUrl(target: string): boolean {
+  return /^https?:\/\//i.test(target) || /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}(\/|$)/i.test(target);
+}
 
-  if (target && /^https?:\/\//i.test(target)) {
-    const host = new URL(target).hostname.replace(/^www\./, "");
-    return [{ slug: host.replace(/[^a-z0-9]+/gi, "-"), client: host, url: target, cmp: "unknown", regions: ["us"] }];
+function normalizeTarget(target: string): string {
+  return /^https?:\/\//i.test(target) ? target : `https://${target}`;
+}
+
+/** Builds an ad-hoc registry entry for a URL that isn't in sites.yml. */
+function adHocEntry(url: string): ConsentSiteEntry {
+  const host = new URL(url).hostname.replace(/^www\./, "");
+  return { slug: host.replace(/[^a-z0-9]+/gi, "-"), client: host, url, cmp: "unknown", regions: ["us"] };
+}
+
+function resolveTargets(options: ConsentScanOptions): ConsentSiteEntry[] {
+  // `targets` is the variadic form; `target`/`site` are the older single-value callers.
+  const targets = (options.targets?.length ? options.targets : [options.target ?? options.site])
+    .filter((t): t is string => Boolean(t && t.trim()))
+    .map((t) => t.trim());
+
+  if (targets.length === 0) {
+    const { registry, incomplete } = loadRegistryWithProblems();
+    reportIncomplete(incomplete);
+    return activeSites(registry);
   }
 
-  const { registry, incomplete } = loadRegistryWithProblems();
+  // Only load the registry when at least one target could be a slug — a pasted list of URLs
+  // should not fail because sites.yml happens to be missing or malformed.
+  const needsRegistry = targets.some((t) => !looksLikeUrl(t));
+  const registry = needsRegistry ? loadRegistryWithProblems() : null;
+  if (registry) reportIncomplete(registry.incomplete);
+
+  const seen = new Set<string>();
+  const resolved: ConsentSiteEntry[] = [];
+  for (const target of targets) {
+    const entry = looksLikeUrl(target)
+      ? adHocEntry(normalizeTarget(target))
+      : registry!.registry.sites.find((s) => s.slug === target);
+    if (!entry) {
+      throw new Error(`No site "${target}" in ${registryPath()}. Pass a full URL to scan it ad hoc.`);
+    }
+    // Two URLs that differ only by trailing slash or www are the same scan; running both would
+    // double the wall clock and put two rows for one site in front of the reader.
+    const key = entry.url.replace(/\/+$/, "").toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    resolved.push(entry);
+  }
+  return resolved;
+}
+
+function reportIncomplete(incomplete: string[]): void {
   if (incomplete.length > 0) {
     console.log(chalk.yellow(`  ${incomplete.length} registry entr(ies) skipped — missing slug or url: ${incomplete.join(", ")}`));
   }
-  if (target) {
-    const found = registry.sites.find((s) => s.slug === target);
-    if (!found) throw new Error(`No site "${target}" in ${registryPath()}. Pass a full URL to scan it ad hoc.`);
-    return [found];
-  }
-  return activeSites(registry);
 }
 
 /* ── seed ────────────────────────────────────────────────────────────────────────────────── */
@@ -193,6 +244,9 @@ function toRow(site: ConsentSiteEntry, section: ConsentSection, durationMs: numb
     totals: section.totals,
     failedIds: failed.map((t) => t.id),
     failedTests: failed,
+    tests: section.tests.map((t) =>
+      t.status === "fail" || t.status === "flaky" ? t : { ...t, evidence: undefined },
+    ),
     durationMs,
   };
 }
@@ -208,6 +262,7 @@ function errorRow(site: ConsentSiteEntry, error: string, durationMs: number): Co
     totals: { pass: 0, fail: 0, blocked: 0, skipped: 0, flaky: 0, blockers: 0 },
     failedIds: [],
     failedTests: [],
+    tests: [],
     error,
     durationMs,
   };
