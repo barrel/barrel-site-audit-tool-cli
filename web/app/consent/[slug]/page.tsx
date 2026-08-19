@@ -363,6 +363,13 @@ export default async function ConsentSiteReport({
                     {!s.reached && s.blockedReason && (
                       <p className="mt-1 text-sm text-[#6B6B6B]">{s.blockedReason}</p>
                     )}
+                    {s.marketingInterstitial && (
+                      <p className="mt-1 text-sm text-[#D97706]">
+                        A {s.marketingInterstitial} marketing interstitial was covering the page in this state. It can
+                        sit over the consent banner, and its own vendor&apos;s tags load with it — read the rest of this
+                        state with that in mind.
+                      </p>
+                    )}
                     {s.consentMode && (
                       <p className="mt-1.5 font-mono text-[10px] text-[#6B6B6B] break-all">
                         Consent Mode — default: {JSON.stringify(s.consentMode.default ?? null)} · update:{" "}

@@ -12,6 +12,18 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.17",
+    date: "2026-08-19",
+    title: "Privacy Compliance — marketing interstitials can no longer be mistaken for the consent banner",
+    notes: [
+      "**A false pass was possible on the one test that matters most.** The scanner found consent controls by matching button text anywhere on the page. An email-capture popup offers \"No thanks, continue without discount\" and \"OK\" — which matched the reject and accept patterns. Clicking one reported success, and the scan then measured a \"rejected\" state in which nobody had rejected anything, where every tracker naturally looked correctly blocked.",
+      "**Consent controls are now found only inside consent UI.** A match must sit within a container that talks about cookies, privacy or tracking, and must not sit inside a known marketing popup — Klaviyo, Attentive, Privy, Justuno, OptinMonster, Wisepops, Omnisend, Postscript. A positive requirement rather than a blocklist: a consent banner always mentions cookies, and a discount modal never does.",
+      "**Every consent choice is now confirmed before the state is measured.** If the banner is still showing afterwards, the click did not reach the CMP and the state is reported `blocked` rather than treated as a rejection. A mis-click can no longer present as consent working.",
+      "**Interstitials are disclosed rather than silently absorbed.** When a marketing modal is covering the page, the per-site report names it and says why it matters — it can sit over the consent banner, and its own vendor\'s tags load with it.",
+      "Verified against four storefronts with live email-capture popups: no state became untestable, and the genuine post-rejection leak on one of them is still caught.",
+    ],
+  },
+  {
     version: "1.16",
     date: "2026-08-19",
     title: "Privacy Compliance — a score that actually ranks anything",

@@ -78,6 +78,10 @@ export interface RawStateCapture {
   buttons?: { accept: ButtonProbe; reject: ButtonProbe; prefs: ButtonProbe };
   links?: PolicyLinks;
   consoleErrors: string[];
+  /** A marketing interstitial covering the page — an email or SMS capture modal, a spin-to-win.
+   * Recorded because it changes how the rest of the state should be read: it can sit over the
+   * consent banner, and it fires its own vendor's tags on load. */
+  marketingInterstitial?: string;
   screenshot?: Buffer;
   /** returning state only. */
   bannerAfterReload?: boolean;
@@ -281,6 +285,51 @@ async function probeLinks(page: Page): Promise<PolicyLinks> {
     .catch(() => ({}));
 }
 
+/** Names any marketing popup currently covering the page.
+ *
+ * Not a finding in itself — plenty of stores run one deliberately. It is reported because it
+ * skews everything around it: the modal can cover the consent banner, and its vendor's tags fire
+ * on load regardless of consent, so a reader who cannot see that it was there has no way to
+ * account for it. */
+async function detectInterstitial(page: Page): Promise<string | null> {
+  return safeEvalPage<string | null>(
+    page,
+    () => {
+      const VENDORS: Array<[string, RegExp]> = [
+        ["Klaviyo", /klaviyo/i],
+        ["Attentive", /attentive/i],
+        ["Privy", /privy/i],
+        ["Justuno", /justuno/i],
+        ["OptinMonster", /optinmonster/i],
+        ["Wisepops", /wisepops/i],
+        ["Omnisend", /omnisend/i],
+        ["Postscript", /postscript/i],
+      ];
+      for (const el of Array.from(document.querySelectorAll<HTMLElement>("div, section, aside, dialog, form"))) {
+        const rect = el.getBoundingClientRect();
+        // Modal-sized and on screen; a hidden prefetched form does not count.
+        if (rect.width < 240 || rect.height < 160) continue;
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
+        const marker = `${el.className || ""} ${el.id || ""}`;
+        for (const [name, re] of VENDORS) {
+          if (re.test(marker)) return name;
+        }
+      }
+      return null;
+    },
+    null,
+  );
+}
+
+async function safeEvalPage<T>(page: Page, fn: () => T, fallback: T): Promise<T> {
+  try {
+    return (await page.evaluate(fn)) as T;
+  } catch {
+    return fallback;
+  }
+}
+
 async function isBannerVisible(page: Page, adapter: CmpAdapter | null): Promise<boolean> {
   if (!adapter) return false;
   // A short window, not the full banner timeout: by this point the page has already settled, so
@@ -428,6 +477,7 @@ async function finishCapture(
     shopifyConsent: await readShopifyConsent(sc.page),
     cmpState: adapter ? await adapter.readState(sc.page).catch(() => null) : null,
     bannerVisible: await isBannerVisible(sc.page, adapter),
+    marketingInterstitial: (await detectInterstitial(sc.page)) ?? undefined,
     consoleErrors: Array.from(new Set(sc.consoleErrors)).slice(0, 10),
   };
 
@@ -635,6 +685,19 @@ async function runChoiceState(
 
     if (!acted) return unreachable(state, `Could not drive ${adapter.label} into the "${state}" state.`);
 
+    // Confirm the CMP actually registered it. A click that landed on some other dialog — an email
+    // capture modal offering "continue without discount" — reports success just as readily, and
+    // the state that follows looks like a rejection nobody made, in which every tracker appears
+    // correctly blocked. Reporting that as a pass on C1 is the worst outcome this scan can
+    // produce, so an unconfirmed choice becomes `blocked` instead.
+    if (!(await choiceRegistered(sc.page, adapter, state))) {
+      return unreachable(
+        state,
+        `${adapter.label} did not register the "${state}" choice — the banner was still showing afterwards, so the ` +
+          `control that was activated may belong to another dialog on the page.`,
+      );
+    }
+
     await sleep(POST_CHOICE_SETTLE_MS);
     const capture = await finishCapture(state, sc, adapter, { screenshots, preChoiceCookies });
 
@@ -647,6 +710,32 @@ async function runChoiceState(
   } finally {
     await ctx?.close().catch(() => undefined);
   }
+}
+
+/** Did the CMP take the choice, or did the click go somewhere else?
+ *
+ * Either signal is enough: the vendor's own state reflecting a decision, or the banner going away.
+ * Deliberately permissive — the job is to catch a click that missed the CMP entirely, not to
+ * adjudicate how a particular vendor records consent. A stricter check would turn working sites
+ * into coverage gaps, which is its own kind of wrong answer. */
+async function choiceRegistered(
+  page: Page,
+  adapter: CmpAdapter,
+  state: Extract<ConsentStateId, "reject" | "accept" | "granular">,
+): Promise<boolean> {
+  const cmpState = await adapter.readState(page).catch(() => null);
+  if (cmpState) {
+    const decided =
+      state === "accept"
+        ? cmpState.marketing === true || cmpState.analytics === true
+        : state === "reject"
+          ? cmpState.marketing === false
+          : cmpState.analytics === true && cmpState.marketing === false;
+    if (decided) return true;
+  }
+  // No usable state to read (the heuristic adapter has none), so fall back to the banner having
+  // gone — which is what a shopper would see, and what a mis-click would fail to produce.
+  return !(await adapter.waitForBanner(page, 2_000).catch(() => false));
 }
 
 /** Accept, then reload and navigate — the only way to tell a CMP that persists a choice from one

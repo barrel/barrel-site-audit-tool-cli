@@ -52,6 +52,19 @@ export const REJECT_PATTERNS = /^(reject|decline|deny|refuse)( all)?$|necessary 
 export const ACCEPT_PATTERNS = /^(accept|allow|agree|got it|ok)( all| cookies| and close)?$|i (accept|agree)|enable all/i;
 export const PREFS_PATTERNS = /cookie (settings|preferences)|manage (cookies|preferences|consent)|privacy (settings|preferences)|customi[sz]e/i;
 
+/** Text that marks a container as the consent UI rather than some other dialog. */
+const CONSENT_CONTEXT = /cookie|consent|privacy|tracking|gdpr|ccpa|do not sell/i;
+
+/** Marketing interstitials that share vocabulary with a consent banner.
+ *
+ * An email-capture popup routinely offers "No thanks, continue without discount" and "OK" — which
+ * match REJECT_PATTERNS and ACCEPT_PATTERNS respectively. Clicking one and reporting it as a
+ * consent choice produces a `reject` state in which nobody rejected anything, and every tracker
+ * then looks correctly blocked. That is a false pass on the one test this whole scan exists for,
+ * so these containers are excluded before matching, and the match is additionally required to sit
+ * inside something that talks about cookies. */
+const MARKETING_POPUP = /klaviyo|attentive|privy|justuno|optinmonster|wisepops|omnisend|mailmunch|sumo|postscript|yotpo|smsbump/i;
+
 /** Clicks the first visible, enabled element whose accessible name matches `pattern`.
  *
  * Runs entirely inside the page rather than via Puppeteer selectors so it can reach into open
@@ -59,8 +72,10 @@ export const PREFS_PATTERNS = /cookie (settings|preferences)|manage (cookies|pre
  * which `page.$()` cannot see. */
 export async function clickByAccessibleName(page: Page, pattern: RegExp): Promise<boolean> {
   return page
-    .evaluate((source: string, flags: string) => {
+    .evaluate((source: string, flags: string, consentSource: string, marketingSource: string) => {
       const re = new RegExp(source, flags);
+      const consentRe = new RegExp(consentSource, "i");
+      const marketingRe = new RegExp(marketingSource, "i");
 
       const roots: Array<Document | ShadowRoot> = [document];
       const seen = new Set<Document | ShadowRoot>();
@@ -74,6 +89,22 @@ export async function clickByAccessibleName(page: Page, pattern: RegExp): Promis
         }
       }
 
+      // Walks up from the control looking for a container that talks about cookies, and bails if
+      // it passes through a known marketing popup on the way. A positive requirement rather than a
+      // blocklist: a consent banner always says "cookies", "privacy" or "tracking" somewhere, and
+      // an email-capture modal says "discount" and "subscribe".
+      const inConsentUi = (el: HTMLElement): boolean => {
+        let node: HTMLElement | null = el;
+        for (let depth = 0; node && depth < 8; depth++) {
+          const marker = `${node.className || ""} ${node.id || ""}`;
+          if (marketingRe.test(marker)) return false;
+          const text = (node.textContent || "").slice(0, 600);
+          if (consentRe.test(text)) return true;
+          node = node.parentElement ?? ((node.getRootNode() as ShadowRoot)?.host as HTMLElement) ?? null;
+        }
+        return false;
+      };
+
       for (const root of roots) {
         const candidates = Array.from(
           root.querySelectorAll<HTMLElement>('button, a[href], [role="button"], input[type="button"], input[type="submit"]'),
@@ -81,6 +112,7 @@ export async function clickByAccessibleName(page: Page, pattern: RegExp): Promis
         for (const el of candidates) {
           const name = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ");
           if (!name || !re.test(name)) continue;
+          if (!inConsentUi(el)) continue;
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
           const visible =
@@ -91,7 +123,7 @@ export async function clickByAccessibleName(page: Page, pattern: RegExp): Promis
         }
       }
       return false;
-    }, pattern.source, pattern.flags)
+    }, pattern.source, pattern.flags, CONSENT_CONTEXT.source, MARKETING_POPUP.source)
     .catch(() => false);
 }
 

@@ -155,6 +155,7 @@ async function toStateCapture(
     cookies: raw.cookies,
     trackers: Array.from(new Set([...raw.trackersPre, ...raw.trackersPost])),
     requestCount: raw.requestCount,
+    marketingInterstitial: raw.marketingInterstitial,
     consentMode: raw.consentMode,
     shopifyConsent: raw.shopifyConsent,
     screenshotPath,

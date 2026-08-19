@@ -660,6 +660,9 @@ export interface ConsentStateCapture {
   /** IDs of trackers that fired in this state. */
   trackers: string[];
   requestCount: number;
+  /** A marketing interstitial covering the page in this state (email capture, spin-to-win).
+   * Reported because it can sit over the consent banner and fires its own vendor's tags. */
+  marketingInterstitial?: string;
   consentMode?: ConsentModeSignals;
   shopifyConsent?: ShopifyConsentState;
   screenshotPath?: string;
