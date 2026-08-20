@@ -12,6 +12,15 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.19",
+    date: "2026-08-19",
+    title: "A real top navigation",
+    notes: [
+      "**One navigation, defined once.** Every page carried its own header with an ad-hoc list of links, so each new surface either got forgotten or made the row longer until the buttons at the end started wrapping. Reports, Privacy Compliance, Baseline & Reporting and CLI Instructions now live in a shared nav with active-state highlighting, and the current section stays lit on its sub-pages.",
+      "**A page\'s title no longer competes with the nav for the same 73px.** Titles and page-specific actions moved to their own row underneath, which is what makes room for the next destination without another redesign.",
+    ],
+  },
+  {
     version: "1.18",
     date: "2026-08-19",
     title: "Privacy Compliance — closing the banner, chat widgets, and load order",

@@ -4,6 +4,7 @@ import { getConsentSiteDetail, getConsentScan, getLatestConsentScan } from "@/li
 import { formatDate } from "@/lib/format";
 import { screenshotUrl } from "@/lib/screenshot";
 import { PrintButton } from "@/components/PrintButton";
+import { PageTitle, TopNav } from "@/components/TopNav";
 import type {
   ConsentCookie,
   ConsentSection,
@@ -212,17 +213,13 @@ export default async function ConsentSiteReport({
 
   return (
     <div className="min-h-screen bg-[#f9f8f6] print:bg-white">
-      <header className="bg-white h-[73px] border-b border-[#E5E5E5] flex items-center px-6 lg:px-8 print:hidden">
-        <div className="max-w-[1200px] w-full mx-auto flex items-center justify-between gap-4">
-          <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight truncate">{row.client}</h1>
-          <div className="flex items-center gap-4 shrink-0">
-            <PrintButton />
-            <Link href="/consent" className="text-sm font-medium text-[#1A1A1A] hover:text-[#6B6B6B]">
-              All sites
-            </Link>
-          </div>
-        </div>
-      </header>
+      <TopNav />
+      <PageTitle title={row.client}>
+        <PrintButton />
+        <Link href="/consent" className="text-sm font-medium text-[#1A1A1A] hover:text-[#6B6B6B]">
+          All sites
+        </Link>
+      </PageTitle>
 
       <main className="max-w-[1200px] mx-auto px-6 lg:px-8 py-8 space-y-5 print:px-0 print:py-0 print:max-w-none">
         {/* ── Cover ──────────────────────────────────────────────────────────────────────── */}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageTitle, TopNav } from "@/components/TopNav";
 
 export const metadata = {
   title: "How to run a site audit — Barrel Site Audit",
@@ -38,14 +39,8 @@ function Callout({ children }: { children: React.ReactNode }) {
 export default function InstructionsPage() {
   return (
     <div className="min-h-screen bg-[#f9f8f6]">
-      <header className="bg-white h-[73px] border-b border-[#E5E5E5] flex items-center px-6 lg:px-8">
-        <div className="max-w-[760px] w-full mx-auto flex items-center justify-between">
-          <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight">Barrel Site Audit</h1>
-          <Link href="/" className="text-sm text-[#6B6B6B] hover:text-[#1A1A1A]">
-            View reports →
-          </Link>
-        </div>
-      </header>
+      <TopNav />
+      <PageTitle title="CLI Instructions" />
 
       <main className="max-w-[760px] mx-auto px-5 lg:px-8 py-12">
         <div className="mb-10">

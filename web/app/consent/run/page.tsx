@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { PageTitle, TopNav } from "@/components/TopNav";
 import { BulkConsentForm } from "@/components/BulkConsentForm";
 
 export const dynamic = "force-dynamic";
@@ -12,14 +13,8 @@ export default function BulkConsentRunPage() {
 
   return (
     <div className="min-h-screen bg-[#f9f8f6]">
-      <header className="bg-white h-[73px] border-b border-[#E5E5E5] flex items-center px-6 lg:px-8">
-        <div className="max-w-[1100px] w-full mx-auto flex items-center justify-between">
-          <h1 className="text-2xl font-semibold text-[#1A1A1A] tracking-tight">Bulk privacy scan</h1>
-          <Link href="/consent" className="text-sm font-medium text-[#1A1A1A] hover:text-[#6B6B6B]">
-            All sites
-          </Link>
-        </div>
-      </header>
+      <TopNav />
+      <PageTitle title="Bulk privacy scan" />
 
       <main className="max-w-[1100px] mx-auto px-6 lg:px-8 py-8 space-y-5">
         <p className="text-sm text-[#6B6B6B] max-w-[80ch] leading-relaxed">
