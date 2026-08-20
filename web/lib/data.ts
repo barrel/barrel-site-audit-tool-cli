@@ -81,20 +81,31 @@ export interface StoreProgressGroup {
   baseline: ManifestEntry; // explicit isBaseline entry, else the earliest report
 }
 
-/** Groups every report by store for the Progress views, oldest-to-newest within each group,
- * so trend/delta math reads left-to-right in the same order the data was produced. */
+/** Groups reports by store for the Progress views, oldest-to-newest within each group, so
+ * trend/delta math reads left-to-right in the same order the data was produced.
+ *
+ * Archived reports are excluded. Archiving is how a run that should not count gets retired — a
+ * test run, a scan of the wrong URL, a report taken mid-deploy — and leaving those in the trend
+ * meant a discarded run could still set the baseline, bend the sparkline, and drive the delta a
+ * client is shown. The blob and its direct link keep working; it simply stops being evidence. */
 export function groupReportsByStore(manifest: Manifest): StoreProgressGroup[] {
   const bySlug = new Map<string, ManifestEntry[]>();
   for (const r of manifest.reports) {
+    if (r.archived) continue;
     const list = bySlug.get(r.storeSlug) ?? [];
     list.push(r);
     bySlug.set(r.storeSlug, list);
   }
 
   return Array.from(bySlug.values())
+    // A store whose every report has been archived has nothing left to chart, and the entry that
+    // follows would read undefined off an empty array.
+    .filter((reports) => reports.length > 0)
     .map((reports) => {
       const sorted = [...reports].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       const latest = sorted[sorted.length - 1];
+      // An archived report can no longer be the baseline even if it is still flagged as one:
+      // the flag is set independently of archiving, and the two can disagree.
       const baseline = sorted.find((r) => r.isBaseline) ?? sorted[0];
       return {
         storeSlug: latest.storeSlug,
