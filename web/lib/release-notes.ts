@@ -12,6 +12,16 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.23",
+    date: "2026-08-19",
+    title: "Two findings that were the tool's fault, not the site's",
+    notes: [
+      "**\"Console errors from the CMP\" was counting every error on the page.** It fired on 17 of 23 sites, and across all of them not one cited error came from a consent platform — they were undefined theme variables, 404s and minified React warnings. Real errors, wrong culprit, and a recommendation that talked about CMPs failing open. It now separates errors by origin and says plainly when none came from the CMP. A finding a developer can disprove in ten seconds costs more than it is worth, because the next one gets disbelieved with it.",
+      "**The Global Privacy Control check was double-counting.** It failed on 18 sites and every one of them had already failed the pre-consent check — it produced no independent signal at all, while adding a second finding to the sites least able to afford one. The cause: the probe makes no consent choice, so on a site that transmits before anyone chooses, it transmits under GPC too — for that reason, not because the signal was ignored.",
+      "GPC is now judged as a difference rather than a snapshot. Where a site gates tags for everyone else and not for GPC, that is still a finding. Where it gates for nobody, the report says the signal changed nothing and points at the shared root cause, so it reads as one piece of work instead of two.",
+    ],
+  },
+  {
     version: "1.22",
     date: "2026-08-19",
     title: "Automated tests, a build gate, and two bugs they caught",

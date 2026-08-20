@@ -209,19 +209,36 @@ const A3: TestDef = {
 const A4: TestDef = {
   id: "A4",
   suite: "A",
-  title: "No console errors from the CMP",
+  title: "No JavaScript errors during the consent flow",
   severity: "warning",
   run(ctx) {
-    return requireState(ctx, "clean", (s) =>
-      s.consoleErrors.length === 0
-        ? ok("No console errors during the clean load.")
-        : {
-            status: "fail",
-            detail: `${s.consoleErrors.length} console error(s) during load.`,
-            recommendation: "Review the errors below — a CMP that throws during init often fails open, allowing tags it should block.",
-            evidence: { notes: s.consoleErrors },
-          },
-    );
+    return requireState(ctx, "clean", (s) => {
+      if (s.consoleErrors.length === 0) return ok("No console errors during the clean load.");
+
+      // Errors are separated by origin because the previous version was not, and said so anyway.
+      // It was titled "console errors from the CMP" while counting every error on the page, and
+      // across a 23-site fleet not one cited error came from a consent platform — they were
+      // undefined theme variables, 404s and React warnings. A finding a developer can disprove in
+      // ten seconds costs more than it is worth, because the next one gets disbelieved too.
+      const vendor = new RegExp(ctx.engine.cmp.replace("-native", ""), "i");
+      const fromCmp = s.consoleErrors.filter((e) => vendor.test(e));
+      const rest = s.consoleErrors.length - fromCmp.length;
+
+      const detail =
+        fromCmp.length > 0
+          ? `${fromCmp.length} console error(s) came from ${ctx.engine.cmpLabel}${rest > 0 ? `, alongside ${rest} from the page itself` : ""}.`
+          : `${rest} console error(s) during load, none of them from ${ctx.engine.cmpLabel}.`;
+
+      return {
+        status: "fail",
+        detail,
+        recommendation:
+          fromCmp.length > 0
+            ? "A CMP that throws during init often fails open, allowing the tags it was meant to block. Fix these first — see A1."
+            : "Not a consent fault, and listed here because a page erroring during load can leave a correctly-configured CMP half-initialised. Worth clearing, but it is theme JavaScript rather than a consent problem.",
+        evidence: { notes: s.consoleErrors },
+      };
+    });
   },
 };
 
@@ -735,10 +752,30 @@ const G4: TestDef = {
   run(ctx) {
     const gpc = ctx.engine.gpc;
     if (!gpc.ran) return { status: "blocked", detail: "The GPC probe did not complete." };
-    if (gpc.marketingTrackers.length === 0) return ok("No marketing tags fired for a visitor broadcasting GPC.");
+    if (gpc.marketingTrackers.length === 0) return ok("No marketing tags transmitted for a visitor broadcasting GPC.");
+
+    // Judged as a difference, not a snapshot. The probe makes no consent choice, so on a site
+    // that transmits before anyone chooses, marketing transmits under GPC as well — for that
+    // reason, not because the signal was ignored. Read as a snapshot this test failed on 18 of
+    // 23 sites and on every one of them B2 had already failed too: it produced no independent
+    // signal at all, while adding a second finding to the sites that could least afford one.
+    const clean = state(ctx, "clean");
+    const alsoWithoutGpc = clean?.reached
+      ? marketingIn(clean.transmissionsPre).filter((id) => gpc.marketingTrackers.includes(id))
+      : [];
+    const suppressed = gpc.marketingTrackers.filter((id) => !alsoWithoutGpc.includes(id));
+
+    if (alsoWithoutGpc.length > 0 && suppressed.length === 0) {
+      return bad(
+        `${names(gpc.marketingTrackers)} transmitted under a Global Privacy Control signal — but they transmit for every visitor before any choice, so the signal changed nothing rather than being specifically ignored.`,
+        "The same root cause as B2: nothing is gated on consent for anyone, so there is no gate for GPC to reach. Fix the pre-consent firing first and this resolves with it — treat it as one piece of work, not two.",
+        { notes: ["Sec-GPC: 1 and navigator.globalPrivacyControl were both set."] },
+      );
+    }
+
     return bad(
-      `${names(gpc.marketingTrackers)} fired despite a Global Privacy Control signal.`,
-      "Configure the CMP to treat GPC as an opt-out. Under CPRA (and Colorado's UOOM rules) the signal is a legally binding opt-out on its own — no click required.",
+      `${names(suppressed.length > 0 ? suppressed : gpc.marketingTrackers)} transmitted despite a Global Privacy Control signal, on a site that does otherwise gate tags on consent.`,
+      "Configure the CMP to treat GPC as an opt-out. Under CPRA, and Colorado's universal opt-out rules, the signal is a binding opt-out on its own with no click required — whether either applies to this site's visitors is a question for counsel.",
       { notes: ["Sec-GPC: 1 and navigator.globalPrivacyControl were both set."] },
     );
   },

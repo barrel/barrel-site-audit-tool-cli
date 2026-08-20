@@ -270,11 +270,34 @@ describe("G4 — Global Privacy Control", () => {
     assert.equal(run("G4", ctx).status, "blocked");
   });
 
-  it("fails when marketing fired for a visitor broadcasting GPC", () => {
-    const ctx = context({ engine: engineResult({ gpc: gpcProbe({ marketingTrackers: ["meta"] }) }) });
+  it("fails when a tag transmits under GPC on a site that otherwise gates on consent", () => {
+    // Nothing transmitted in the clean state, so the tag firing under GPC is attributable to the
+    // signal being ignored rather than to the site never gating anything.
+    const ctx = context({
+      engine: engineResult({
+        states: [reachedState("clean")],
+        gpc: gpcProbe({ marketingTrackers: ["meta"] }),
+      }),
+    });
     const g4 = run("G4", ctx);
     assert.equal(g4.status, "fail");
-    assert.match(g4.detail, /Meta Pixel fired despite/);
+    assert.match(g4.detail, /transmitted despite a Global Privacy Control signal/);
+    assert.match(g4.detail, /does otherwise gate/);
+  });
+
+  it("says the signal changed nothing when the tag transmits for everyone anyway", () => {
+    // The de-duplication that matters: read as a snapshot this failed on 18 of 23 real sites and
+    // every one of them had already failed B2, so it added a second finding and no information.
+    const ctx = context({
+      engine: engineResult({
+        states: [reachedState("clean", { transmissionsPre: ["meta"] })],
+        gpc: gpcProbe({ marketingTrackers: ["meta"] }),
+      }),
+    });
+    const g4 = run("G4", ctx);
+    assert.equal(g4.status, "fail");
+    assert.match(g4.detail, /changed nothing rather than being specifically ignored/);
+    assert.match(g4.recommendation ?? "", /same root cause as B2/);
   });
 });
 
