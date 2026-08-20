@@ -5,6 +5,7 @@ import { formatDate } from "@/lib/format";
 import { screenshotUrl } from "@/lib/screenshot";
 import { PrintButton } from "@/components/PrintButton";
 import { PageTitle, TopNav } from "@/components/TopNav";
+import { COMPLIANCE_BAND_LABEL, colorForComplianceScore, complianceBand } from "@/lib/shared";
 import type {
   ConsentCookie,
   ConsentSection,
@@ -236,14 +237,20 @@ export default async function ConsentSiteReport({
               ["Consent platform", detail?.cmpDetail ?? row.cmp],
               ["Region", report.region.toUpperCase()],
               ["Scanned", formatDate(report.createdAt)],
-              ["Score", row.score === null ? "Not scored" : String(row.score)],
+              ["Score", row.score === null ? "Not scored" : `${row.score} · ${COMPLIANCE_BAND_LABEL[complianceBand(row.score)]}`],
               ["Blockers", String(row.totals.blockers)],
             ].map(([label, value]) => (
               <div key={label}>
                 <dt className="text-[10px] font-semibold uppercase tracking-wider text-[#6B6B6B]">{label}</dt>
                 <dd
                   className="mt-0.5 font-semibold text-[#1A1A1A]"
-                  style={label === "Blockers" && row.totals.blockers > 0 ? { color: "#B91C1C" } : undefined}
+                  style={
+                    label === "Blockers" && row.totals.blockers > 0
+                      ? { color: "#B91C1C" }
+                      : label === "Score" && row.score !== null
+                        ? { color: colorForComplianceScore(row.score) }
+                        : undefined
+                  }
                 >
                   {value}
                 </dd>

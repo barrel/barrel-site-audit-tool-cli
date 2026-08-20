@@ -12,6 +12,16 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.25",
+    date: "2026-08-19",
+    title: "Compliance scores get their own colour scale",
+    notes: [
+      "**60+ healthy, 30+ improving, below 30 at risk** — a deliberately different scale from the Lighthouse-derived scores elsewhere in the app, which turn green at 90.",
+      "Two reasons it needs its own. A compliance score is a weighted proportion of what was actually confirmed, not a percentage of a fixed total, so a 40 there is not the claim a Lighthouse 40 is. And a confirmed blocker scales a site into the bottom half by design — which means **a site with an unresolved blocker mathematically cannot reach green**. That is the intended reading: nothing that leaks data after an opt-out should present as healthy.",
+      "The cutoffs are set to be reachable. Full marks is not a realistic target for a live storefront running a marketing stack, and a scale where every site is red teaches people to ignore the number.",
+    ],
+  },
+  {
     version: "1.24",
     date: "2026-08-19",
     title: "Untested no longer looks like clean",

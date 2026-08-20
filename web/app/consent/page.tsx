@@ -2,6 +2,7 @@ import Link from "next/link";
 import { PageTitle, TopNav } from "@/components/TopNav";
 import { getConsentIndex, getConsentScan, getLatestConsentScan } from "@/lib/data";
 import { formatDate } from "@/lib/format";
+import { COMPLIANCE_BAND_LABEL, colorForComplianceScore, complianceBand } from "@/lib/shared";
 import type { ConsentFleetRow, ConsentFleetStatus, ConsentTestResult } from "@/lib/shared";
 
 export const dynamic = "force-dynamic";
@@ -193,7 +194,7 @@ export default async function PrivacyCompliancePage({ searchParams }: { searchPa
                               {style.label}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-right font-semibold tabular-nums text-[#1A1A1A]">
+                          <td className="px-4 py-3 text-right font-semibold tabular-nums">
                             {row.score === null ? (
                               <span
                                 className="text-[#9A9A9A] font-normal text-xs"
@@ -202,7 +203,12 @@ export default async function PrivacyCompliancePage({ searchParams }: { searchPa
                                 n/s
                               </span>
                             ) : (
-                              row.score
+                              <span
+                                style={{ color: colorForComplianceScore(row.score) }}
+                                title={`${COMPLIANCE_BAND_LABEL[complianceBand(row.score)]} — 60+ healthy, 30+ improving`}
+                              >
+                                {row.score}
+                              </span>
                             )}
                           </td>
                           <td
@@ -298,7 +304,10 @@ export default async function PrivacyCompliancePage({ searchParams }: { searchPa
               {report.region.toUpperCase()} region only. A <strong>blocked</strong> site was not proven either way — it is a
               gap in coverage to re-run, not a finding. A site is only marked <strong>Clean</strong> when enough of it
               was actually confirmed to say so — one that could barely be tested is reported as blocked rather than
-              given the benefit of the doubt. Results marked <strong>n/a</strong> are tests the site&apos;s consent
+              given the benefit of the doubt. Scores band at <strong>60+ healthy</strong>, <strong>30+ improving</strong>,
+              below 30 at risk — a deliberately different scale from the Lighthouse-derived numbers elsewhere, because a
+              confirmed blocker caps a site below 50 by design and full marks is not a realistic target for a live
+              storefront running a marketing stack. Results marked <strong>n/a</strong> are tests the site&apos;s consent
               model makes inapplicable. A score of <strong>n/s</strong> means too little was confirmed to score at all.
               Scores are a weighted proportion of the tests that applied and were confirmed, so a site with a confirmed
               blocker-severity failure always falls below 50.

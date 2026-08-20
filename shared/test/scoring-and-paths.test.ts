@@ -12,7 +12,7 @@ import {
   runRecordBlobPath,
   storeConfigBlobPath,
 } from "../src/blob-paths.js";
-import { average, colorForScore, gradeForScore } from "../src/scoring.js";
+import { average, colorForScore, gradeForScore, complianceBand, colorForComplianceScore, COMPLIANCE_BAND_LABEL} from "../src/scoring.js";
 
 describe("gradeForScore", () => {
   it("uses the documented cutoffs, inclusive at the boundary", () => {
@@ -95,5 +95,35 @@ describe("blob paths", () => {
     assert.equal(runRecordBlobPath("run1"), "runs/run1.json");
     assert.equal(consentSiteBlobPath("scan1", "acme"), "consent/scan1/acme.json");
     assert.equal(consentScreenshotBlobPath("acme", "scan1", "reject"), "screenshots/consent/acme/scan1/reject.jpg");
+  });
+});
+
+describe("complianceBand — the compliance scores use their own scale", () => {
+  it("bands at 60 and 30, and agrees with its colour at every score", () => {
+    for (let score = 0; score <= 100; score++) {
+      const band = complianceBand(score);
+      const expected = score >= 60 ? "healthy" : score >= 30 ? "improving" : "at-risk";
+      assert.equal(band, expected, `score ${score}`);
+      const colour = colorForComplianceScore(score);
+      assert.equal(
+        colour,
+        band === "healthy" ? "#10B981" : band === "improving" ? "#D97706" : "#B91C1C",
+        `colour disagrees with band at ${score}`,
+      );
+    }
+  });
+
+  it("cannot call a site with an unresolved blocker healthy", () => {
+    // scoreOf scales any confirmed blocker failure by 0.49, so 49 is the ceiling for such a site.
+    // Green starting at 60 is what makes that ceiling meaningful: nothing that leaks data after an
+    // opt-out can present as healthy, however much else it passes.
+    assert.notEqual(complianceBand(49), "healthy");
+    assert.equal(complianceBand(60), "healthy");
+  });
+
+  it("has a label for every band", () => {
+    for (const score of [0, 30, 60, 100]) {
+      assert.ok(COMPLIANCE_BAND_LABEL[complianceBand(score)]);
+    }
   });
 });
