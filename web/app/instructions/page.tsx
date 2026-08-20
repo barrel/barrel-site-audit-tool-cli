@@ -230,6 +230,17 @@ export default function InstructionsPage() {
             project for the walkthrough. Nothing else in the report is affected if this
             isn&apos;t set up — that section just doesn&apos;t appear.
           </p>
+          <p className="text-sm text-[#6B6B6B] mt-3">
+            Once a property is linked, the report also gets a{" "}
+            <span className="font-medium text-[#1A1A1A]">Data Analysis</span> tab: the audit
+            crossed with that store&apos;s real numbers, ranked by where conversion is actually
+            weakest — mobile against desktop, one landing page against the site average. Press
+            Generate on the tab; it takes a few seconds. Every figure it shows comes from
+            Google Analytics or from the report itself, gap sizes describe the 28 days measured
+            rather than predicting a return, and if the property has too little history or no
+            ecommerce tracking it says so and stops instead of guessing. Without a linked
+            property the tab isn&apos;t there at all.
+          </p>
         </section>
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">

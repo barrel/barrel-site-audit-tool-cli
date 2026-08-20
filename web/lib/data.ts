@@ -1,11 +1,24 @@
 import { cache } from "react";
 import { get, put } from "@vercel/blob";
-import type { ConsentFleetReport, ConsentSection, Manifest, ManifestEntry, Report, StoreConfig, StoresIndex } from "./shared";
+import type {
+  ConsentFleetReport,
+  ConsentSection,
+  DataAnalysisSection,
+  Manifest,
+  ManifestEntry,
+  Report,
+  StoreConfig,
+  StoresIndex,
+} from "./shared";
 
 const MANIFEST_BLOB_PATH = "reports/manifest.json";
 
 function reportBlobPath(storeSlug: string, reportId: string): string {
   return `reports/${storeSlug}/${reportId}.json`;
+}
+
+function dataAnalysisBlobPath(storeSlug: string, reportId: string): string {
+  return `reports/${storeSlug}/${reportId}-data-analysis.json`;
 }
 
 async function readBlobJson<T>(pathname: string, useCache = true): Promise<T | null> {
@@ -30,6 +43,24 @@ export const getManifest = cache(async (): Promise<Manifest> => {
 export const getReport = cache(async (slug: string, id: string): Promise<Report | null> => {
   return await readBlobJson<Report>(reportBlobPath(slug, id));
 });
+
+/** The Data Analysis generated for one report, if one has been. Never cached: the tab is read
+ * immediately after the Generate button writes it, and a cached miss would show the empty state
+ * to the person who just paid for the analysis. */
+export const getDataAnalysis = cache(async (slug: string, id: string): Promise<DataAnalysisSection | null> => {
+  return await readBlobJson<DataAnalysisSection>(dataAnalysisBlobPath(slug, id), false);
+});
+
+export async function saveDataAnalysis(analysis: DataAnalysisSection): Promise<void> {
+  // Same write shape as everything else here — fixed pathname, overwrite allowed — so pressing
+  // Generate a second time replaces the previous analysis rather than accumulating orphans.
+  await put(dataAnalysisBlobPath(analysis.storeSlug, analysis.reportId), JSON.stringify(analysis, null, 2), {
+    access: "private",
+    contentType: "application/json",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+  });
+}
 
 export interface ReportListResult {
   items: ManifestEntry[];

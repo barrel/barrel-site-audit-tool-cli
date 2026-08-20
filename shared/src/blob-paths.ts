@@ -12,6 +12,17 @@ export function storeConfigBlobPath(slug: string): string {
   return `stores/${slug}/config.json`;
 }
 
+/** One generated Data Analysis for one report — the audit crossed with that store's GA4 data.
+ *
+ * A sibling of the report blob rather than a section inside it. Generating an analysis is an
+ * explicit, paid act that can be repeated against a report that is already finished and may
+ * already have been shared; rewriting the report blob each time would mutate a record of what a
+ * run measured. Keyed by report id so a re-run of the audit gets its own analysis, and a client
+ * comparing two reports is never shown one report's numbers with the other's conclusions. */
+export function dataAnalysisBlobPath(storeSlug: string, reportId: string): string {
+  return `reports/${storeSlug}/${reportId}-data-analysis.json`;
+}
+
 /** Index of every store that has been mirrored to Blob, so the dashboard can list stores without
  * enumerating blobs. Same read-modify-write shape as the report manifest. */
 export const STORES_INDEX_BLOB_PATH = "stores/index.json";

@@ -12,6 +12,22 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.30",
+    date: "2026-08-20",
+    title: "Data Analysis — the audit crossed with the store's own GA4 data",
+    notes: [
+      "**Reports for a store with a linked GA4 property now have a Data Analysis tab.** It pulls the last 28 complete days from GA4 — sessions, users, transactions, revenue, conversion rate and average order value overall, and the same figures split by device, by channel and by landing page — works out where conversion is weakest, and asks Claude to rank what to do about it against the findings already in the report. It runs entirely from the deployed site: no CLI, no browser, no local checkout.",
+      "**The device and landing-page splits are the point.** Totals cannot tell you anything actionable: a 1.6% site-wide conversion rate is a fact about a blend. Mobile converting at a third of desktop's rate while carrying 71% of sessions is a place to go and look.",
+      "**Every number on the page was computed here, not written by the model.** Recommendations cite evidence by id from a catalogue this tool builds out of the GA4 response and the report, and the page prints the catalogue's own wording. The model writes prose and chooses which facts to cite; it never supplies a figure.",
+      "**A recommendation carrying a number that appears nowhere in the data it cited is discarded**, and listed as discarded with the offending figure named — so a filtered run cannot be mistaken for a quiet one. This is the check that catches the classic failure: *fixing this typically lifts mobile conversion 15–20%*, where nothing in the input contains 15 or 20.",
+      "**No forecasts, anywhere.** Gap sizes are arithmetic on days that already happened — the weak segment's own sessions at the benchmark's rate, valued at the observed average order value — and are labelled as the size of a difference already measured, never as what a fix would earn. The model is forbidden from producing a projection and cannot smuggle one past the number check.",
+      "**Correlation is not written up as cause.** The audit measured the site; GA4 measured behaviour. Joining the two is a hypothesis to test, and every recommendation that does it is marked *Hypothesis* and carries a note on what else could produce the same numbers. Only a restatement of what GA4 recorded is marked *Measured*.",
+      "**Not enough data is said, not filled.** A property with fewer than 21 days of recorded sessions, no sessions at all, no transactions, fewer than 25 transactions, or transactions recorded without revenue gets a plain statement of which of those is true and no recommendations — and no Claude call is made at all, because there is nothing there to analyse and a model would produce something that read like analysis anyway. The figures are still shown, so the refusal can be checked.",
+      "**The tab appears only when a GA4 property is linked.** A permanently empty tab reads as a broken feature rather than an unconfigured one.",
+      "Missing credentials, a service account without access, a property that does not exist, and a GA4 API error each get their own message naming the thing to go and change — and none of them writes a half-finished analysis to storage.",
+    ],
+  },
+  {
     version: "1.29",
     date: "2026-08-20",
     title: "Connect GA4 from the dashboard",
