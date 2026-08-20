@@ -380,6 +380,24 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   Meta, Google Ads/GA4, Microsoft Clarity, TikTok, and Pinterest pixels actually fire on
   the network (vs. just being referenced in code), whether a cookie-consent mechanism is
   present, and a flag if pixels fire unconditionally with no consent mechanism detected.
+- **Security & Compliance** — its own report section, built entirely from HTTP responses, the
+  delivered HTML and one TLS handshake (no browser, ~2s): the security headers
+  (`Content-Security-Policy` — present *and* whether its `script-src` is meaningfully
+  restrictive, `Strict-Transport-Security` and its `max-age`, `X-Content-Type-Options`,
+  clickjacking protection via CSP `frame-ancestors` or `X-Frame-Options`, `Referrer-Policy`,
+  `Permissions-Policy`); transport (HTTP→HTTPS redirect and whether it's permanent, mixed
+  content in the delivered markup, TLS certificate validity and days to expiry); cookie flags
+  (`Secure` and `SameSite` on everything the homepage sets, `HttpOnly` on session/auth cookies
+  only — analytics cookies are read by the front-end scripts that own them, so demanding it of
+  them would break the tag); exposed surface (`/.env`, `/.git/config`, `/.git/HEAD`,
+  `/config.json` — each only reported when the response body actually matches that file's
+  format, since plenty of hosts answer every unknown path with the storefront's own HTML;
+  published source maps; `Server`/`X-Powered-By` version disclosure); and the script supply
+  chain (cross-origin `<script src>` without SRI, the count of distinct third-party script
+  origins, and the jQuery version read from the library file itself). Every check carries the
+  header value, cookie name or URL it was read from, so a reader can re-check it with `curl`.
+  A control that could not be observed is reported as **not tested** — never rounded into a
+  pass or a fail — and excluded from the score entirely. Skip with `--skip-security`.
 - **Best Practices** — a verdict table (Good / Needs Improvement / Poor) synthesized from
   the sections above: deprecated Liquid patterns, performance, accessibility, theme
   structure, page-builder usage, and lint/CI enforcement.
@@ -780,3 +798,13 @@ Blob store or any other report's images.
 Overall score is the average of every section's score. Grades: A ≥90, B ≥80, C ≥70,
 D ≥50, F below that — same bands used for the color coding (green/amber/red) throughout
 the report UI.
+
+Privacy Compliance and Security & Compliance score the same way as each other, and differently
+from the rest: a **weighted proportion of what was actually confirmed**, rather than a penalty
+subtracted from 100. Checks that could not be run (`blocked`/`flaky` for consent, `not tested`
+for security) are excluded from both sides of the ratio instead of earning partial credit, and
+either section reports **no score at all** — rather than 0 — when too little was confirmed to
+rank the site rather than the coverage. In that case it is also left out of the overall average.
+Any confirmed top-severity failure (a consent blocker, a security `critical`) scales the section
+into the bottom half, so "leaks data after opt-out" or "serves a readable `.env`" can never
+present as a passing grade.

@@ -120,7 +120,7 @@ program
 program
   .command("run <slug-or-url>")
   .description(
-    "Run a full audit (code, theme structure, performance, axe-core accessibility scan, site health, pixel/consent audit) and write a report, " +
+    "Run a full audit (code, theme structure, performance, axe-core accessibility scan, site health, pixel/consent audit, security & compliance) and write a report, " +
       "with an AI-generated executive summary and AI performance/accessibility suggestions if ANTHROPIC_API_KEY " +
       "is set. Pass an existing store slug, or a live URL to auto-create a store from its hostname. On a store " +
       "with no theme code yet, interactively prompts to connect a GitHub repo via OAuth device flow (see " +
@@ -136,6 +136,7 @@ program
   .option("--skip-health", "Skip storefront health checks")
   .option("--skip-pixels", "Skip live marketing pixel detection")
   .option("--skip-consent", "Skip the behavioural Privacy Compliance suite (5 browser states, adds ~1-2 min)")
+  .option("--skip-security", "Skip the Security & Compliance section (security headers, transport, cookie flags, exposed paths, script supply chain)")
   .option("--skip-geo-seo", "Skip SEO opportunities & AI/agentic-commerce readiness (GEO) audit")
   .option("--skip-agent-readiness", "Skip the agent-readiness audit (per-SKU schema, hydration, policy data, feed drift)")
   .option("--skip-ux", "Skip the UX/conversion audit (one collection page + one product page)")
@@ -180,6 +181,7 @@ program
         skipHealth?: boolean;
         skipPixels?: boolean;
         skipConsent?: boolean;
+        skipSecurity?: boolean;
         skipGeoSeo?: boolean;
         skipAgentReadiness?: boolean;
         skipUx?: boolean;
@@ -205,6 +207,7 @@ program
           skipHealth: opts.skipHealth,
           skipPixels: opts.skipPixels,
           skipConsent: opts.skipConsent,
+          skipSecurity: opts.skipSecurity,
           skipGeoSeo: opts.skipGeoSeo,
           skipAgentReadiness: opts.skipAgentReadiness,
           skipUx: opts.skipUx,

@@ -1,4 +1,4 @@
-import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsentSection, ConsentTestResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity } from "./shared";
+import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsentSection, ConsentTestResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SecuritySection, SecuritySeverity, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity } from "./shared";
 import { stripMarkdownLinks, extractMarkdownLinkUrl } from "./format";
 
 export type FindingSeverity = "critical" | "high" | "medium" | "low" | "good";
@@ -250,6 +250,36 @@ export function consentToFindings(section: ConsentSection): Finding[] {
     }));
 }
 
+/** Security failures, so they reach the Prioritized Roadmap and Dev To-Do rather than living only
+ * inside their own section. `not-tested` is omitted for the same reason a `blocked` consent result
+ * is: a roadmap is a list of work, and a coverage gap is something to re-run, not to assign. */
+export function securityToFindings(section: SecuritySection): Finding[] {
+  const rank: Record<SecuritySeverity, FindingSeverity> = {
+    critical: "critical",
+    high: "high",
+    medium: "medium",
+    low: "low",
+  };
+  return section.checks
+    .filter((c) => c.status === "fail" || c.status === "warn")
+    .map((c) => ({
+      id: `security-${c.id}`,
+      title: c.title,
+      // A warn is a weaker-than-it-should-be control rather than an absent one, so it drops a rung
+      // — otherwise a short HSTS max-age would outrank a missing CSP on the same roadmap.
+      severity: c.status === "warn" ? demote(rank[c.severity]) : rank[c.severity],
+      description: c.detail,
+      scope: "Site-wide",
+      recommendation: c.recommendation,
+    }));
+}
+
+function demote(severity: FindingSeverity): FindingSeverity {
+  const order: FindingSeverity[] = ["critical", "high", "medium", "low"];
+  const next = order[order.indexOf(severity) + 1];
+  return next ?? "low";
+}
+
 const SEVERITY_RANK: Record<FindingSeverity, number> = { critical: 0, high: 1, medium: 2, low: 3, good: 4 };
 
 export interface RoadmapItem {
@@ -292,6 +322,7 @@ const CATEGORY_PREFIXES: [string, string][] = [
   ["sitespeed-", "Performance (Sitespeed.io)"],
   ["seo-", "Technical & SEO"],
   ["health-", "Site Health"],
+  ["security-", "Security & Compliance"],
   ["pixel-", "Trust & Privacy"],
   ["bp-", "Trust & Privacy"],
   ["console-", "Trust & Privacy"],
