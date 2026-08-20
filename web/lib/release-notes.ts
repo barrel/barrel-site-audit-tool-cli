@@ -12,6 +12,18 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.29",
+    date: "2026-08-20",
+    title: "Connect GA4 from the dashboard",
+    notes: [
+      "**A GA4 property can now be linked to a store from the Run Audit page**, next to the Traffic & Revenue check — which is where the question \"why is this box unticked?\" actually gets asked.",
+      "**It verifies before it saves.** A property ID that is well-formed but never shared with the service account used to save without complaint and then produce an empty Traffic & Revenue section on every later run — which reads as *this store has no traffic*, not as *nobody granted us access*. One real query now turns that into an error at the moment someone can fix it, naming the service account to add and where to add it.",
+      "Pasting a `G-` measurement ID or a stream ID is caught by name rather than rejected as malformed, because that is the mistake people actually make.",
+      "**The GA4 check is now unticked by default and ticks itself only when a property is linked.** Leaving it on meant every run for an unlinked store carried a check that could only produce nothing.",
+      "Where the service-account key is not deployed the property still saves, marked unverified rather than confirmed — refusing there would make the form unusable on exactly the instance most people open.",
+    ],
+  },
+  {
     version: "1.28",
     date: "2026-08-20",
     title: "Which checks need the CLI, marked on the checks themselves",

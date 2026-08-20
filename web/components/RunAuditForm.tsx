@@ -38,7 +38,12 @@ const CHECKS: CheckDef[] = [
   { key: "skipSummary", label: "AI executive summary", detail: "Claude-written overview and key findings." },
 ];
 
-const DEFAULT_INCLUDED: Record<string, boolean> = Object.fromEntries(CHECKS.map((c) => [c.key, true]));
+// Everything on by default except GA4, which is only meaningful once a property is linked.
+// Leaving it ticked meant every run for an unlinked store carried a check that could only ever
+// produce nothing, which reads in the report as "no traffic" rather than "never connected".
+const DEFAULT_INCLUDED: Record<string, boolean> = Object.fromEntries(
+  CHECKS.map((c) => [c.key, c.key !== "skipAnalytics"]),
+);
 
 // Shown as the textarea's placeholder — a real, recurring Barrel ADA scope, so it's obvious what
 // to paste and in what shape. Every client's scope differs; this is only an example.
@@ -102,7 +107,127 @@ function formatElapsed(seconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function RunAuditForm() {
+/** Links a GA4 property to a store, from the dashboard.
+ *
+ * Sits inside the GA4 check rather than in a settings page of its own, because the question it
+ * answers — "why is this box unticked?" — is only ever asked here. */
+function Ga4Link({
+  store,
+  linked,
+  disabled,
+  onChange,
+}: {
+  store: StoreGa4 | null;
+  linked?: string;
+  disabled: boolean;
+  onChange: (slug: string, propertyId?: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+
+  if (!store) {
+    return (
+      <span className="block text-xs text-[#9A9A9A] mt-1">
+        Pick an existing store above to link a GA4 property — a one-off URL has no stored config to
+        attach one to.
+      </span>
+    );
+  }
+
+  async function submit(propertyId: string) {
+    setBusy(true);
+    setError(null);
+    setWarning(null);
+    try {
+      const res = await fetch("/api/ga4", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: store!.slug, propertyId }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(data?.error ?? `Request failed (${res.status}).`);
+        return;
+      }
+      onChange(store!.slug, data.linked ? data.propertyId : undefined);
+      setWarning(data.warning ?? null);
+      setOpen(false);
+      setValue("");
+    } catch (err: unknown) {
+      setError((err as Error)?.message ?? String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <span className="block mt-1.5" onClick={(e) => e.preventDefault()}>
+      {linked ? (
+        <span className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-[#10B981] font-medium">Linked</span>
+          <span className="font-mono text-[#6B6B6B]">property {linked}</span>
+          <button
+            type="button"
+            disabled={disabled || busy}
+            onClick={() => submit("")}
+            className="text-[#6B6B6B] hover:text-[#B91C1C] underline"
+          >
+            {busy ? "…" : "Unlink"}
+          </button>
+        </span>
+      ) : open ? (
+        <span className="flex items-center gap-2 flex-wrap">
+          <input
+            autoFocus
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            placeholder="GA4 property ID (e.g. 312345678)"
+            className="text-xs font-mono border border-[#E5E5E5] rounded px-2 py-1 w-[220px] focus:outline-none focus:border-[#1A1A1A]"
+          />
+          <button
+            type="button"
+            disabled={busy || !value.trim()}
+            onClick={() => submit(value)}
+            className="text-xs font-semibold text-white bg-[#1A1A1A] hover:bg-black disabled:bg-[#9A9A9A] px-2.5 py-1 rounded"
+          >
+            {busy ? "Checking…" : "Link"}
+          </button>
+          <button type="button" onClick={() => setOpen(false)} className="text-xs text-[#6B6B6B] hover:text-[#1A1A1A]">
+            Cancel
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => setOpen(true)}
+          className="text-xs font-medium text-[#2563EB] hover:underline"
+        >
+          Connect GA4 →
+        </button>
+      )}
+      {error && <span className="block mt-1 text-xs text-[#B91C1C] max-w-[60ch] leading-relaxed">{error}</span>}
+      {warning && <span className="block mt-1 text-xs text-[#D97706] max-w-[60ch] leading-relaxed">{warning}</span>}
+      {open && !error && (
+        <span className="block mt-1 text-xs text-[#9A9A9A] max-w-[60ch] leading-relaxed">
+          The numeric ID from GA4 → Admin → Property Settings, not the <code className="font-mono">G-</code>
+          measurement ID. We check the service account can actually read it before saving.
+        </span>
+      )}
+    </span>
+  );
+}
+
+export interface StoreGa4 {
+  slug: string;
+  name: string;
+  ga4PropertyId?: string;
+}
+
+export function RunAuditForm({ stores = [] }: { stores?: StoreGa4[] }) {
   const agent = useLocalAgent();
   const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [portInput, setPortInput] = useState("");
@@ -110,6 +235,22 @@ export function RunAuditForm() {
 
   const [target, setTarget] = useState("");
   const [included, setIncluded] = useState<Record<string, boolean>>(DEFAULT_INCLUDED);
+  // Local mirror of what the GA4 form has linked, so the checkbox reacts without a page reload.
+  const [ga4, setGa4] = useState<Record<string, string | undefined>>(() =>
+    Object.fromEntries(stores.map((st) => [st.slug, st.ga4PropertyId])),
+  );
+
+  // The store the target names, when it names one at all. A pasted URL has no config to link
+  // against, so the GA4 control simply does not apply to it.
+  const selectedStore = stores.find((st) => st.slug === target.trim().toLowerCase()) ?? null;
+  const linkedProperty = selectedStore ? ga4[selectedStore.slug] : undefined;
+
+  useEffect(() => {
+    // Tick GA4 exactly when it can do something, and untick it when the target changes to a store
+    // that has no property. Only this one key is touched, so a deliberate choice elsewhere in the
+    // list survives switching stores.
+    setIncluded((prev) => (prev.skipAnalytics === Boolean(linkedProperty) ? prev : { ...prev, skipAnalytics: Boolean(linkedProperty) }));
+  }, [linkedProperty]);
   const [sitespeed, setSitespeed] = useState(false);
   const [competitors, setCompetitors] = useState<string[]>([]);
   const [adaScope, setAdaScope] = useState("");
@@ -445,6 +586,14 @@ export function RunAuditForm() {
                   )}
                 </span>
                 <span className="block text-xs text-[#9A9A9A]">{c.detail}</span>
+                {c.key === "skipAnalytics" && (
+                  <Ga4Link
+                    store={selectedStore}
+                    linked={linkedProperty}
+                    disabled={running}
+                    onChange={(slug, propertyId) => setGa4((prev) => ({ ...prev, [slug]: propertyId }))}
+                  />
+                )}
               </span>
             </label>
             );

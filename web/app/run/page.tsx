@@ -1,9 +1,22 @@
 import { PageTitle, TopNav } from "@/components/TopNav";
 import { RunAuditForm } from "@/components/RunAuditForm";
+import { getStoreConfig, getStores } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
-export default function RunAuditPage() {
+export default async function RunAuditPage() {
+  // Read each store's config so the GA4 checkbox knows, before anything is ticked, whether a
+  // property is linked. Read in parallel and never cached: linking one is supposed to change the
+  // form on the next load.
+  const stores = await getStores();
+  const withGa4 = await Promise.all(
+    stores.slice(0, 60).map(async (st) => ({
+      slug: st.slug,
+      name: st.name,
+      ga4PropertyId: (await getStoreConfig(st.slug))?.ga4PropertyId,
+    })),
+  );
+
   // Whether this instance can run anything itself. The audit spawns the CLI as a local process, so
   // on the deployed site it can only ever refuse — see /api/run.
   const local = !process.env.VERCEL;
@@ -40,7 +53,7 @@ export default function RunAuditPage() {
           )}
         </div>
 
-        <RunAuditForm />
+        <RunAuditForm stores={withGa4} />
       </main>
     </div>
   );

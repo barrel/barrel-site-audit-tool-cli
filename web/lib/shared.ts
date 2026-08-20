@@ -651,6 +651,23 @@ export interface ConsentSection {
   impliedConsent?: string;
 }
 
+export interface StoreConfig {
+  slug: string;
+  name: string;
+  url: string;
+  shopifyDomain?: string;
+  /** GA4 numeric property ID (Admin → Property Settings), for the Traffic & Revenue section.
+   * The service account in GOOGLE_SERVICE_ACCOUNT_KEY must be a Viewer on the property. */
+  ga4PropertyId?: string;
+  githubRepo?: string;
+  githubBranch?: string;
+  themeSubdir?: string;
+}
+
+export interface StoresIndex {
+  stores: Array<{ slug: string; name: string; url: string; updatedAt: string }>;
+}
+
 /* ── Fleet scan ─────────────────────────────────────────────────────────────────────────── */
 
 export type ConsentFleetStatus = "ok" | "issues" | "blocked" | "error";

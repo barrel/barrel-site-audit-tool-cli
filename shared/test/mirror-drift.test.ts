@@ -55,9 +55,6 @@ describe("web/lib/shared.ts mirrors shared/src/types.ts", () => {
     "RunStatus",
     "RunnerInfo",
     "RunsIndex",
-    // Store configuration. web/ lists stores out of the report manifest instead.
-    "StoreConfig",
-    "StoresIndex",
   ]);
 
   it("is actually reading both files", () => {

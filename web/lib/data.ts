@@ -1,6 +1,6 @@
 import { cache } from "react";
 import { get, put } from "@vercel/blob";
-import type { ConsentFleetReport, ConsentSection, Manifest, ManifestEntry, Report } from "./shared";
+import type { ConsentFleetReport, ConsentSection, Manifest, ManifestEntry, Report, StoreConfig, StoresIndex } from "./shared";
 
 const MANIFEST_BLOB_PATH = "reports/manifest.json";
 
@@ -122,6 +122,36 @@ export function groupReportsByStore(manifest: Manifest): StoreProgressGroup[] {
  * since the web app and CLI both need read-modify-write access to the same manifest blob. */
 export async function writeManifest(manifest: Manifest): Promise<void> {
   await put(MANIFEST_BLOB_PATH, JSON.stringify(manifest, null, 2), {
+    access: "private",
+    contentType: "application/json",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+  });
+}
+
+/* ── Store configuration ─────────────────────────────────────────────────────────────────── */
+
+const STORES_INDEX_BLOB_PATH = "stores/index.json";
+
+function storeConfigBlobPath(slug: string): string {
+  return `stores/${slug}/config.json`;
+}
+
+/** Every store the CLI has synced. Never cached: the whole point of the GA4 link form is that a
+ * change made here is visible on the next page load. */
+export const getStores = cache(async (): Promise<StoresIndex["stores"]> => {
+  const index = await readBlobJson<StoresIndex>(STORES_INDEX_BLOB_PATH, false);
+  return index?.stores ?? [];
+});
+
+export const getStoreConfig = cache(async (slug: string): Promise<StoreConfig | null> => {
+  return await readBlobJson<StoreConfig>(storeConfigBlobPath(slug), false);
+});
+
+export async function saveStoreConfig(config: StoreConfig): Promise<void> {
+  // Same write shape as the manifest above, and as the CLI's own writer: no random suffix, and
+  // overwrite allowed, because the CLI reads this exact pathname back on its next run.
+  await put(storeConfigBlobPath(config.slug), JSON.stringify(config, null, 2), {
     access: "private",
     contentType: "application/json",
     addRandomSuffix: false,
