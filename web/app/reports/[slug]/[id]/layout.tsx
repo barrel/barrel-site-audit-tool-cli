@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getManifest, getReport, reportsForStore } from "@/lib/data";
+import { getManifest, getReport, getStoreConfig, reportsForStore } from "@/lib/data";
 import { ReportHeader } from "@/components/ReportHeader";
 import { CategoryNav } from "@/components/CategoryNav";
 import { ShareButton } from "@/components/ShareButton";
@@ -17,7 +17,7 @@ export default async function ReportLayout({
   params: Promise<{ slug: string; id: string }>;
 }) {
   const { slug, id } = await params;
-  const [report, manifest] = await Promise.all([getReport(slug, id), getManifest()]);
+  const [report, manifest, storeConfig] = await Promise.all([getReport(slug, id), getManifest(), getStoreConfig(slug)]);
   if (!report) notFound();
 
   const history = reportsForStore(manifest, slug, id).slice(0, 6);
@@ -52,7 +52,7 @@ export default async function ReportLayout({
 
       <main className="max-w-[1600px] mx-auto px-5 lg:px-8 pb-16">
         <ReportHeader report={report} slug={slug} history={history} />
-        <CategoryNav slug={slug} id={id} />
+        <CategoryNav slug={slug} id={id} hasGa4={Boolean(storeConfig?.ga4PropertyId)} />
 
         {children}
 

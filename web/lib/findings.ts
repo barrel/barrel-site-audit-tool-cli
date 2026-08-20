@@ -1,4 +1,4 @@
-import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsentSection, ConsentTestResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SecuritySection, SecuritySeverity, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity } from "./shared";
+import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsentSection, ConsentTestResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SecuritySection, SecuritySeverity, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity, Report } from "./shared";
 import { stripMarkdownLinks, extractMarkdownLinkUrl } from "./format";
 
 export type FindingSeverity = "critical" | "high" | "medium" | "low" | "good";
@@ -450,4 +450,79 @@ export function formatDevTodoCsv(items: RoadmapItem[]): string {
     ];
   });
   return [headers, ...rows].map((row) => row.map(csvEscape).join(",")).join("\r\n");
+}
+
+/** Gathers every actionable finding across the whole report into one flat list — the source
+ * of truth for both the Overview page's Prioritized Roadmap (top 10) and the full Dev To-Do
+ * page (everything), so the two can never drift out of sync with each other. */
+export function collectAllFindings(report: Report): Finding[] {
+  const { sections } = report;
+
+  const perfFindings = sections.performance ? lighthouseFindings(sections.performance.performance, "perf") : [];
+  const a11yFindings = sections.performance ? lighthouseFindings(sections.performance.accessibility, "a11y") : [];
+  const axeFindingsList = sections.accessibility ? axeFindings(sections.accessibility.pages) : [];
+  const sitespeedFindingsList = sections.sitespeed ? sitespeedAdviceFindings(sections.sitespeed.advice) : [];
+  const seoLighthouseFindings = sections.performance ? lighthouseFindings(sections.performance.seo, "seo") : [];
+  const seoHealthFindings = sections.health ? healthFindings(sections.health.checks) : [];
+  const seoFindings = [...seoLighthouseFindings, ...seoHealthFindings];
+  const bestPracticeLighthouseFindings = sections.performance
+    ? lighthouseFindings(sections.performance.bestPractices, "bp")
+    : [];
+  const consentFindings = [
+    ...(sections.pixels ? pixelToFindings(sections.pixels.findings) : []),
+    ...(sections.consent ? consentToFindings(sections.consent) : []),
+  ];
+  const consoleErrorFindingsList = sections.performance ? consoleErrorFindings(sections.performance.consoleErrors ?? []) : [];
+  const trustFindings = [...bestPracticeLighthouseFindings, ...consentFindings];
+  const seoOppFindings = sections.geoSeo ? seoOpportunityFindings(sections.geoSeo.seo.opportunities) : [];
+  const uxOppFindings = sections.ux ? uxOpportunityFindings(sections.ux.opportunities) : [];
+  const aiSuggestionFindingsList = sections.aiSuggestions ? aiSuggestionFindings(sections.aiSuggestions.suggestions) : [];
+  const themeConcernFindingsList = sections.themeArchitecture ? themeConcernFindings(sections.themeArchitecture.concerns) : [];
+  const agentReadinessFindingsList = sections.agentReadiness ? agentReadinessIssueFindings(sections.agentReadiness.issues) : [];
+  const adaScopeFindingsList = sections.adaScope ? adaScopeFindings(sections.adaScope) : [];
+  const securityFindingsList = sections.security ? securityToFindings(sections.security) : [];
+
+  const allFindings: Finding[] = [
+    ...perfFindings,
+    ...a11yFindings,
+    ...axeFindingsList,
+    ...adaScopeFindingsList,
+    ...sitespeedFindingsList,
+    ...seoFindings,
+    ...trustFindings,
+    ...securityFindingsList,
+    ...consoleErrorFindingsList,
+    ...agentReadinessFindingsList,
+    ...seoOppFindings,
+    ...uxOppFindings,
+    ...aiSuggestionFindingsList,
+    ...themeConcernFindingsList,
+  ];
+  if (sections.themeStructure) {
+    for (const flag of sections.themeStructure.redFlags) {
+      allFindings.push({
+        id: `theme-${flag.label}`,
+        title: flag.label,
+        severity: "medium",
+        description: flag.detail,
+        scope: "Site-wide",
+        recommendation: flag.recommendation,
+      });
+    }
+  }
+  if (sections.code) {
+    for (const issue of sections.code.issues.filter((i) => i.severity === "error")) {
+      allFindings.push({
+        id: `code-${issue.file}-${issue.line ?? 0}`,
+        title: issue.check,
+        severity: "high",
+        description: `${issue.message} (${issue.file}${issue.line ? `:${issue.line}` : ""})`,
+        scope: `Theme file: ${issue.file}${issue.line ? `:${issue.line}` : ""}`,
+        recommendation: issue.recommendation,
+        file: issue.file,
+        line: issue.line,
+      });
+    }
+  }
+  return allFindings;
 }

@@ -30,18 +30,22 @@ import {
   uxOpportunityFindings,
   aiSuggestionFindings,
   axeFindings,
-  adaScopeFindings,
   sitespeedAdviceFindings,
   consoleErrorFindings,
   themeConcernFindings,
   agentReadinessIssueFindings,
   buildRoadmap,
-  type Finding,
   consentToFindings,
-  securityToFindings,
+  collectAllFindings,
 } from "@/lib/findings";
 
-export type ReportCategory = "overview" | "vitals" | "theme" | "ux" | "seo-geo" | "ada";
+// Re-exported from its new home in lib/findings.ts, where it sits alongside every builder it
+// calls and can be imported by code that must not pull in this module's React component tree
+// (the Data Analysis API route). The report pages have imported it from here since it was
+// written, and moving that import is churn for no gain.
+export { collectAllFindings };
+
+export type ReportCategory = "overview" | "vitals" | "theme" | "ux" | "seo-geo" | "ada" | "data";
 
 export interface SectionDef {
   id: string;
@@ -57,82 +61,12 @@ export const CATEGORY_LABELS: Record<ReportCategory, string> = {
   ux: "UX",
   "seo-geo": "SEO/GEO",
   ada: "ADA",
+  // Data Analysis is a category with no sections in this file: its content is generated on
+  // demand from GA4 rather than produced by an audit run, so it lives entirely in its own page.
+  // It is declared here anyway so the tab strip reads its label from the same place as every
+  // other tab.
+  data: "Data Analysis",
 };
-
-/** Gathers every actionable finding across the whole report into one flat list — the source
- * of truth for both the Overview page's Prioritized Roadmap (top 10) and the full Dev To-Do
- * page (everything), so the two can never drift out of sync with each other. */
-export function collectAllFindings(report: Report): Finding[] {
-  const { sections } = report;
-
-  const perfFindings = sections.performance ? lighthouseFindings(sections.performance.performance, "perf") : [];
-  const a11yFindings = sections.performance ? lighthouseFindings(sections.performance.accessibility, "a11y") : [];
-  const axeFindingsList = sections.accessibility ? axeFindings(sections.accessibility.pages) : [];
-  const sitespeedFindingsList = sections.sitespeed ? sitespeedAdviceFindings(sections.sitespeed.advice) : [];
-  const seoLighthouseFindings = sections.performance ? lighthouseFindings(sections.performance.seo, "seo") : [];
-  const seoHealthFindings = sections.health ? healthFindings(sections.health.checks) : [];
-  const seoFindings = [...seoLighthouseFindings, ...seoHealthFindings];
-  const bestPracticeLighthouseFindings = sections.performance
-    ? lighthouseFindings(sections.performance.bestPractices, "bp")
-    : [];
-  const consentFindings = [
-    ...(sections.pixels ? pixelToFindings(sections.pixels.findings) : []),
-    ...(sections.consent ? consentToFindings(sections.consent) : []),
-  ];
-  const consoleErrorFindingsList = sections.performance ? consoleErrorFindings(sections.performance.consoleErrors ?? []) : [];
-  const trustFindings = [...bestPracticeLighthouseFindings, ...consentFindings];
-  const seoOppFindings = sections.geoSeo ? seoOpportunityFindings(sections.geoSeo.seo.opportunities) : [];
-  const uxOppFindings = sections.ux ? uxOpportunityFindings(sections.ux.opportunities) : [];
-  const aiSuggestionFindingsList = sections.aiSuggestions ? aiSuggestionFindings(sections.aiSuggestions.suggestions) : [];
-  const themeConcernFindingsList = sections.themeArchitecture ? themeConcernFindings(sections.themeArchitecture.concerns) : [];
-  const agentReadinessFindingsList = sections.agentReadiness ? agentReadinessIssueFindings(sections.agentReadiness.issues) : [];
-  const adaScopeFindingsList = sections.adaScope ? adaScopeFindings(sections.adaScope) : [];
-  const securityFindingsList = sections.security ? securityToFindings(sections.security) : [];
-
-  const allFindings: Finding[] = [
-    ...perfFindings,
-    ...a11yFindings,
-    ...axeFindingsList,
-    ...adaScopeFindingsList,
-    ...sitespeedFindingsList,
-    ...seoFindings,
-    ...trustFindings,
-    ...securityFindingsList,
-    ...consoleErrorFindingsList,
-    ...agentReadinessFindingsList,
-    ...seoOppFindings,
-    ...uxOppFindings,
-    ...aiSuggestionFindingsList,
-    ...themeConcernFindingsList,
-  ];
-  if (sections.themeStructure) {
-    for (const flag of sections.themeStructure.redFlags) {
-      allFindings.push({
-        id: `theme-${flag.label}`,
-        title: flag.label,
-        severity: "medium",
-        description: flag.detail,
-        scope: "Site-wide",
-        recommendation: flag.recommendation,
-      });
-    }
-  }
-  if (sections.code) {
-    for (const issue of sections.code.issues.filter((i) => i.severity === "error")) {
-      allFindings.push({
-        id: `code-${issue.file}-${issue.line ?? 0}`,
-        title: issue.check,
-        severity: "high",
-        description: `${issue.message} (${issue.file}${issue.line ? `:${issue.line}` : ""})`,
-        scope: `Theme file: ${issue.file}${issue.line ? `:${issue.line}` : ""}`,
-        recommendation: issue.recommendation,
-        file: issue.file,
-        line: issue.line,
-      });
-    }
-  }
-  return allFindings;
-}
 
 /** Builds every section of a report, tagged by which category page it belongs on
  * (see ReportCategory). Shared by the Overview page, each category page, and the "All" page

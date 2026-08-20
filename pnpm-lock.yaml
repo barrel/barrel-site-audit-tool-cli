@@ -120,6 +120,9 @@ importers:
 
   web:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.115.0
+        version: 0.115.0(zod@4.1.11)
       '@google-analytics/data':
         specifier: ^7.0.0
         version: 7.0.0
