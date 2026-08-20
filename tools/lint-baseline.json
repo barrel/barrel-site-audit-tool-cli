@@ -1,0 +1,23 @@
+{
+  "note": "Problems that already existed when ESLint was first added to this repo. The gate fails on anything NEW; these are allowed until someone fixes them. Fix one, then run `pnpm lint:baseline` to lock the improvement in — the count may only go down. This is a debt ledger, not a rule exemption: nothing here is considered acceptable, only pre-existing.",
+  "entries": {
+    "cli/src/analyzers/consent/index.ts": {
+      "prefer-const": 1
+    },
+    "cli/src/analyzers/consent/testcases.ts": {
+      "@typescript-eslint/no-unused-vars": 1
+    },
+    "cli/src/commands/run.ts": {
+      "@typescript-eslint/no-unused-vars": 2
+    },
+    "web/app/reports/[slug]/[id]/ux/page.tsx": {
+      "@typescript-eslint/no-unused-vars": 1
+    },
+    "web/lib/ada-scope-report.ts": {
+      "@typescript-eslint/no-unused-vars": 1
+    },
+    "web/lib/release-notes.ts": {
+      "no-useless-escape": 10
+    }
+  }
+}

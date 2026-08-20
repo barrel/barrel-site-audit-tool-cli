@@ -1,0 +1,21 @@
+{
+  // Typechecks the test suites, which no package's own tsconfig covers: cli/ and shared/ both set
+  // `rootDir: src` and `include: ["src"]`, so a test file placed inside either would end up
+  // compiled into dist/ and shipped to consumers. Keeping the tests outside src/ avoids that and
+  // costs this one extra project.
+  //
+  // Same compiler settings as cli/ and shared/ so a test cannot pass a typecheck the code it
+  // exercises would fail.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["cli/test", "shared/test"]
+}

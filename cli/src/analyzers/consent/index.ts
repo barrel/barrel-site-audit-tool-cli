@@ -3,6 +3,8 @@ import type {
   ConsentSection,
   ConsentSiteExpectations,
   ConsentStateCapture,
+  ConsentStateId,
+  ConsentSuiteId,
   ConsentTestResult,
   ConsentTotals,
   ConsentTrackerHit,
@@ -126,9 +128,22 @@ function reconcile(first: ConsentTestResult[], second: ConsentTestResult[]): Con
 }
 
 /** Points a failed test at the screenshot for the state it read from, so the report can show what
- * the banner actually looked like at the moment the assertion was made. */
-function attachScreenshots(tests: ConsentTestResult[], states: ConsentStateCapture[]): void {
-  const suiteState: Record<string, string> = { A: "clean", B: "clean", C: "reject", D: "accept", E: "returning", F: "granular", G: "clean" };
+ * the banner actually looked like at the moment the assertion was made.
+ *
+ * Keyed by `ConsentSuiteId` rather than `string` so adding a suite is a compile error here until
+ * its state is named — suite H shipped without an entry and its failures silently lost their
+ * evidence, which is the one thing a blocker-severity finding cannot afford to be missing. */
+export function attachScreenshots(tests: ConsentTestResult[], states: ConsentStateCapture[]): void {
+  const suiteState: Record<ConsentSuiteId, ConsentStateId> = {
+    A: "clean",
+    B: "clean",
+    C: "reject",
+    D: "accept",
+    E: "returning",
+    F: "granular",
+    G: "clean",
+    H: "dismiss",
+  };
   // Per-test overrides where the suite's usual state isn't the one the assertion read from.
   // G4 gets none at all: its evidence comes from the GPC probe, and showing a screenshot of an
   // ordinary visit beside it would be evidence of the wrong thing.
@@ -204,8 +219,11 @@ function tally(tests: ConsentTestResult[]): ConsentTotals {
  *   one site we had entirely failed to test at the top of the ranking.
  * - **A blocker is always visible.** Any confirmed blocker-severity failure scales the result into
  *   the bottom half, so "leaks data after opt-out" can never present as a passing grade — while
- *   still separating one blocker from four. */
-function scoreOf(tests: ConsentTestResult[], engine: EngineResult): number | null {
+ *   still separating one blocker from four.
+ *
+ * Exported so the three properties above can be asserted directly; nothing outside this module
+ * calls it in production. */
+export function scoreOf(tests: ConsentTestResult[], engine: EngineResult): number | null {
   if (engine.fatalError) return null;
   const confirmed = tests.filter((t) => t.status === "pass" || t.status === "fail");
   if (confirmed.length < MIN_CONFIRMED) return null;
