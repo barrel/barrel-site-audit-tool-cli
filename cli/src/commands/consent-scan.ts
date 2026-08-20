@@ -232,8 +232,12 @@ async function runInventory(sites: ConsentSiteEntry[], options: ConsentScanOptio
 
 function toRow(site: ConsentSiteEntry, section: ConsentSection, durationMs: number): ConsentFleetRow {
   const failed = section.tests.filter((t) => t.status === "fail" || t.status === "flaky");
-  const everythingBlocked = section.totals.pass === 0 && section.totals.fail === 0;
-  const status: ConsentFleetStatus = everythingBlocked ? "blocked" : failed.length > 0 ? "issues" : "ok";
+  // "Clean" has to mean the site was tested and came back clean. Keyed off the score being null
+  // rather than a second threshold of its own: that is already the one definition of "too little
+  // was confirmed to judge this", and the previous rule — nothing passed *and* nothing failed —
+  // let a site with one confirmed result and two dozen blocked ones show green.
+  const status: ConsentFleetStatus =
+    section.score === null ? "blocked" : failed.length > 0 ? "issues" : "ok";
   return {
     slug: site.slug,
     client: site.client ?? site.slug,

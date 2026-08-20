@@ -12,6 +12,16 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.24",
+    date: "2026-08-19",
+    title: "Untested no longer looks like clean",
+    notes: [
+      "**A section where nothing could be tested was showing green.** \"Opt-out effectiveness — nothing observed — 8 unproven\" rendered as a pass, on a site where the opt-out flow had never been driven at all. Green on the opt-out section of a compliance report, for a site whose opt-out was untestable, is the worst misread this report can produce.",
+      "There are now three states rather than two: findings, **no findings** (checks ran and passed), and **not established** (nothing could be confirmed either way) — the last in amber, with a line saying to read it as untested rather than clean.",
+      "**The same conflation was in the fleet table.** A site was marked Clean unless *nothing at all* passed or failed, so one confirmed result alongside two dozen blocked ones showed green. Clean now requires that enough was confirmed to say so, keyed off the same definition the score already uses rather than a second threshold that could drift from it.",
+    ],
+  },
+  {
     version: "1.23",
     date: "2026-08-19",
     title: "Two findings that were the tool's fault, not the site's",

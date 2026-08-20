@@ -342,6 +342,11 @@ export default async function ConsentSiteReport({
               const confirmed = inGroup.filter((t) => t.status === "pass" || t.status === "fail");
               if (confirmed.length === 0 && unproven.length === 0) return null;
               const worst = failed.some((t) => t.severity === "blocker");
+              // Three states, not two. "Nothing failed" and "nothing could be tested" were sharing
+              // a green pill, so a site whose entire opt-out flow was untestable presented as
+              // having a clean opt-out — the worst misread this report can produce, on the one
+              // section a client is most likely to skim.
+              const establishedNothing = confirmed.length === 0;
               return (
                 <li key={g.key} className="px-5 py-3.5 break-inside-avoid">
                   <div className="flex items-baseline gap-2.5 flex-wrap">
@@ -349,18 +354,35 @@ export default async function ConsentSiteReport({
                     <span
                       className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded"
                       style={
-                        failed.length === 0
-                          ? { color: "#10B981", backgroundColor: "#10B98114" }
-                          : { color: worst ? "#B91C1C" : "#EA580C", backgroundColor: worst ? "#B91C1C14" : "#EA580C14" }
+                        failed.length > 0
+                          ? { color: worst ? "#B91C1C" : "#EA580C", backgroundColor: worst ? "#B91C1C14" : "#EA580C14" }
+                          : establishedNothing
+                            ? { color: "#D97706", backgroundColor: "#D9770614" }
+                            : { color: "#10B981", backgroundColor: "#10B98114" }
                       }
                     >
-                      {failed.length === 0 ? "Nothing observed" : `${failed.length} finding${failed.length === 1 ? "" : "s"}`}
+                      {failed.length > 0
+                        ? `${failed.length} finding${failed.length === 1 ? "" : "s"}`
+                        : establishedNothing
+                          ? "Not established"
+                          : "No findings"}
                     </span>
                     {unproven.length > 0 && (
-                      <span className="text-xs text-[#9A9A9A]">{unproven.length} unproven</span>
+                      <span
+                        className="text-xs"
+                        style={{ color: establishedNothing ? "#D97706" : "#9A9A9A" }}
+                      >
+                        {unproven.length} unproven
+                      </span>
                     )}
                   </div>
                   <p className="mt-1 text-xs text-[#6B6B6B] leading-relaxed max-w-[95ch]">{g.blurb}</p>
+                  {establishedNothing && (
+                    <p className="mt-1.5 text-xs text-[#D97706] leading-relaxed max-w-[95ch]">
+                      Nothing in this group could be confirmed either way — every check was blocked or does not apply
+                      to how this site handles consent. Read it as untested, not as clean.
+                    </p>
+                  )}
                   {failed.length > 0 && (
                     <ul className="mt-2 space-y-1">
                       {failed.map((t) => (

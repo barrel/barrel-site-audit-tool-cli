@@ -296,7 +296,9 @@ export default async function PrivacyCompliancePage({ searchParams }: { searchPa
             <p className="text-xs text-[#9A9A9A] max-w-[70ch] leading-relaxed">
               Reports observed technical behaviour, not legal compliance. Scanned from the{" "}
               {report.region.toUpperCase()} region only. A <strong>blocked</strong> site was not proven either way — it is a
-              gap in coverage to re-run, not a finding. Results marked <strong>n/a</strong> are tests the site&apos;s consent
+              gap in coverage to re-run, not a finding. A site is only marked <strong>Clean</strong> when enough of it
+              was actually confirmed to say so — one that could barely be tested is reported as blocked rather than
+              given the benefit of the doubt. Results marked <strong>n/a</strong> are tests the site&apos;s consent
               model makes inapplicable. A score of <strong>n/s</strong> means too little was confirmed to score at all.
               Scores are a weighted proportion of the tests that applied and were confirmed, so a site with a confirmed
               blocker-severity failure always falls below 50.
