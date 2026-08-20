@@ -11,6 +11,13 @@ interface CheckDef {
   label: string;
   detail: string;
   indent?: boolean;
+  /** Runs from HTTP responses alone — no headless browser, no theme checkout.
+   *
+   * The distinction is what decides whether a check could ever run anywhere but a laptop. Anything
+   * that drives Chrome or reads theme files needs the CLI on a machine that has them; the rest is
+   * fetch and parse. Marked per check rather than described in prose so the answer sits next to
+   * the box you are ticking. */
+  online?: boolean;
 }
 
 // One entry per CLI `--skip-*` flag (cli/src/index.ts) — shown inverted as "include this check,"
@@ -20,12 +27,12 @@ const CHECKS: CheckDef[] = [
   { key: "skipThemeArchitecture", label: "AI theme architecture", detail: "Claude-written platform-fit assessment. Needs theme code + ANTHROPIC_API_KEY.", indent: true },
   { key: "skipPerformance", label: "Performance (Lighthouse)", detail: "Multi-page, multi-device Lighthouse pass — the slowest analyzer, expect several minutes." },
   { key: "skipAxe", label: "Accessibility (axe-core)", detail: "A second, independent accessibility signal beyond Lighthouse." },
-  { key: "skipHealth", label: "Site health", detail: "HTTPS, meta tags, canonical, structured data, robots.txt, sitemap." },
+  { key: "skipHealth", label: "Site health", detail: "HTTPS, meta tags, canonical, structured data, robots.txt, sitemap.", online: true },
   { key: "skipPixels", label: "Pixels & consent", detail: "Live browser check for Meta/GA4/TikTok/etc. pixels and a cookie-consent mechanism." },
-  { key: "skipGeoSeo", label: "SEO & GEO", detail: "SEO opportunities plus AI/agentic-commerce (GEO) readiness." },
-  { key: "skipAgentReadiness", label: "Agent readiness", detail: "Per-SKU schema, hydration, policy data, product-feed drift." },
+  { key: "skipGeoSeo", label: "SEO & GEO", detail: "SEO opportunities plus AI/agentic-commerce (GEO) readiness.", online: true },
+  { key: "skipAgentReadiness", label: "Agent readiness", detail: "Per-SKU schema, hydration, policy data, product-feed drift.", online: true },
   { key: "skipUx", label: "UX & conversion", detail: "One collection page + one product page, AI-reviewed for conversion issues." },
-  { key: "skipAnalytics", label: "Traffic & revenue (GA4)", detail: "Only produces anything if the store has a ga4PropertyId configured." },
+  { key: "skipAnalytics", label: "Traffic & revenue (GA4)", detail: "Only produces anything if the store has a ga4PropertyId configured.", online: true },
   { key: "skipScreenshots", label: "Screenshots", detail: "Homepage + competitor screenshots." },
   { key: "skipAiSuggestions", label: "AI suggestions", detail: "Claude-written performance/accessibility fixes." },
   { key: "skipSummary", label: "AI executive summary", detail: "Claude-written overview and key findings." },
@@ -426,7 +433,17 @@ export function RunAuditForm() {
                 className="mt-0.5 accent-[#1A1A1A]"
               />
               <span className="min-w-0">
-                <span className="block text-sm font-medium text-[#1A1A1A]">{c.label}</span>
+                <span className="block text-sm font-medium text-[#1A1A1A]">
+                  {c.label}
+                  {c.online && (
+                    <span
+                      className="ml-2 align-middle text-[9px] font-semibold uppercase tracking-wider text-[#10B981] bg-[#10B98114] px-1.5 py-0.5 rounded"
+                      title="Reads HTTP responses only — no browser and no theme code, so this one does not need a machine running the CLI."
+                    >
+                      Online
+                    </span>
+                  )}
+                </span>
                 <span className="block text-xs text-[#9A9A9A]">{c.detail}</span>
               </span>
             </label>

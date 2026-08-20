@@ -12,6 +12,16 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.28",
+    date: "2026-08-20",
+    title: "Which checks need the CLI, marked on the checks themselves",
+    notes: [
+      "**Checks that read HTTP responses only are now marked `Online`** on the Run Audit page — site health, SEO & GEO, agent readiness and GA4. No browser, no theme code, so they do not need a machine running the CLI.",
+      "Everything else drives a real Chrome or reads the theme from disk: Lighthouse, axe, the pixel and consent checks, UX, screenshots and the theme code checks. The note says plainly what an online run gives up — it cannot answer whether a pixel actually stops when a visitor opts out, or what the site scores on mobile.",
+      "Marked per check rather than explained in prose, so the answer sits next to the box being ticked.",
+    ],
+  },
+  {
     version: "1.27",
     date: "2026-08-19",
     title: "The same audit, turned on the security section",
