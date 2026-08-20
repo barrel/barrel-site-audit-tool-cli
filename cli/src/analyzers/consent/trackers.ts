@@ -80,7 +80,9 @@ export const TRACKERS: TrackerSignature[] = [
 
 /** Cookie-name → category. Prefix match, longest first, so `_shopify_marketing` beats `_shopify_`. */
 const COOKIE_CATEGORIES: Array<[RegExp, TrackerCategory]> = [
-  [/^_fbp$|^_fbc$|^fr$/i, "marketing"],
+  // `fr` was here as Meta's cookie, but a bare two-letter name is not a safe signature: a locale
+  // cookie called `fr` would be reported as Meta tracking, at blocker severity, on a French store.
+  [/^_fbp$|^_fbc$/i, "marketing"],
   [/^_gcl_|^_gac_|^IDE$|^test_cookie$|^MUID$/i, "marketing"],
   [/^_ttp$|^_scid$|^_pin_unauth$|^_uetsid|^_uetvid|^_rdt_uuid$/i, "marketing"],
   [/^__kla_id$|^_attn_/i, "marketing"],

@@ -310,10 +310,24 @@ async function probeLinks(page: Page): Promise<PolicyLinks> {
   return page
     .evaluate(() => {
       const out: { privacyPolicy?: string; doNotSell?: string } = {};
-      for (const a of Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]"))) {
-        const text = (a.textContent || "").trim().replace(/\s+/g, " ");
+      // Walks shadow roots and reads aria-labels, and matches the common European wordings.
+      // Matching English link text against the light DOM only meant a French storefront was
+      // reported as having no privacy policy because its footer says "Politique de
+      // confidentialité", and an Osano-hosted opt-out link was invisible entirely.
+      const roots: Array<Document | ShadowRoot> = [document];
+      for (let i = 0; i < roots.length && i < 200; i++) {
+        for (const el of Array.from(roots[i].querySelectorAll("*"))) {
+          const sr = (el as HTMLElement).shadowRoot;
+          if (sr) roots.push(sr);
+        }
+      }
+      const anchors = roots.flatMap((r) => Array.from(r.querySelectorAll<HTMLAnchorElement>("a[href]")));
+      const PRIVACY_TEXT = /privacy\s*(policy|notice)|politique de confidentialit|datenschutz|privacybeleid|informativa sulla privacy|pol[ií]tica de privacidad|integritetspolicy|privatlivspolitik/i;
+      const PRIVACY_HREF = /\/policies\/privacy|\/privacy|confidentialit|datenschutz|privacybeleid|privacidad/i;
+      for (const a of anchors) {
+        const text = ((a.getAttribute("aria-label") || "") + " " + (a.textContent || "")).trim().replace(/\s+/g, " ");
         const href = a.href;
-        if (!out.privacyPolicy && (/privacy\s*(policy|notice)/i.test(text) || /\/policies\/privacy|\/privacy/i.test(href))) {
+        if (!out.privacyPolicy && (PRIVACY_TEXT.test(text) || PRIVACY_HREF.test(href))) {
           out.privacyPolicy = href;
         }
         if (!out.doNotSell && /do not sell|do not share|your privacy choices|opt.?out of sale/i.test(text)) {
@@ -878,6 +892,9 @@ async function runReturningState(browser: Browser, url: string, adapter: CmpAdap
     // A second page in the same context, so persistence is tested across a real navigation
     // rather than a reload of the same document.
     const secondUrl = new URL("/collections/all", url).toString();
+    // A second page is needed to prove the choice survives navigation, and /collections/all is the
+    // one path every Shopify storefront has. On anything else it is a 404 — which still exercises
+    // navigation, but must not then be read as a page that legitimately lacks an opt-out link.
     const beforeNav = sc.requests.length;
     await sc.page.goto(secondUrl, { waitUntil: "networkidle2", timeout: 45_000 }).catch(() => undefined);
     await sleep(LOAD_SETTLE_MS);

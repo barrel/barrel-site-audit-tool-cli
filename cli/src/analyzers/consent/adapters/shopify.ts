@@ -103,6 +103,22 @@ function setConsent(
           done();
         }
       });
+
+      // Read the state back rather than trusting the call. Returning true because
+      // setTrackingConsent exists — which is what the timer path amounted to — reports success on
+      // a payload Shopify silently dropped, and the state that follows is then measured as a
+      // rejection nobody made. Every tracker looks correctly blocked, and the flagship test passes
+      // a site whose consent never changed.
+      try {
+        if (typeof cp.marketingAllowed === "function" && cp.marketingAllowed() !== c.marketing) return false;
+        if (typeof cp.analyticsProcessingAllowed === "function" && cp.analyticsProcessingAllowed() !== c.analytics) {
+          return false;
+        }
+      } catch {
+        // The API is present but not answering. Unverified is not the same as failed, so this
+        // falls through to the engine's own choiceRegistered check rather than deciding here.
+        return true;
+      }
       return true;
     }, consent as unknown as Record<string, boolean>)
     .catch(() => false);

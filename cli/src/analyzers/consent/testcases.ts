@@ -53,6 +53,16 @@ function requireState(ctx: TestContext, id: ConsentStateId, fn: (s: RawStateCapt
   return fn(s);
 }
 
+/** The scanned storefront's hostname, when it can be read at all. */
+function safeHost(engine: TestContext["engine"]): string | null {
+  const url = engine.states.find((s) => s.reached)?.links?.privacyPolicy ?? null;
+  try {
+    return url ? new URL(url).hostname.replace(/^www\./, "") : null;
+  } catch {
+    return null;
+  }
+}
+
 function names(ids: string[]): string {
   return ids.map((id) => trackerById(id)?.name ?? id).join(", ");
 }
@@ -413,13 +423,31 @@ const C2: TestDef = {
       const before = s.preChoiceCookies.filter((c) => c.category === "marketing" || c.category === "analytics");
       if (before.length === 0) return ok("No non-essential cookies existed before the choice, so nothing needed clearing.");
       const stillThere = before.filter((b) => s.cookies.some((c) => c.name === b.name && c.domain === b.domain));
-      return stillThere.length === 0
-        ? ok(`All ${before.length} pre-choice non-essential cookie(s) were cleared on reject.`)
-        : bad(
-            `${stillThere.length} non-essential cookie(s) survived the rejection: ${cookieNames(stillThere)}.`,
-            "Enable the CMP's cookie-cleanup on withdrawal, or clear these explicitly in the consent-changed callback. Rejecting must remove what was set, not just stop new writes.",
-            { cookies: stillThere },
-          );
+      if (stillThere.length === 0) return ok(`All ${before.length} pre-choice non-essential cookie(s) were cleared on reject.`);
+
+      // Split by who can actually delete them. A page cannot clear a cookie on a domain it does
+      // not control, so telling a client to remove MUID on .bing.com is an instruction nobody can
+      // carry out — and `_shopify_*` are Shopify's own, gated through its Customer Privacy API
+      // rather than by a cleanup callback. Naming all three under one fix is how a real finding
+      // gets filed as noise.
+      const firstParty = stillThere.filter((c) => !c.domain.replace(/^\./, "").match(/^(bing|clarity|tiktok|doubleclick|facebook|google|linkedin|pinterest)\./i));
+      const { shopify, thirdParty } = splitByOwner(firstParty);
+      const crossDomain = stillThere.filter((c) => !firstParty.includes(c));
+
+      const parts: string[] = [];
+      if (thirdParty.length) parts.push(`${thirdParty.length} the storefront sets itself (${cookieNames(thirdParty)})`);
+      if (shopify.length) parts.push(`${shopify.length} set by Shopify (${cookieNames(shopify)})`);
+      if (crossDomain.length) parts.push(`${crossDomain.length} on vendor domains this site cannot clear (${cookieNames(crossDomain)})`);
+
+      const fix = thirdParty.length
+        ? "Enable the CMP's cookie-cleanup on withdrawal, or clear these explicitly in the consent-changed callback. Rejecting must remove what was set, not just stop new writes."
+        : shopify.length
+          ? "These are Shopify's own and are cleared through its Customer Privacy API rather than a cleanup callback — wiring that up (see C4) is what removes them."
+          : "Nothing here can be deleted by this site: they live on vendor domains. Stopping them being set in the first place, by gating the tag, is the only remedy.";
+
+      return bad(`${stillThere.length} non-essential cookie(s) survived the rejection — ${parts.join("; ")}.`, fix, {
+        cookies: stillThere,
+      });
     });
   },
 };
@@ -639,20 +667,27 @@ const E3: TestDef = {
 const E4: TestDef = {
   id: "E4",
   suite: "E",
-  title: "Banner returns after cookies are cleared",
+  title: "Banner returns after cookies are cleared (not testable here)",
   severity: "warning",
   run(ctx) {
-    const clean = state(ctx, "clean");
     const accept = state(ctx, "accept");
     if (!accept?.reached) return { status: "blocked", detail: "No accepted state to compare a cleared browser against." };
-    // Every state runs in its own fresh incognito context, so the clean load *is* the
-    // cookies-cleared case — there is no separate trip to make.
-    return clean?.bannerVisible
-      ? ok("A cookie-free browser is prompted again, so the record is keyed to the cookie and not cached elsewhere.")
-      : bad(
-          "A cookie-free browser was not prompted, even though consent had been recorded in a separate session.",
-          "Check for a consent record persisted in localStorage or on the server that outlives the cookie — a visitor who clears cookies must be asked again.",
-        );
+
+    // Reported as untestable rather than asserted, because this design cannot answer it.
+    //
+    // Every state opens its own fresh incognito context, which clears localStorage along with
+    // cookies. A consent record persisted in localStorage or server-side — precisely what the
+    // failure text used to name — therefore cannot survive into the clean context either, so its
+    // absence proves nothing. And failure required the accept state to have found a banner while
+    // the clean state did not, using the same adapter call with the same timeout: a race, not a
+    // site fault. Across 41 recorded runs it returned 23 passes, 18 blocked and not one finding,
+    // while handing every one of those 23 sites a free point on the score.
+    return {
+      status: "blocked",
+      detail:
+        "Not testable in this design: each state runs in a fresh browser context, which clears localStorage along " +
+        "with cookies, so a record that outlives the cookie cannot be distinguished from one that does not.",
+    };
   },
 };
 
@@ -752,6 +787,13 @@ const G3: TestDef = {
     if (!ctx.region.startsWith("us") && ctx.region !== "ca-us") {
       return skip(`Not applicable to the "${ctx.region}" region.`);
     }
+    // `region` is where the *scanner* ran, not who the storefront serves. A .fr, .de or .co.uk
+    // storefront was being failed for lacking a California "Do Not Sell" link because the scan
+    // happened to originate in the US — three of the recorded failures were exactly that.
+    const host = safeHost(ctx.engine);
+    if (host && /\.(fr|de|co\.uk|uk|es|it|nl|se|dk|pl|be|ie|at|ch)$/i.test(host)) {
+      return skip(`This storefront's domain (${host}) serves a non-US market, where a California opt-out link is not the applicable requirement.`);
+    }
     return requireState(ctx, "clean", (clean) => {
     if (clean.links?.doNotSell) {
       // Present on the scanned page — but the requirement is every page, and a footer that only
@@ -794,8 +836,16 @@ const G4: TestDef = {
     // 23 sites and on every one of them B2 had already failed too: it produced no independent
     // signal at all, while adding a second finding to the sites that could least afford one.
     const clean = state(ctx, "clean");
+    // Compared against the *wider* clean set, not the transmission subset, because the two
+    // captures do not watch for equally long: the clean state settles for 3s and the GPC probe for
+    // 8s. A tag that fires at t=5s would appear only in the GPC capture and get this site accused
+    // of specifically ignoring the signal, purely because of the window. Klaviyo fires on a delay
+    // and appears in 30 of 38 recorded pre-consent findings, so it is exactly the profile that
+    // would have tripped it.
     const alsoWithoutGpc = clean?.reached
-      ? marketingIn(clean.transmissionsPre).filter((id) => gpc.marketingTrackers.includes(id))
+      ? [...new Set([...clean.transmissionsPre, ...clean.trackersPre])].filter((id) =>
+          gpc.marketingTrackers.includes(id),
+        )
       : [];
     const suppressed = gpc.marketingTrackers.filter((id) => !alsoWithoutGpc.includes(id));
 

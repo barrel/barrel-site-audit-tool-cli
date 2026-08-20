@@ -12,6 +12,20 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.27",
+    date: "2026-08-19",
+    title: "The rest of the audit's findings",
+    notes: [
+      "**A check that could only ever pass is now reported as untestable.** \"Banner returns after cookies are cleared\" returned 23 passes, 18 blocked and not one finding across 41 runs — and handed each of those 23 sites a free point. It cannot work in this design: every state opens a fresh browser context, which clears localStorage along with cookies, so a consent record that outlives the cookie cannot be told apart from one that does not.",
+      "**Non-US storefronts were failed for missing a California opt-out link.** The check keyed off where the *scanner* ran, not who the store serves, so .fr, .de and .co.uk sites were marked down for it. Verified fixed on a French storefront.",
+      "**Localised privacy links are now found.** Link matching was English-only against the light DOM, so a French footer reading \"Politique de confidentialité\" counted as no privacy policy at all, and an Osano-hosted link was invisible. It now reads aria-labels, walks shadow roots, and knows the common European wordings.",
+      "**Cookie-cleanup findings now separate who can actually delete what.** Telling a client to clear MUID on .bing.com is an instruction nobody can carry out, and the `_shopify_*` cookies are Shopify\'s own. All three used to be listed under one fix, which is how a real finding gets filed as noise.",
+      "**The GPC comparison was measuring two different-length windows** — 3 seconds for the baseline against 8 for the probe — so a tag that fires on a delay could get a site accused of specifically ignoring the signal purely because of the timing. Klaviyo, which fires late and appears in 30 of 38 recorded pre-consent findings, is exactly that profile.",
+      "**Shopify consent is now read back rather than assumed.** The adapter reported success because setTrackingConsent existed, resolving on a three-second timer even when Shopify silently dropped the payload — producing a \"rejection\" nobody made, in which every tracker naturally looked blocked.",
+      "A two-letter cookie name no longer counts as a Meta signature: a locale cookie called `fr` was enough to raise a blocker on a French store.",
+    ],
+  },
+  {
     version: "1.26",
     date: "2026-08-19",
     title: "An adversarial audit of the scanner, and the false passes it found",
