@@ -141,7 +141,17 @@ export function isConsentDeniedPing(url: string, category: TrackerCategory): boo
 }
 
 /** Static assets a vendor serves: its own library, plus the fonts and images that come with it. */
-const ASSET_PATH = /\.(js|mjs|cjs|css|map|woff2?|ttf|eot|png|jpe?g|gif|svg|webp|ico|html?)$/i;
+const ASSET_PATH = /\.(js|mjs|cjs|css|map|json|woff2?|ttf|eot|png|jpe?g|gif|svg|webp|ico|html?)$/i;
+
+/** Library and config endpoints that carry no file extension to recognise them by.
+ *
+ * `googletagmanager.com/gtag/js` is a script download whose path simply ends in a bare `js`, and
+ * `connect.facebook.net/signals/config/<id>` is the pixel fetching its own configuration. Both
+ * were being read as identified events: 16 of 18 recorded "Google Analytics 4 fired before
+ * consent" findings cited nothing but `gtag/js`, and under a correct Consent Mode setup that file
+ * is *supposed* to load early so it can receive the denied default. The report was telling
+ * clients to undo the thing they had done right. */
+const EXTENSIONLESS_ASSET = /\/(gtag\/js|gtm\/js|tag\/[^/]+|signals\/config\/|compose\/|widget\/|sdk\/|loader)(\/|$)/i;
 
 export type RequestKind = "script" | "transmission";
 
@@ -173,6 +183,7 @@ export function classifyRequest(url: string, signature?: TrackerSignature): Requ
   // so an endpoint nobody has catalogued produces a finding that can be checked against its
   // evidence rather than one that is never raised.
   if (ASSET_PATH.test(path)) return "script";
+  if (EXTENSIONLESS_ASSET.test(path)) return "script";
   if (signature?.infrastructure?.test(path)) return "script";
   return "transmission";
 }

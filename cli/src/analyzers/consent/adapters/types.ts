@@ -54,8 +54,13 @@ export interface CmpAdapter {
 /** Every adapter prefers the vendor's JS API over clicking; these are the fallbacks for when it
  * isn't exposed. Text matching beats CSS selectors here — a CMP redesign changes class names far
  * more often than it changes the word "Reject". */
-export const REJECT_PATTERNS = /^(reject|decline|deny|refuse)( all)?$|necessary only|only necessary|essential only|opt.?out|do not (sell|accept)|continue without/i;
-export const ACCEPT_PATTERNS = /^(accept|allow|agree|got it|ok)( all| cookies| and close)?$|i (accept|agree)|enable all/i;
+// The optional words repeat because the stock labels stack them: OneTrust ships "Accept All
+// Cookies" and Cookiebot "Allow all cookies", and neither matched a pattern that allowed only one
+// suffix. A3 was reported `skipped` — which reads as "not applicable" — on 20 of 41 recorded runs
+// for want of these, and on a banner whose reject read "Use necessary cookies only" it went
+// further and *accused* the site of offering no reject control at all.
+export const REJECT_PATTERNS = /^(reject|decline|deny|refuse)( all)?( cookies)?$|necessary only|only necessary|necessary cookies only|essential only|essential cookies only|opt.?out|do not (sell|accept)|continue without|^no,? thanks$/i;
+export const ACCEPT_PATTERNS = /^(accept|allow|agree|got it|ok)( all)?( cookies)?( and (close|continue))?$|i (accept|agree)|enable all/i;
 /** Controls that close a banner without expressing a preference either way. */
 export const DISMISS_PATTERNS = /^(close|dismiss|×|x|✕|✖|not now|maybe later|no thanks)$|close (this )?(banner|dialog|notice)/i;
 
@@ -141,11 +146,47 @@ export async function clickByAccessibleName(page: Page, pattern: RegExp): Promis
  * Verifies the banner actually went away. Returning true on a click that did nothing would
  * produce a "dismissed" state in which the banner is still up and nothing was dismissed — and if
  * no tags happened to fire, that reads as a pass on precisely the thing being tested. */
-export async function dismissBanner(page: Page, stillShowing: () => Promise<boolean>): Promise<boolean> {
+export async function dismissBanner(page: Page, _stillShowing?: () => Promise<boolean>): Promise<boolean> {
   const clicked = await clickByAccessibleName(page, DISMISS_PATTERNS);
   if (!clicked) await page.keyboard.press("Escape").catch(() => undefined);
   await new Promise((r) => setTimeout(r, 1_000));
-  return !(await stillShowing().catch(() => true));
+
+  // Judged on whether the banner is still *rendered*, not on the CMP's should-show flag. Every
+  // vendor computes that flag from "has the visitor answered?", which by definition cannot change
+  // when the whole point was to close the banner without answering — so the previous check could
+  // never return true, and suite H returned 0 passes and 0 failures across every recorded run.
+  // The CIPA test the suite exists for had never once produced a result.
+  return !(await bannerStillRendered(page));
+}
+
+/** Is any consent-shaped dialog still painted on screen? Deliberately vendor-agnostic. */
+async function bannerStillRendered(page: Page): Promise<boolean> {
+  return safeEval(
+    page,
+    () => {
+      const roots: Array<Document | ShadowRoot> = [document];
+      for (let i = 0; i < roots.length && i < 200; i++) {
+        for (const el of Array.from(roots[i].querySelectorAll("*"))) {
+          const sr = (el as HTMLElement).shadowRoot;
+          if (sr) roots.push(sr);
+        }
+      }
+      for (const root of roots) {
+        for (const el of Array.from(root.querySelectorAll<HTMLElement>("div, section, aside, dialog"))) {
+          const text = (el.textContent || "").slice(0, 400);
+          if (!/cookie|consent|privacy|tracking/i.test(text)) continue;
+          if (!el.querySelector("button, a[href], [role='button']")) continue;
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          if (rect.width < 200 || rect.height < 40) continue;
+          if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") continue;
+          return true;
+        }
+      }
+      return false;
+    },
+    true,
+  );
 }
 
 /** Runs `fn` in the page, returning `fallback` on any error. Page-context code touching a CMP's

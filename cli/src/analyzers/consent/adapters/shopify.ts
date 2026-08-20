@@ -19,8 +19,19 @@ export const shopifyAdapter: CmpAdapter = {
       () => {
         const cp = (window as any).Shopify?.customerPrivacy;
         if (!cp) return false;
-        if (document.querySelector(".shopify-pc__banner")) return true;
-        return typeof cp.shouldShowBanner === "function" ? Boolean(cp.shouldShowBanner()) : true;
+        // Rendered, not merely present in the DOM, and never a bare `true` fallback. Shopify keeps
+        // the banner markup on the page whether or not it is shown, so DOM presence reported a
+        // banner on storefronts that prompt nobody — passing A2 at blocker severity. The old
+        // `: true` default did the same on any build without shouldShowBanner. On 10 of 23
+        // recorded A2 passes the very next test said "no accept control was found to compare
+        // against": the report was claiming a banner was on screen and no buttons existed.
+        const el = document.querySelector<HTMLElement>(".shopify-pc__banner");
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          const style = window.getComputedStyle(el);
+          return rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+        }
+        return typeof cp.shouldShowBanner === "function" ? Boolean(cp.shouldShowBanner()) : false;
       },
       timeoutMs,
     );

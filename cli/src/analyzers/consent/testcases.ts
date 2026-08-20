@@ -128,6 +128,24 @@ function skip(detail: string): TestOutcome {
   return { status: "skipped", detail };
 }
 
+/** What an error from each vendor actually looks like.
+ *
+ * Matched on the vendor's own script hostnames and API names, not on its id. The id was used
+ * before, which for `shopify-native` produced the regex /shopify/i — matching essentially every
+ * error on a Shopify storefront. One recorded site was failed at blocker severity, and told its
+ * domain-group ID had expired, on the strength of a Trekkie analytics beacon failing to reach
+ * monorail-edge: nothing to do with consent, and Shopify Customer Privacy has no domain-group ID.
+ * The mirror error was quieter and worse — /onetrust/i never matches a failure from
+ * cdn.cookielaw.org, so genuine OneTrust faults went unattributed in every recorded run. */
+const CMP_ERROR_SIGNATURE: Partial<Record<string, RegExp>> = {
+  cookiebot: /cookiebot|consent\.cookiebot/i,
+  onetrust: /onetrust|cookielaw\.org|otSDKStub|OptanonWrapper/i,
+  osano: /osano/i,
+  cookieyes: /cookieyes|cky/i,
+  "shopify-native": /customerPrivacy|consent-tracking-api|shopify-pc__/i,
+  heuristic: /consent|cookie/i,
+};
+
 const GRANTED = "granted";
 const DENIED = "denied";
 const CMV2_SIGNALS = ["ad_storage", "analytics_storage", "ad_user_data", "ad_personalization"] as const;
@@ -147,9 +165,7 @@ const A1: TestDef = {
       );
     }
     const clean = state(ctx, "clean");
-    const cmpErrors = (clean?.consoleErrors ?? []).filter((e) =>
-      new RegExp(ctx.engine.cmp.replace("-native", ""), "i").test(e),
-    );
+    const cmpErrors = (clean?.consoleErrors ?? []).filter((e) => CMP_ERROR_SIGNATURE[ctx.engine.cmp]?.test(e) ?? false);
     if (cmpErrors.length > 0) {
       return bad(
         `${ctx.engine.cmpLabel} loaded but logged ${cmpErrors.length} error(s) — often an expired or wrong domain-group ID.`,
@@ -439,13 +455,31 @@ const C4: TestDef = {
     return requireState(ctx, "reject", (s) => {
       const sp = s.shopifyConsent;
       if (!sp || sp.marketingAllowed === undefined) return skip("Shopify's Customer Privacy API is not present on this storefront.");
-      return sp.marketingAllowed === false && sp.analyticsAllowed !== true
-        ? ok("Shopify's Customer Privacy API records the rejection.")
-        : bad(
-            `Shopify still reports marketingAllowed=${sp.marketingAllowed}, analyticsAllowed=${sp.analyticsAllowed} after a rejection.`,
-            "Wire the CMP's consent-changed callback to Shopify.customerPrivacy.setTrackingConsent(). Without it, every tag running through Customer Events keeps firing regardless of what the banner says.",
-            { notes: [JSON.stringify(sp)] },
-          );
+      if (sp.marketingAllowed === false && sp.analyticsAllowed !== true) {
+        return ok("Shopify's Customer Privacy API records the rejection.");
+      }
+
+      // The banner working and Shopify never hearing about it is a distinct, common and
+      // specifically diagnosable fault: the vendor's script is on the page, its own state records
+      // the rejection, and the Shopify connector that carries that decision across was never
+      // installed. Everything running through Customer Events keeps firing, and the site looks
+      // compliant from the outside because the banner does visibly respond.
+      const vendorCmp = ctx.engine.cmp !== "shopify-native" && ctx.engine.cmp !== "none";
+      const cmpRecordedIt = s.cmpState?.marketing === false;
+
+      if (vendorCmp && cmpRecordedIt) {
+        return bad(
+          `${ctx.engine.cmpLabel} recorded the rejection, but Shopify still reports marketingAllowed=${sp.marketingAllowed}, analyticsAllowed=${sp.analyticsAllowed}. The banner is working and the decision is not reaching Shopify.`,
+          `The usual cause is that ${ctx.engine.cmpLabel}'s script is installed on the storefront but its Shopify app is not, so nothing calls Shopify.customerPrivacy.setTrackingConsent() when the visitor chooses. Install the vendor's Shopify integration, or call setTrackingConsent() directly from the CMP's consent-changed callback. Until then every tag registered as a Customer Event or Web Pixel keeps firing no matter what the banner says — and the site will look compliant to anyone who only watches the banner respond.`,
+          { notes: [JSON.stringify({ shopify: sp, cmp: s.cmpState })] },
+        );
+      }
+
+      return bad(
+        `Shopify still reports marketingAllowed=${sp.marketingAllowed}, analyticsAllowed=${sp.analyticsAllowed} after a rejection.`,
+        "Wire the CMP's consent-changed callback to Shopify.customerPrivacy.setTrackingConsent(). Without it, every tag running through Customer Events keeps firing regardless of what the banner says.",
+        { notes: [JSON.stringify(sp)] },
+      );
     });
   },
 };
@@ -657,7 +691,7 @@ const F2: TestDef = {
         : bad(
             `${names(leaked)} fired even though only analytics was granted.`,
             "These tags are miscategorised in the CMP — they are filed under analytics (or left uncategorised, which most CMPs treat as always-on) when they belong under marketing.",
-            { requests: urlsFor(leaked, s.requestsPost) },
+            { requests: transmissionEvidence(leaked, s.requestsPost) },
           );
     });
   },

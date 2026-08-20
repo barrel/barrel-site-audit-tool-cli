@@ -23,7 +23,7 @@ export const onetrustAdapter: CmpAdapter = {
       () => {
         const ot = (window as any).OneTrust;
         const banner = document.getElementById("onetrust-banner-sdk");
-        return Boolean(ot && (banner ? banner.offsetParent !== null : true));
+        return Boolean(ot && banner && banner.offsetParent !== null);
       },
       timeoutMs,
     );

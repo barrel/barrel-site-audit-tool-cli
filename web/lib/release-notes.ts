@@ -12,6 +12,21 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.26",
+    date: "2026-08-19",
+    title: "An adversarial audit of the scanner, and the false passes it found",
+    notes: [
+      "An agent was set one question against every check: **what could produce this finding other than the fault it names?** It found six ways the tool could wrongly clear a site — the class that matters, because a finding wrongly raised wastes an afternoon and a finding wrongly suppressed ships a site that is leaking data with a clean bill of health.",
+      "**The flagship test could not see the most common tag on the web.** The reject state never reloaded after the choice, so it only ever noticed tags that beacon again on their own. A page-view pixel had already fired during the pre-choice load and had nothing left to send. Across 23 storefronts the pre-consent check named Meta Pixel 23 times and the after-reject check named it zero times — and five of eleven clean passes sat on captures where Shopify still reported marketing as allowed, meaning the rejection had never been recorded at all. The state now reloads before reading. Both sites retested went from pass to fail.",
+      "**A missing banner could pass the banner test.** OneTrust and Shopify both defaulted to \"yes, a banner is showing\" when the element was absent, so a storefront that prompts nobody passed a blocker-severity check. On 10 of 23 of those passes the very next test reported no accept control anywhere on the page.",
+      "**The dismissal suite had never produced a result** — 0 passes and 0 failures across every recorded run. Its success condition asked the CMP whether the visitor had answered, which cannot change when the whole point is closing the banner without answering. It now checks whether the banner is still painted.",
+      "**Library downloads were being reported as tracking.** 16 of 18 \"Google Analytics 4 fired before consent\" findings cited nothing but the gtag library — which under a correct Consent Mode setup is supposed to load early so it can receive the denied default. The report was telling clients to undo what they had done right.",
+      "**Stock CMP button labels were unmatchable.** OneTrust ships \"Accept All Cookies\" and Cookiebot \"Allow all cookies\", and neither matched. The dark-pattern check was silently skipped on 20 of 41 runs, and on a banner reading \"Use necessary cookies only\" it accused the site of offering no reject control at all.",
+      "**\"Console errors from the CMP\" was still wrong in a second place.** The same defect fixed in A4 was live in A1 at ten times the scoring weight: for a Shopify storefront the vendor filter was the word \"shopify\", so an analytics beacon failing to reach Shopify\'s own logging endpoint failed a site at blocker severity and told it a domain-group ID had expired. Errors are now matched on each vendor\'s script hostnames.",
+      "**New: the unwired-CMP diagnosis.** Where a vendor CMP records the rejection and Shopify does not hear about it, the report now names the likely cause — the vendor\'s script is installed but its Shopify app is not, so nothing calls setTrackingConsent(). Everything registered as a Customer Event keeps firing while the banner visibly responds, which is what makes it easy to miss.",
+    ],
+  },
+  {
     version: "1.25",
     date: "2026-08-19",
     title: "Compliance scores get their own colour scale",

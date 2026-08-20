@@ -7,7 +7,15 @@ import type {
   ConsentStateId,
   ShopifyConsentState,
 } from "@barrel/site-audit-shared";
-import { type CmpAdapter, type CmpCategoryState, type CmpPosture, detectCmp } from "./adapters/index.js";
+import {
+  type CmpAdapter,
+  type CmpCategoryState,
+  type CmpPosture,
+  ACCEPT_PATTERNS,
+  PREFS_PATTERNS,
+  REJECT_PATTERNS,
+  detectCmp,
+} from "./adapters/index.js";
 import { categorizeCookie, matchScriptLoads, matchTrackers, matchTransmissions } from "./trackers.js";
 
 /** How long to wait for a consent banner to appear before calling the state unreachable. */
@@ -238,16 +246,18 @@ async function readCookies(page: Page): Promise<ConsentCookie[]> {
   }
 }
 
+/** Restricted to controls inside the consent UI. Measured across the whole page, a footer
+ * "Do Not Sell or Share My Personal Information" link matches the reject pattern and can dwarf
+ * the banner's own control — one recorded site reported "Reject is 225% the size of Accept",
+ * which is not a banner layout. The same guard the click path already uses. */
 async function probeButtons(page: Page): Promise<RawStateCapture["buttons"]> {
+  // Sourced from the shared constants rather than copied. They were duplicated here, so widening
+  // them to match OneTrust's "Accept All Cookies" fixed the click path and left this probe — the
+  // one that decides whether a site is offering a dark pattern — still blind to the stock labels.
   const patterns = {
-    accept: String(/^(accept|allow|agree|got it|ok)( all| cookies| and close)?$|i (accept|agree)|enable all/i.source),
-    reject: String(
-      /^(reject|decline|deny|refuse)( all)?$|necessary only|only necessary|essential only|opt.?out|do not (sell|accept)|continue without/i
-        .source,
-    ),
-    prefs: String(
-      /cookie (settings|preferences)|manage (cookies|preferences|consent)|privacy (settings|preferences)|customi[sz]e/i.source,
-    ),
+    accept: ACCEPT_PATTERNS.source,
+    reject: REJECT_PATTERNS.source,
+    prefs: PREFS_PATTERNS.source,
   };
   return page
     .evaluate((p: { accept: string; reject: string; prefs: string }) => {
@@ -258,6 +268,23 @@ async function probeButtons(page: Page): Promise<RawStateCapture["buttons"]> {
           if (sr) roots.push(sr);
         }
       }
+      // Same containment rule the click path uses: a control only counts if it sits inside
+      // something that talks about cookies. Without it the biggest match anywhere on the page
+      // won, so a footer opt-out link stood in for the banner's reject control.
+      const inConsentUi = (el: HTMLElement): boolean => {
+        let node: HTMLElement | null = el;
+        for (let depth = 0; node && depth < 8; depth++) {
+          if (/klaviyo|attentive|privy|justuno|optinmonster|wisepops|omnisend|postscript/i.test(
+            `${node.className || ""} ${node.id || ""}`,
+          )) {
+            return false;
+          }
+          if (/cookie|consent|privacy|tracking|gdpr|ccpa/i.test((node.textContent || "").slice(0, 600))) return true;
+          node = node.parentElement ?? ((node.getRootNode() as ShadowRoot)?.host as HTMLElement) ?? null;
+        }
+        return false;
+      };
+
       const probe = (source: string) => {
         const re = new RegExp(source, "i");
         let best = { found: false, area: 0 };
@@ -265,6 +292,7 @@ async function probeButtons(page: Page): Promise<RawStateCapture["buttons"]> {
           for (const el of Array.from(root.querySelectorAll<HTMLElement>('button, a[href], [role="button"]'))) {
             const name = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ");
             if (!name || !re.test(name)) continue;
+            if (!inConsentUi(el)) continue;
             const r = el.getBoundingClientRect();
             if (r.width <= 0 || r.height <= 0) continue;
             const area = r.width * r.height;
@@ -739,6 +767,17 @@ async function runChoiceState(
     }
 
     await sleep(POST_CHOICE_SETTLE_MS);
+
+    // Reload before reading. Without this the state only ever saw tags that beacon *again* on
+    // their own — so a page-view pixel that had already fired during the pre-choice load had
+    // nothing left to send, and C1 reported "no marketing tag transmitted after the visitor
+    // rejected". Across 23 recorded storefronts B2 named Meta Pixel firing pre-consent 23 times
+    // and C1 named it zero times: the flagship test could not see the most common tag on the web.
+    // Five of eleven C1 passes sat on captures where Shopify still reported marketingAllowed=true,
+    // meaning the rejection had not been recorded anywhere and the site passed anyway.
+    await sc.page.reload({ waitUntil: "networkidle2", timeout: 45_000 }).catch(() => undefined);
+    await sleep(POST_CHOICE_SETTLE_MS);
+
     const capture = await finishCapture(state, sc, adapter, { screenshots, preChoiceCookies });
 
     if (state === "accept" && adapter.openPreferences) {
@@ -892,7 +931,10 @@ async function runGpcProbe(browser: Browser, url: string, adapter: CmpAdapter | 
         sc.page,
         () => {
           const body = (document.body?.innerText || "").slice(0, 20_000);
-          return /(opted?[- ]out|opt[- ]out (request|signal|preference)|do not sell|privacy (choices|preferences?) (honou?red|applied|saved)|global privacy control|gpc)/i.test(
+          // Must acknowledge that a signal was *received*. The phrase "do not sell" used to count,
+          // which every CCPA footer carries on every page for every visitor — so the check passed
+          // on the presence of a link it was not asking about, and tracked G3 exactly.
+          return /(opt[- ]?out (signal|request|preference)s? (was |been )?(received|honou?red|applied|detected|respected)|global privacy control (signal )?(detected|received|honou?red|respected)|we (have )?(detected|received) (your |a )?(gpc|global privacy control))/i.test(
             body,
           );
         },
