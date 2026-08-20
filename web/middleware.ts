@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/session";
-import { SHARE_SCOPE_COOKIE_NAME, verifyShareToken } from "@/lib/share";
+import { SHARE_SCOPE_COOKIE_NAME, tokenScope, verifyShareToken } from "@/lib/share";
 
 const PUBLIC_PATHS = ["/login", "/api/login", "/instructions", "/release-notes"];
 
@@ -17,7 +17,7 @@ export async function middleware(req: NextRequest) {
     const res = NextResponse.next();
     if (payload) {
       const maxAge = Math.max(0, Math.floor((payload.expires - Date.now()) / 1000));
-      res.cookies.set(SHARE_SCOPE_COOKIE_NAME, `${payload.slug}/${payload.id}`, {
+      res.cookies.set(SHARE_SCOPE_COOKIE_NAME, tokenScope(payload), {
         httpOnly: true,
         secure: true,
         sameSite: "lax",
@@ -37,7 +37,9 @@ export async function middleware(req: NextRequest) {
 
     const scope = req.cookies.get(SHARE_SCOPE_COOKIE_NAME)?.value ?? "";
     const [storeSlug, reportId] = pathname.slice("/api/screenshot/".length).split("/");
-    if (scope && scope === `${storeSlug}/${reportId}`) return NextResponse.next();
+    // Membership, not equality: a client report authorises the baseline's screenshots as well as
+    // the latest run's, and the scope is still an explicit list rather than a prefix.
+    if (scope && scope.split(",").includes(`${storeSlug}/${reportId}`)) return NextResponse.next();
 
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }

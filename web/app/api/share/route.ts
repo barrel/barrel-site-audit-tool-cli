@@ -11,12 +11,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing slug or id" }, { status: 400 });
   }
 
+  const compareId = typeof body?.compareId === "string" ? body.compareId : undefined;
+  const kind = body?.kind === "client" ? ("client" as const) : undefined;
+
   const report = await getReport(slug, id);
   if (!report) {
     return NextResponse.json({ error: "Report not found" }, { status: 404 });
   }
+  // Verified before it is signed. A token naming a report that does not exist would produce a
+  // link that looks valid, passes the signature check, and 404s in the client's browser.
+  if (compareId && !(await getReport(slug, compareId))) {
+    return NextResponse.json({ error: "Baseline report not found" }, { status: 404 });
+  }
 
-  const token = await createShareToken(slug, id);
+  const token = await createShareToken(slug, id, { compareId, kind });
   const url = new URL(`/share/${token}`, req.url).toString();
   return NextResponse.json({ url });
 }

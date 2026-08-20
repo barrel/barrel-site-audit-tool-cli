@@ -12,6 +12,19 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.20",
+    date: "2026-08-19",
+    title: "A report you can actually send a client",
+    notes: [
+      "**New: the client report** at `/client-report/<store>`, reachable from any store in Baseline & Reporting. One page, written for the client rather than the developer: overall score against baseline, the homepage side by side then and now, what moved in each area, and the three or four things worth doing next.",
+      "**It leads with progress, not problems.** Where a site has improved the report says so and names the biggest gain, because a document that only lists faults reads as a bill rather than as work delivered. The issues it does raise are framed by what fixing them wins.",
+      "**Deliberately capped at four issues.** A list of forty findings is a document nobody acts on; three or four is a conversation, and the full audit is still there for the detail.",
+      "**Shareable on the existing link machinery** — signed, 30-day expiry, view-only, no login. Extended so one link can authorise both reports it shows: a client link that renders the baseline screenshot as a broken image would undermine the whole point.",
+      "Print-styled, so Save as PDF produces something you can attach to an email.",
+      "An area missing from the baseline is left out of the comparison rather than counted as zero — inventing a dramatic gain from a measurement that never happened is the fastest way for a client to stop believing the rest of it.",
+    ],
+  },
+  {
     version: "1.19",
     date: "2026-08-19",
     title: "A real top navigation",

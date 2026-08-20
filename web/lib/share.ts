@@ -53,16 +53,38 @@ export interface ShareTokenPayload {
   slug: string;
   id: string;
   expires: number;
+  /** The baseline this report is being compared against, for a client-facing progress report.
+   * Optional so every link minted before this existed still verifies. */
+  compareId?: string;
+  /** "client" renders the shareable summary rather than the full audit. Absent means the full
+   * report, which is what every existing link means. */
+  kind?: "client";
 }
 
 // Stateless, signed link scoped to exactly one report — no server-side revocation list to
 // manage. Anyone holding the token can view that single report (and nothing else) until
 // `expires`.
-export async function createShareToken(slug: string, id: string): Promise<string> {
+export async function createShareToken(
+  slug: string,
+  id: string,
+  options: { compareId?: string; kind?: "client" } = {},
+): Promise<string> {
   const expires = Date.now() + SHARE_TOKEN_MAX_AGE_SECONDS * 1000;
-  const encoded = toBase64Url(JSON.stringify({ slug, id, expires }));
+  const payload: ShareTokenPayload = { slug, id, expires };
+  // Omitted rather than set to undefined: these end up in the signed blob, and a link that
+  // carries "kind": null reads as deliberate to whoever debugs it next.
+  if (options.compareId) payload.compareId = options.compareId;
+  if (options.kind) payload.kind = options.kind;
+  const encoded = toBase64Url(JSON.stringify(payload));
   const signature = await hmac(encoded);
   return `${encoded}.${signature}`;
+}
+
+/** Every report a token authorises. A client report shows two, and the screenshot scope has to
+ * cover both or the baseline image 404s inside an otherwise working page. */
+export function tokenScope(payload: ShareTokenPayload): string {
+  const ids = payload.compareId ? [payload.id, payload.compareId] : [payload.id];
+  return ids.map((id) => `${payload.slug}/${id}`).join(",");
 }
 
 export async function verifyShareToken(token: string | undefined | null): Promise<ShareTokenPayload | null> {

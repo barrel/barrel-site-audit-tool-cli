@@ -5,6 +5,7 @@ import { ReportHeader } from "@/components/ReportHeader";
 import { ReportNav } from "@/components/ReportNav";
 import { AboutBadge } from "@/components/AboutBadge";
 import { buildReportSections } from "@/lib/build-report-sections";
+import { ClientReport } from "@/components/ClientReport";
 import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,29 @@ export default async function SharedReportPage({
 
   const report = await getReport(payload.slug, payload.id);
   if (!report) notFound();
+
+  // A client link carries the summary, not the full audit. Same token machinery, same expiry,
+  // same screenshot scoping — only the rendering differs.
+  if (payload.kind === "client") {
+    const baseline = payload.compareId ? await getReport(payload.slug, payload.compareId) : null;
+    return (
+      <div className="min-h-screen bg-[#f9f8f6] print:bg-white">
+        <header className="bg-white border-b border-[#E5E5E5] px-6 lg:px-8 py-4 print:hidden">
+          <div className="max-w-[1000px] mx-auto flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-[#1A1A1A]">Barrel Site Audit</span>
+            <span className="text-[11px] text-[#9A9A9A] text-right">
+              Shared report — view only
+              <br />
+              Link expires {formatDate(new Date(payload.expires).toISOString())}
+            </span>
+          </div>
+        </header>
+        <main className="max-w-[1000px] mx-auto px-6 lg:px-8 py-8 print:px-0 print:py-0">
+          <ClientReport baseline={baseline} latest={report} />
+        </main>
+      </div>
+    );
+  }
 
   const sectionDefs = buildReportSections(report);
 
