@@ -4,7 +4,19 @@
   "version": "1.0.0",
   "description": "Reusable CLI + web report tool for auditing Shopify store code, performance, and site health.",
   "scripts": {
-    "build": "pnpm --filter ./cli build && pnpm --filter ./web build",
+    "build": "pnpm check && pnpm build:packages",
+    "build:packages": "pnpm --filter ./cli build && pnpm --filter ./web build",
+    "check": "node tools/harness/check.mjs",
+    "check:quick": "node tools/harness/check.mjs --quick",
+    "check:ci": "node tools/harness/check.mjs --no-heal",
+    "test": "node tools/harness/run-tests.mjs",
+    "test:packages": "pnpm -r --no-bail run test",
+    "typecheck": "pnpm --filter @barrel/site-audit-shared build && tsc -p cli/tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "lint": "node tools/harness/lint.mjs",
+    "lint:fix": "node tools/harness/lint.mjs --fix",
+    "lint:baseline": "node tools/harness/lint.mjs --update-baseline",
+    "format": "node tools/harness/format.mjs",
+    "format:fix": "node tools/harness/format.mjs --fix",
     "barrel-audit": "node cli/dist/index.js",
     "audit": "node cli/dist/index.js run",
     "web:dev": "pnpm --filter ./web dev",
@@ -13,5 +25,16 @@
   "engines": {
     "node": ">=22"
   },
-  "packageManager": "pnpm@11.13.1+sha512.b2fc7683b8a6525414e7d13e1ba28caaddde96bf66ec540bfaeb7e702b81f3e0be4d1f295edf7f9fe0396740a8dce4509c582ddf79891f4543fea32d37645f25"
+  "packageManager": "pnpm@11.13.1+sha512.b2fc7683b8a6525414e7d13e1ba28caaddde96bf66ec540bfaeb7e702b81f3e0be4d1f295edf7f9fe0396740a8dce4509c582ddf79891f4543fea32d37645f25",
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@next/eslint-plugin-next": "^15.5.23",
+    "@types/node": "^22.20.1",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^15.15.0",
+    "tsx": "^4.23.5",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.67.0"
+  }
 }

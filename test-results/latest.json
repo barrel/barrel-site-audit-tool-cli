@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-08-20T00:46:20.238Z",
+  "node": "v22.14.0",
+  "ok": true,
+  "counts": {
+    "passed": 130,
+    "failed": 0,
+    "skipped": 0,
+    "flaky": 0
+  },
+  "durationMs": 383,
+  "flaky": [],
+  "failures": []
+}

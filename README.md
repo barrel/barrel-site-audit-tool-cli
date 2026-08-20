@@ -84,6 +84,7 @@ barrel-site-audit/
   shared/   report types + scoring helpers shared by the CLI (source of truth)
   web/      Next.js report site, deployed to Vercel, password-gated
   stores/   one folder per client store: config.json + theme/ (theme code you drop in)
+  tools/    the test harness and build gate (`pnpm check`) — see docs/testing.md
 ```
 
 Reports live in **Vercel Blob storage**, not in this repo — the CLI uploads each report to
@@ -808,3 +809,27 @@ rank the site rather than the coverage. In that case it is also left out of the 
 Any confirmed top-severity failure (a consent blocker, a security `critical`) scales the section
 into the bottom half, so "leaks data after opt-out" or "serves a readable `.env`" can never
 present as a passing grade.
+
+## Tests and the build gate
+
+```bash
+pnpm test      # the suite on its own (~0.5s, nothing touches the network)
+pnpm check     # the whole gate: git-pr safety guard, format, lint, typecheck, tests (~8s)
+```
+
+`pnpm build` runs `pnpm check` first and refuses to build if it fails; `pnpm build:packages`
+skips the gate when you need the artifacts and nothing else.
+
+The suite is hermetic by design — **no test launches a browser or contacts a live site**, so
+none of it costs the minutes a real `consent-scan` does. It covers the consent analyzer's pure
+logic (which requests count as a transmission, when a Consent Mode ping is a denial rather than a
+hit, the `blocked`-not-`fail` rule for states the scan never reached, and how a score is
+computed), the dashboard→CLI argv builder, ADA-scope parsing, and the drift guards that catch
+`web/lib/shared.ts` falling behind `shared/src/types.ts`.
+
+The harness retries a failing test and reports anything that only passed on a retry as **flaky**
+rather than as passing. It auto-fixes formatting and lint and re-runs those steps; it never
+touches an assertion. Results land in `test-results/`.
+
+**[docs/testing.md](docs/testing.md)** has the full account — what "self-healing" does and, more
+importantly, what it deliberately does not do.

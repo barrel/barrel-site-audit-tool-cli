@@ -143,9 +143,6 @@ export function isConsentDeniedPing(url: string, category: TrackerCategory): boo
 /** Static assets a vendor serves: its own library, plus the fonts and images that come with it. */
 const ASSET_PATH = /\.(js|mjs|cjs|css|map|woff2?|ttf|eot|png|jpe?g|gif|svg|webp|ico|html?)$/i;
 
-/** Endpoints that are unambiguously a measurement beacon even though the path looks static. */
-const KNOWN_BEACONS = /\/(collect|tr|pixel|track|action\/[0-9]|ccm\/|rmkt\/|pagead\/(conversion|1p-user-list)|v3\/|user\/)/i;
-
 export type RequestKind = "script" | "transmission";
 
 /** Fetching a vendor's library, or telling that vendor about this visitor?
@@ -168,9 +165,15 @@ export function classifyRequest(url: string, signature?: TrackerSignature): Requ
   // The file extension is checked first and wins. `analytics.tiktok.com/i18n/pixel/events.js`
   // contains "pixel" and is still just a script download — letting a path segment outrank the
   // extension reported the library fetch as an identified event.
+  // Extension first, and it is the only thing that can rule out a transmission. A path segment
+  // like /pixel/ or /collect/ used to be checked here too, but it could only ever agree with the
+  // fallback below — and had it been checked first it would have re-classified
+  // `analytics.tiktok.com/i18n/pixel/events.js` as an identified event, which is the exact bug
+  // the extension rule exists to prevent. Everything not ruled out is treated as a transmission,
+  // so an endpoint nobody has catalogued produces a finding that can be checked against its
+  // evidence rather than one that is never raised.
   if (ASSET_PATH.test(path)) return "script";
   if (signature?.infrastructure?.test(path)) return "script";
-  if (KNOWN_BEACONS.test(path)) return "transmission";
   return "transmission";
 }
 

@@ -77,7 +77,7 @@ export function SuggestFixPanel({
   useEffect(() => {
     if (agent.checking) return;
     if (agent.detected && agent.token) void runSuggest();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, [agent.checking, agent.detected, agent.token]);
 
   useEffect(() => {
@@ -91,7 +91,7 @@ export function SuggestFixPanel({
         body: JSON.stringify({ slug: storeSlug, findingId: item.id }),
       }).catch(() => {});
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
   }, []);
 
   async function runSuggest() {

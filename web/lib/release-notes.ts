@@ -12,6 +12,19 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.22",
+    date: "2026-08-19",
+    title: "Automated tests, a build gate, and two bugs they caught",
+    notes: [
+      "**130 tests, and the build now refuses to proceed without them.** `pnpm check` runs the git-safety script, a formatting check, lint, typechecking across all three packages, and the suite — about ten seconds — and `pnpm build` runs it first. The tests are hermetic: nothing opens a socket or launches a browser, so they cannot be flaky for environmental reasons.",
+      "**Drift guards for the duplicated code.** `web/lib/shared.ts` is a hand-maintained copy of the shared types, and two more copies existed that nobody was watching — the run-argument builder and the blob paths. All three now fail the build when they diverge, naming which side is missing what. The mirror had already drifted.",
+      "**Caught: suite H findings were silently losing their evidence.** The map from test suite to browser state still stopped at G, so the dismissal tests — including \"closing the banner is not consent\" — dropped their screenshots. Retyped so the next new suite is a compile error until it is named.",
+      "**Caught: two checks claimed things about pages that never loaded.** The privacy-policy and Do-Not-Sell checks read the page capture directly instead of through the guard, so on a site that timed out they reported \"no privacy policy link was found\" as a finding. That is the coverage-gap-as-failure conflation the whole report is built to avoid, and it is now impossible: a test asserts that *nothing* can fail when nothing was reached.",
+      "**Self-healing has a hard boundary.** It retries a failing test, reports anything that only passed on retry as flaky rather than passed, and auto-fixes formatting and lint. It will never modify, soften, skip or regenerate an assertion — a harness that hides failures is worse than no harness. It also stands down entirely in CI.",
+      "Results land in `test-results/` as JSON and a readable summary.",
+    ],
+  },
+  {
     version: "1.21",
     date: "2026-08-19",
     title: "New: Security & Compliance",
@@ -43,7 +56,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     title: "A real top navigation",
     notes: [
       "**One navigation, defined once.** Every page carried its own header with an ad-hoc list of links, so each new surface either got forgotten or made the row longer until the buttons at the end started wrapping. Reports, Privacy Compliance, Baseline & Reporting and CLI Instructions now live in a shared nav with active-state highlighting, and the current section stays lit on its sub-pages.",
-      "**A page\'s title no longer competes with the nav for the same 73px.** Titles and page-specific actions moved to their own row underneath, which is what makes room for the next destination without another redesign.",
+      "**A page's title no longer competes with the nav for the same 73px.** Titles and page-specific actions moved to their own row underneath, which is what makes room for the next destination without another redesign.",
     ],
   },
   {
@@ -67,7 +80,7 @@ export const RELEASE_NOTES: ReleaseNote[] = [
       "**A false pass was possible on the one test that matters most.** The scanner found consent controls by matching button text anywhere on the page. An email-capture popup offers \"No thanks, continue without discount\" and \"OK\" — which matched the reject and accept patterns. Clicking one reported success, and the scan then measured a \"rejected\" state in which nobody had rejected anything, where every tracker naturally looked correctly blocked.",
       "**Consent controls are now found only inside consent UI.** A match must sit within a container that talks about cookies, privacy or tracking, and must not sit inside a known marketing popup — Klaviyo, Attentive, Privy, Justuno, OptinMonster, Wisepops, Omnisend, Postscript. A positive requirement rather than a blocklist: a consent banner always mentions cookies, and a discount modal never does.",
       "**Every consent choice is now confirmed before the state is measured.** If the banner is still showing afterwards, the click did not reach the CMP and the state is reported `blocked` rather than treated as a rejection. A mis-click can no longer present as consent working.",
-      "**Interstitials are disclosed rather than silently absorbed.** When a marketing modal is covering the page, the per-site report names it and says why it matters — it can sit over the consent banner, and its own vendor\'s tags load with it.",
+      "**Interstitials are disclosed rather than silently absorbed.** When a marketing modal is covering the page, the per-site report names it and says why it matters — it can sit over the consent banner, and its own vendor's tags load with it.",
       "Verified against four storefronts with live email-capture popups: no state became untestable, and the genuine post-rejection leak on one of them is still caught.",
     ],
   },
@@ -89,12 +102,12 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     date: "2026-08-19",
     title: "Privacy Compliance — separating \"the script loaded\" from \"data was sent\"",
     notes: [
-      "**A blocker now means data actually left the browser.** Downloading `connect.facebook.net/en_US/fbevents.js` is fetching a library; sending `facebook.com/tr?id=…&ev=PageView` is telling Meta about the visitor. The scan reported both as \"the pixel fired\" — which hands a client\'s developer a blocker they can correctly dismiss, and once one blocker is dismissed the genuine ones go with it. Every blocker-severity test now reads transmissions only.",
-      "**Script loads are still reported, at warning severity** (new B5 and C5), stating the weaker claim honestly: the vendor learns an IP address and a referring URL, which some readings of GDPR treat as a transfer in itself. Anthony\'s Goods is the shape of it — Meta, Google and Klaviyo genuinely transmitted pre-consent, while TikTok had only fetched its script.",
+      "**A blocker now means data actually left the browser.** Downloading `connect.facebook.net/en_US/fbevents.js` is fetching a library; sending `facebook.com/tr?id=…&ev=PageView` is telling Meta about the visitor. The scan reported both as \"the pixel fired\" — which hands a client's developer a blocker they can correctly dismiss, and once one blocker is dismissed the genuine ones go with it. Every blocker-severity test now reads transmissions only.",
+      "**Script loads are still reported, at warning severity** (new B5 and C5), stating the weaker claim honestly: the vendor learns an IP address and a referring URL, which some readings of GDPR treat as a transfer in itself. Anthony's Goods is the shape of it — Meta, Google and Klaviyo genuinely transmitted pre-consent, while TikTok had only fetched its script.",
       "**Findings now quote the identifying parameters**, so a claim proves itself: `px.ads.linkedin.com/db_sync (pid=12608, gdpr=0)` rather than a bare URL buried in a hundred query parameters.",
       "**A request that never arrived no longer counts as a fire.** Responses are tracked, not just requests, so a tag the CMP aborted stops reading as a tag that leaked. A 4xx still counts — the vendor received it and answered.",
-      "**Passing opt-out results are now confirmed by a second pass.** \"Nothing was transmitted after the visitor opted out\" is a negative claim, and one observation is thin evidence for a negative. A tag firing on nine loads in ten produced a clean pass on the tenth. Found immediately: one site\'s Klaviyo transmits after rejection intermittently, and is now reported flaky rather than confidently passed.",
-      "Two classifier bugs fixed in the process — `analytics.tiktok.com/i18n/pixel/events.js` was read as an event because its path contains \"pixel\", and Klaviyo\'s web fonts and geo-IP lookup were counted as tracking.",
+      "**Passing opt-out results are now confirmed by a second pass.** \"Nothing was transmitted after the visitor opted out\" is a negative claim, and one observation is thin evidence for a negative. A tag firing on nine loads in ten produced a clean pass on the tenth. Found immediately: one site's Klaviyo transmits after rejection intermittently, and is now reported flaky rather than confidently passed.",
+      "Two classifier bugs fixed in the process — `analytics.tiktok.com/i18n/pixel/events.js` was read as an event because its path contains \"pixel\", and Klaviyo's web fonts and geo-IP lookup were counted as tracking.",
     ],
   },
   {
@@ -103,11 +116,11 @@ export const RELEASE_NOTES: ReleaseNote[] = [
     title: "Privacy Compliance — bulk scanning and a report you can hand to a client",
     notes: [
       "**New: a comprehensive per-site report** at `/consent/<site>`, reachable from any row in the fleet table. It leads with a tag × consent-state matrix that answers the question clients actually ask — *I opted out, did Meta stop?* — as an explicit **OK / FAIL / Silent** verdict for every tag under every choice, rather than a colour you have to decode.",
-      "**Silent is its own verdict.** A tag that stays down when the visitor permitted it isn\'t a compliance problem, it\'s a destroyed-attribution problem — and a report that only looks for over-firing never finds it.",
-      "Below the matrix: every test with its status, detail, fix and evidence; then each state\'s cookies, Consent Mode signals, Shopify Customer Privacy state and banner screenshot. **Print → Save as PDF** is styled for it, so the PDF keeps selectable text and live links instead of being a screenshot.",
-      "**New: bulk scanning** at `/consent/run`. Paste any number of URLs or slugs — one per line or comma-separated, bare domains fine — and scan them independently of the per-store audit, with the CLI\'s output streaming live. `consent-scan` now takes as many targets as you pass on the command line too, and collapses duplicates. A bare domain like `blueair.com` is understood as a site rather than rejected as a missing registry slug — which is how a pasted column of domains actually arrives.",
+      "**Silent is its own verdict.** A tag that stays down when the visitor permitted it isn't a compliance problem, it's a destroyed-attribution problem — and a report that only looks for over-firing never finds it.",
+      "Below the matrix: every test with its status, detail, fix and evidence; then each state's cookies, Consent Mode signals, Shopify Customer Privacy state and banner screenshot. **Print → Save as PDF** is styled for it, so the PDF keeps selectable text and live links instead of being a screenshot.",
+      "**New: bulk scanning** at `/consent/run`. Paste any number of URLs or slugs — one per line or comma-separated, bare domains fine — and scan them independently of the per-store audit, with the CLI's output streaming live. `consent-scan` now takes as many targets as you pass on the command line too, and collapses duplicates. A bare domain like `blueair.com` is understood as a site rather than rejected as a missing registry slug — which is how a pasted column of domains actually arrives.",
       "Scanning drives a real browser, so it runs from a local checkout. On the deployed site that page becomes a **command builder** rather than a dead button — paste the list, copy the exact invocation, run it locally. Results publish to Blob either way, so the deployed dashboard shows them the moment the scan finishes.",
-      "Per-site detail is stored as its own blob rather than folded into the fleet payload, so the table everyone opens doesn\'t pay to load the cookie lists and evidence almost nobody scrolls to.",
+      "Per-site detail is stored as its own blob rather than folded into the fleet payload, so the table everyone opens doesn't pay to load the cookie lists and evidence almost nobody scrolls to.",
     ],
   },
   {

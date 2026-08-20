@@ -654,8 +654,11 @@ const G1: TestDef = {
   title: "Privacy policy link present and reachable",
   severity: "warning",
   run(ctx) {
-    const clean = state(ctx, "clean");
-    const href = clean?.links?.privacyPolicy;
+    // Through requireState, not state(): read directly, a page that never loaded produced no
+    // links, and "no privacy policy link was found" is then a claim about a page nobody saw.
+    // That is the coverage-gap-as-finding conflation the rest of this file exists to prevent.
+    return requireState(ctx, "clean", (clean) => {
+    const href = clean.links?.privacyPolicy;
     if (!href) {
       return bad("No privacy policy link was found on the page.", "Add a privacy policy link to the site footer.");
     }
@@ -667,6 +670,7 @@ const G1: TestDef = {
           `Fix or replace the link target: ${href}`,
           { notes: [href] },
         );
+    });
   },
 };
 
@@ -697,8 +701,8 @@ const G3: TestDef = {
     if (!ctx.region.startsWith("us") && ctx.region !== "ca-us") {
       return skip(`Not applicable to the "${ctx.region}" region.`);
     }
-    const clean = state(ctx, "clean");
-    if (clean?.links?.doNotSell) {
+    return requireState(ctx, "clean", (clean) => {
+    if (clean.links?.doNotSell) {
       // Present on the scanned page — but the requirement is every page, and a footer that only
       // carries the link on the homepage meets it in appearance rather than in fact.
       const returning = state(ctx, "returning");
@@ -715,12 +719,11 @@ const G3: TestDef = {
           : "A Do Not Sell / Your Privacy Choices link is present.",
       );
     }
-    return clean?.links?.doNotSell
-      ? ok("A Do Not Sell / Your Privacy Choices link is present.")
-      : bad(
-          "No \"Do Not Sell or Share My Personal Information\" link was found.",
-          "California, Colorado, Connecticut and several other state laws require a clearly labelled opt-out link in the footer for sites that share data with advertising partners.",
-        );
+    return bad(
+      "No \"Do Not Sell or Share My Personal Information\" link was found.",
+      "California, Colorado, Connecticut and several other state laws require a clearly labelled opt-out link in the footer for sites that share data with advertising partners.",
+    );
+    });
   },
 };
 
