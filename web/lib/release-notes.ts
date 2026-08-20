@@ -12,6 +12,23 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.27",
+    date: "2026-08-19",
+    title: "The same audit, turned on the security section",
+    notes: [
+      "The adversarial pass that found six false passes in the consent scanner was run again against the security checks, with the same question asked of every finding: **what else could produce this, other than the fault it names?** Nine answers, and this time the worst ones ran in the other direction — findings the tool would raise against sites that had done nothing wrong.",
+      "**A `/config.json` finding fired on any valid JSON.** The match condition was, in effect, \"does this parse\" — so `{}`, `{\"error\":\"not found\"}`, and any headless storefront whose catch-all answers unknown paths with a JSON 200 were reported at **critical**, described as matching the real file, and told to rotate every credential the client owns. It also tripped the score's critical-failure gate, taking a 64 to a 31 on that one probe. The check now requires secret-shaped content — a key like `password`, `token` or `api_key` carrying a real value, or a PEM private-key block — and says so in its own wording.",
+      "**Nothing checked whether the homepage request had actually succeeded.** A Cloudflare challenge, a 429, a 503 or a Shopify password page flowed into all eighteen checks as though it were the store. Because an interstitial ships `x-frame-options`, `nosniff` and a `referrer-policy` of its own, **the storefront was credited with header controls it may not set anywhere**, while CSP, HSTS and every cookie flag were read off the edge's page. Those checks are now *not tested*, with the status code in the reason. TLS, the HTTP→HTTPS redirect and the file probes make their own requests and still report.",
+      "**The jQuery check stopped at the first copy it could read.** A theme on 3.7.1 and an app dragging in 1.12.4 passed on the theme's copy — and a third copy was never fetched at all. It now reads every jQuery tag on the page and reports the oldest, which is the one that matters: a newer copy elsewhere does not remove the old one.",
+      "**Clickjacking protection passed on a `<meta>`-delivered policy.** Browsers ignore `frame-ancestors` in a meta tag by specification, so that was a pass for a control no browser applies. It now requires the response header — and treats `https:` as the wildcard it is, matching what the CSP `script-src` check next door had always done.",
+      "**`Permissions-Policy` passed on presence alone**, so `camera=*, microphone=*` — which grants exactly what sending no header grants — passed with the permissive policy printed underneath as its own evidence.",
+      "**Cookie findings named cookies the site cannot change.** The list that correctly excuses `_ga` and `_shopify_*` from `HttpOnly` was wired to that one check; `Secure` and `SameSite` still failed storefronts over cookies Shopify and gtag set, with a fix instruction that has no place in the codebase to apply it. All three now separate what the site owns from what it merely carries.",
+      "**Mixed content ignored `upgrade-insecure-requests`** — a directive the analyzer already read — and told clients their scripts were blocked on pages the browser silently upgrades and renders fine.",
+      "**An incomplete certificate chain was reported as an outage.** Node stops where the served chain stops; every mainstream browser fetches the missing intermediate itself. \"Visitors reach an interstitial browser warning\" was a claim about a site that loads normally. It is now reported as what it is — a compatibility defect that breaks webhooks and API clients while the storefront looks healthy — and an error code the tool does not recognise no longer carries a claim about what a browser does with it.",
+      "**The HTTP→HTTPS and exposed-file probes tested the wrong host.** They ran against wherever redirects had landed, so an apex serving plaintext passed on the strength of its canonical host's redirect. They now probe the hostname as it was given, and the finding says which hostname that was.",
+    ],
+  },
+  {
     version: "1.26",
     date: "2026-08-19",
     title: "An adversarial audit of the scanner, and the false passes it found",

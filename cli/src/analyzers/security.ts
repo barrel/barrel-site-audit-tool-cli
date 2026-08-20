@@ -143,10 +143,14 @@ interface CspContext {
   enforced: string | null;
   /** Where the enforced policy came from, so the finding can name a header or a tag by name. */
   source: string | null;
+  /** The header-delivered policy alone. Kept separate because a handful of directives —
+   * frame-ancestors, report-uri and sandbox — are ignored outright when they arrive in a
+   * <meta http-equiv> tag, so a check on one of those must not read the meta policy. */
+  header: string | null;
   reportOnly: string | null;
 }
 
-function readCsp(res: Response, $: cheerio.CheerioAPI): CspContext {
+export function readCsp(res: Response, $: cheerio.CheerioAPI): CspContext {
   const header = res.headers.get("content-security-policy");
   // Case-insensitively, because http-equiv is matched case-insensitively by browsers and a theme
   // that writes `Content-Security-policy` would otherwise look like it had no policy at all.
@@ -160,11 +164,20 @@ function readCsp(res: Response, $: cheerio.CheerioAPI): CspContext {
   return {
     enforced: header ?? meta,
     source: header ? "the Content-Security-Policy response header" : meta ? "a <meta http-equiv> tag in the page" : null,
+    header,
     reportOnly: res.headers.get("content-security-policy-report-only"),
   };
 }
 
-function cspCheck(csp: CspContext): SecurityCheck {
+/** Source expressions that match every origin. `https:` and `http:` are scheme sources: they allow
+ * any host on that scheme, which is a wildcard wearing a lock icon. Shared by every directive
+ * check so one of them cannot quietly disagree with another about what "restricted" means. */
+function isWildcardSource(tokens: string[]): boolean {
+  const lower = tokens.map((t) => t.toLowerCase());
+  return lower.includes("*") || lower.includes("https:") || lower.includes("http:") || lower.includes("http://*") || lower.includes("https://*");
+}
+
+export function cspCheck(csp: CspContext): SecurityCheck {
   const id = "csp";
   const cat: SecurityCheckCategory = "headers";
   const title = "Content-Security-Policy";
@@ -215,7 +228,7 @@ function cspCheck(csp: CspContext): SecurityCheck {
   const tokens = scriptSrc.map((t) => t.toLowerCase());
   const unsafeInline = tokens.includes("'unsafe-inline'");
   const unsafeEval = tokens.includes("'unsafe-eval'");
-  const wildcard = tokens.includes("*") || tokens.includes("http:") || tokens.includes("https:");
+  const wildcard = isWildcardSource(tokens);
   // A nonce or hash makes 'unsafe-inline' inert in every browser that understands either, so a
   // policy carrying both is strict in practice — flagging it would be reporting the fallback token
   // as if it were the effective policy.
@@ -256,62 +269,55 @@ function cspCheck(csp: CspContext): SecurityCheck {
   );
 }
 
-function frameAncestorsCheck(res: Response, csp: CspContext): SecurityCheck {
-  const frameAncestors = csp.enforced ? cspDirective(csp.enforced, "frame-ancestors") : null;
+export function frameAncestorsCheck(res: Response, csp: CspContext): SecurityCheck {
+  const id = "frame-ancestors";
+  const cat: SecurityCheckCategory = "headers";
+  const title = "Clickjacking protection (frame-ancestors / X-Frame-Options)";
+  const sev: SecuritySeverity = "medium";
+
+  // frame-ancestors is one of the directives the CSP specification excludes from <meta http-equiv>
+  // delivery, and browsers ignore it there. Reading the meta policy would credit a site with a
+  // control no browser is applying, which is precisely the false pass this check exists to avoid.
+  const headerAncestors = csp.header ? cspDirective(csp.header, "frame-ancestors") : null;
+  const metaAncestors = csp.enforced && !csp.header ? cspDirective(csp.enforced, "frame-ancestors") : null;
   const xfo = res.headers.get("x-frame-options");
   const observed = [
-    ...(frameAncestors ? [`frame-ancestors ${frameAncestors.join(" ")}`] : []),
+    ...(headerAncestors ? [`content-security-policy: frame-ancestors ${headerAncestors.join(" ")}`] : []),
+    ...(metaAncestors ? [`<meta http-equiv="content-security-policy">: frame-ancestors ${metaAncestors.join(" ")} (ignored by browsers)`] : []),
     ...(xfo ? [`x-frame-options: ${xfo}`] : []),
   ];
   const fix =
-    "Add `frame-ancestors 'self'` to the Content-Security-Policy (and, for older browsers, " +
-    "`X-Frame-Options: SAMEORIGIN`) at the edge in front of the storefront. If a partner genuinely embeds the store, " +
-    "name their origin in frame-ancestors rather than leaving it open.";
+    "Add `frame-ancestors 'self'` to the Content-Security-Policy **response header** (and, for older browsers, " +
+    "`X-Frame-Options: SAMEORIGIN`) at the edge in front of the storefront. A frame-ancestors directive in a " +
+    "<meta http-equiv> tag does not count — the specification excludes it from meta delivery and browsers ignore it " +
+    "there. If a partner genuinely embeds the store, name their origin in frame-ancestors rather than leaving it open.";
 
-  if (frameAncestors && !frameAncestors.includes("*")) {
-    return check(
-      "frame-ancestors",
-      "headers",
-      "Clickjacking protection (frame-ancestors / X-Frame-Options)",
-      "medium",
-      "pass",
-      `The CSP restricts framing to ${frameAncestors.join(", ")}.`,
-      undefined,
-      { observed },
-    );
+  if (headerAncestors && !isWildcardSource(headerAncestors)) {
+    return check(id, cat, title, sev, "pass", `The CSP response header restricts framing to ${headerAncestors.join(", ")}.`, undefined, { observed });
   }
 
   const xfoValue = (xfo ?? "").trim().toLowerCase();
   if (xfoValue === "deny" || xfoValue === "sameorigin") {
-    return check(
-      "frame-ancestors",
-      "headers",
-      "Clickjacking protection (frame-ancestors / X-Frame-Options)",
-      "medium",
-      "pass",
-      `X-Frame-Options is set to ${xfo}, so the page cannot be framed by another site.`,
-      undefined,
-      { observed },
-    );
+    return check(id, cat, title, sev, "pass", `X-Frame-Options is set to ${xfo}, so the page cannot be framed by another site.`, undefined, { observed });
   }
 
-  return check(
-    "frame-ancestors",
-    "headers",
-    "Clickjacking protection (frame-ancestors / X-Frame-Options)",
-    "medium",
-    "fail",
-    frameAncestors || xfo
-      ? `Framing is not restricted: ${observed.join("; ")}. Any site can load this storefront in an invisible iframe ` +
-          "and overlay it, which is how clickjacking gets a real customer to click a control they cannot see."
-      : "Neither a CSP frame-ancestors directive nor an X-Frame-Options header is sent, so any site can load this " +
-          "storefront in an invisible iframe and overlay it.",
-    fix,
-    observed.length > 0 ? { observed } : undefined,
-  );
+  const detail = headerAncestors
+    ? `The CSP header's frame-ancestors allows any origin (${headerAncestors.join(" ")}), so framing is not restricted. ` +
+      "Any site can load this storefront in an invisible iframe and overlay it, which is how clickjacking gets a real " +
+      "customer to click a control they cannot see."
+    : metaAncestors
+      ? `frame-ancestors is delivered only in a <meta http-equiv> tag (${metaAncestors.join(" ")}), where browsers ignore ` +
+        "it — the directive is valid in a response header only. No X-Frame-Options header takes its place, so framing is " +
+        "unrestricted in practice despite the tag being present."
+      : xfo
+        ? `X-Frame-Options reads "${xfo}", which is not a value browsers act on, and no CSP frame-ancestors header is sent.`
+        : "Neither a CSP frame-ancestors response header nor an X-Frame-Options header is sent, so any site can load this " +
+          "storefront in an invisible iframe and overlay it.";
+
+  return check(id, cat, title, sev, "fail", detail, fix, observed.length > 0 ? { observed } : undefined);
 }
 
-function hstsCheck(res: Response, isHttps: boolean): SecurityCheck {
+export function hstsCheck(res: Response, isHttps: boolean): SecurityCheck {
   const id = "hsts";
   const cat: SecurityCheckCategory = "headers";
   const title = "Strict-Transport-Security";
@@ -386,7 +392,7 @@ function hstsCheck(res: Response, isHttps: boolean): SecurityCheck {
   );
 }
 
-function nosniffCheck(res: Response): SecurityCheck {
+export function nosniffCheck(res: Response): SecurityCheck {
   const value = res.headers.get("x-content-type-options");
   const ok = (value ?? "").trim().toLowerCase() === "nosniff";
   return check(
@@ -410,7 +416,7 @@ function nosniffCheck(res: Response): SecurityCheck {
 /** Values that make the browser send more referrer information than its own default would. */
 const LEAKY_REFERRER_POLICIES = new Set(["unsafe-url", "no-referrer-when-downgrade", "origin-when-cross-origin"]);
 
-function referrerPolicyCheck(res: Response): SecurityCheck {
+export function referrerPolicyCheck(res: Response): SecurityCheck {
   const value = res.headers.get("referrer-policy");
   const id = "referrer-policy";
   const cat: SecurityCheckCategory = "headers";
@@ -463,7 +469,30 @@ function referrerPolicyCheck(res: Response): SecurityCheck {
   return check(id, cat, title, sev, "pass", `The effective policy is "${effective}".`, undefined, { observed });
 }
 
-function permissionsPolicyCheck(res: Response): SecurityCheck {
+/** The capabilities whose misuse a visitor would actually notice, and the ones the fix text names.
+ * A wildcard on `fullscreen` is not worth a finding; a wildcard on `camera` is the whole point of
+ * the header. */
+const SENSITIVE_CAPABILITIES = ["camera", "microphone", "geolocation", "payment", "display-capture", "usb", "midi"];
+
+/** Returns the sensitive directives this policy grants to every origin.
+ *
+ * Permissions-Policy allowlists are written `camera=()` (nobody), `camera=(self)`, or `camera=*`
+ * (everybody, including every embedded third-party frame). The last is the browser's own default
+ * for most of these, so naming a capability and then wildcarding it grants exactly what sending no
+ * header at all would — while reading, to anyone skimming, like a control. */
+export function wildcardedCapabilities(value: string): string[] {
+  const found: string[] = [];
+  for (const part of value.split(",")) {
+    const [rawName, ...rest] = part.split("=");
+    const name = (rawName ?? "").trim().toLowerCase();
+    if (!SENSITIVE_CAPABILITIES.includes(name)) continue;
+    const allowlist = rest.join("=").trim().toLowerCase();
+    if (allowlist === "*" || allowlist === "(*)") found.push(name);
+  }
+  return found;
+}
+
+export function permissionsPolicyCheck(res: Response): SecurityCheck {
   const value = res.headers.get("permissions-policy");
   const legacy = res.headers.get("feature-policy");
   const id = "permissions-policy";
@@ -476,9 +505,37 @@ function permissionsPolicyCheck(res: Response): SecurityCheck {
     "script or an embedded third-party frame can even ask the visitor for.";
 
   if (value) {
-    return check(id, cat, title, sev, "pass", `A Permissions-Policy is sent: ${value}`, undefined, {
-      observed: [`permissions-policy: ${value}`],
-    });
+    const wildcarded = wildcardedCapabilities(value);
+    if (wildcarded.length > 0) {
+      // Warn rather than fail: the policy still constrains whatever it does not wildcard, and a
+      // wildcard grants no more than the browser default would. But it is not a pass — a header
+      // reading `camera=*` is the absence of a control, not the presence of one, and the previous
+      // behaviour printed that string as its own evidence of protection.
+      return check(
+        id,
+        cat,
+        title,
+        sev,
+        "warn",
+        `A Permissions-Policy is sent, but it grants ${wildcarded.join(", ")} to every origin (\`=*\`), including any ` +
+          "third-party frame the page embeds. For those capabilities the header allows exactly what sending no header " +
+          "at all would.",
+        fix,
+        { observed: [`permissions-policy: ${value}`] },
+      );
+    }
+    return check(
+      id,
+      cat,
+      title,
+      sev,
+      "pass",
+      `A Permissions-Policy is sent and none of ${SENSITIVE_CAPABILITIES.join(", ")} is granted to every origin. ` +
+        "Whether the directives it does set are the right ones for this storefront is a judgement about the site's " +
+        "features, not something this check can decide.",
+      undefined,
+      { observed: [`permissions-policy: ${value}`] },
+    );
   }
   if (legacy) {
     return check(
@@ -507,12 +564,17 @@ function permissionsPolicyCheck(res: Response): SecurityCheck {
 
 /* ── transport ───────────────────────────────────────────────────────────────────────────── */
 
+/** Takes the origin as it was *requested*, not the one the browser ended up on. A store whose apex
+ * serves plaintext and redirects to a canonical www host would otherwise be tested at www — which
+ * redirects correctly — and pass, while `http://apex/` (the URL a customer actually types) went
+ * unexamined. The scope is one hostname either way, and the finding says which. */
 async function httpRedirectCheck(origin: string): Promise<SecurityCheck> {
   const id = "https-redirect";
   const cat: SecurityCheckCategory = "transport";
   const title = "HTTP redirects to HTTPS";
   const sev: SecuritySeverity = "high";
   const target = `http://${new URL(origin).host}/`;
+  const scopeNote = `Tested against ${new URL(origin).host} only. Another hostname that also answers for this store — an apex against a www, or a legacy domain — is not covered by this result.`;
   const fix =
     "Configure a permanent (301/308) redirect from http:// to https:// for every path at the edge, and pair it with " +
     "Strict-Transport-Security so returning visitors never make the plaintext request in the first place.";
@@ -546,10 +608,10 @@ async function httpRedirectCheck(origin: string): Promise<SecurityCheck> {
         title,
         sev,
         permanent ? "pass" : "warn",
-        `A plaintext request to ${target} answered ${res.status} and redirected to ${dest}.` +
+        `A plaintext request to ${target} answered ${res.status} and redirected to ${dest}. ${scopeNote}` +
           (permanent ? "" : " The redirect is temporary, so browsers and intermediaries will not cache it and every visit repeats the plaintext hop."),
         permanent ? undefined : "Change the redirect status to 301 (or 308 to preserve the request method) so it is cacheable.",
-        { urls: [target], observed },
+        { urls: [target], observed, notes: [scopeNote] },
       );
     }
     return check(id, cat, title, sev, "fail", `A plaintext request to ${target} redirected to ${location}, which is not HTTPS.`, fix, {
@@ -589,7 +651,7 @@ function firstName(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-interface CertInfo {
+export interface CertInfo {
   authorized: boolean;
   authorizationError?: string;
   validTo?: string;
@@ -629,22 +691,46 @@ function inspectCertificate(host: string, port: number): Promise<CertInfo | null
   });
 }
 
-async function certificateCheck(pageUrl: URL, isHttps: boolean): Promise<SecurityCheck> {
+/** Node's verifier stops where the chain the server sent stops. Browsers do not: on these errors
+ * Chrome, Safari, Firefox and Edge all follow the certificate's Authority Information Access
+ * extension, fetch the missing intermediate and complete the chain themselves — so a site failing
+ * here can be, and usually is, perfectly fine in a browser.
+ *
+ * That makes "visitors reach an interstitial" a claim we cannot support from this handshake, which
+ * is why these codes are separated out and softened. The condition is still real and still worth
+ * fixing: AIA chasing is not universal (OpenSSL, curl, older Android, Java clients and payment
+ * webhooks commonly do not do it), so an incomplete chain breaks integrations while leaving the
+ * storefront looking healthy. Reported as what it is, not as an outage. */
+const INCOMPLETE_CHAIN_ERRORS = new Set(["UNABLE_TO_VERIFY_LEAF_SIGNATURE", "UNABLE_TO_GET_ISSUER_CERT", "UNABLE_TO_GET_ISSUER_CERT_LOCALLY"]);
+
+/** Errors where every browser genuinely shows a full-page warning: the leaf itself is expired, is
+ * not trusted, or is not for this hostname. No chain-building can rescue any of these. */
+const HARD_TRUST_ERRORS = new Set([
+  "CERT_HAS_EXPIRED",
+  "CERT_NOT_YET_VALID",
+  "DEPTH_ZERO_SELF_SIGNED_CERT",
+  "SELF_SIGNED_CERT_IN_CHAIN",
+  "CERT_REVOKED",
+  "ERR_TLS_CERT_ALTNAME_INVALID",
+  "CERT_UNTRUSTED",
+]);
+
+export type CertFailureKind = "incomplete-chain" | "hard-trust" | "unclassified";
+
+export function classifyCertError(code: string | undefined): CertFailureKind {
+  const normalised = (code ?? "").trim().toUpperCase();
+  if (INCOMPLETE_CHAIN_ERRORS.has(normalised)) return "incomplete-chain";
+  if (HARD_TRUST_ERRORS.has(normalised)) return "hard-trust";
+  return "unclassified";
+}
+
+/** The whole verdict, separated from the socket so it can be exercised without one. `now` is a
+ * parameter for the same reason. */
+export function certificateVerdict(info: CertInfo, host: string, now: number = Date.now()): SecurityCheck {
   const id = "tls-certificate";
   const cat: SecurityCheckCategory = "transport";
   const title = "TLS certificate validity";
   const sev: SecuritySeverity = "critical";
-
-  if (!isHttps) {
-    return check(id, cat, title, sev, "not-tested", "The storefront resolved to a plaintext HTTP URL, so there is no certificate to inspect.");
-  }
-
-  const host = pageUrl.hostname;
-  const port = Number(pageUrl.port || 443);
-  const info = await inspectCertificate(host, port);
-  if (!info) {
-    return check(id, cat, title, sev, "not-tested", `A TLS handshake with ${host}:${port} did not complete within ${TIMEOUT_MS / 1000}s.`);
-  }
 
   const observed = [
     ...(info.subject ? [`subject CN: ${info.subject}`] : []),
@@ -653,17 +739,62 @@ async function certificateCheck(pageUrl: URL, isHttps: boolean): Promise<Securit
   ];
 
   if (!info.authorized) {
+    const kind = classifyCertError(info.authorizationError);
+    const reissue =
+      "Reissue the certificate for this exact hostname from a publicly trusted CA and install the full chain " +
+      "(leaf plus intermediates). On Shopify-hosted domains this usually means removing and re-adding the domain " +
+      "under Online Store > Domains so the managed certificate is reprovisioned.";
+
+    if (kind === "incomplete-chain") {
+      return check(
+        id,
+        cat,
+        title,
+        // Deliberately not `critical`: an incomplete chain that browsers repair themselves is an
+        // integration and compatibility defect, and scoring it as an outage would be the same
+        // overstatement as the sentence this branch exists to remove.
+        "medium",
+        "warn",
+        `The certificate served by ${host} did not verify with the chain the server sent (${info.authorizationError}), ` +
+          "which means an intermediate certificate is missing from what it presents. Mainstream browsers fetch that " +
+          "missing intermediate themselves via the certificate's AIA extension, so this check cannot say a visitor sees " +
+          "a warning — and most will not. Clients that do not chase AIA (curl and OpenSSL, older Android, many server-" +
+          "side HTTP libraries) fail the handshake outright, so the usual symptom is a webhook or an API integration " +
+          "that breaks while the storefront looks healthy.",
+        "Serve the full chain — leaf plus every intermediate up to a root in the public trust stores — from the " +
+          "terminating server or CDN. " +
+          reissue,
+        { observed },
+      );
+    }
+
+    if (kind === "hard-trust") {
+      return check(
+        id,
+        cat,
+        title,
+        sev,
+        "fail",
+        `The certificate served by ${host} does not verify against the public trust stores: ${info.authorizationError}. ` +
+          "No browser can repair this one by fetching a missing intermediate, so visitors reach an interstitial browser " +
+          "warning before they reach the store.",
+        reissue,
+        { observed },
+      );
+    }
+
+    // An error code this tool does not recognise. The verification result is a fact and is
+    // reported; what a visitor's browser does with it is not, so nothing is claimed about that.
     return check(
       id,
       cat,
       title,
       sev,
       "fail",
-      `The certificate served by ${host} does not verify against the public trust stores: ${info.authorizationError}. ` +
-        "Visitors reach an interstitial browser warning before they reach the store.",
-      "Reissue the certificate for this exact hostname from a publicly trusted CA and install the full chain " +
-        "(leaf plus intermediates). On Shopify-hosted domains this usually means removing and re-adding the domain " +
-        "under Online Store > Domains so the managed certificate is reprovisioned.",
+      `The certificate served by ${host} does not verify against Node's copy of the public trust stores: ` +
+        `${info.authorizationError}. This tool does not recognise that error code, so it makes no claim about what a ` +
+        "visitor's browser does with it — confirm in a browser before treating it as an outage.",
+      reissue,
       { observed },
     );
   }
@@ -675,7 +806,7 @@ async function certificateCheck(pageUrl: URL, isHttps: boolean): Promise<Securit
     });
   }
 
-  const days = Math.floor((expiry.getTime() - Date.now()) / 86_400_000);
+  const days = Math.floor((expiry.getTime() - now) / 86_400_000);
   if (days < 0) {
     return check(
       id,
@@ -708,10 +839,31 @@ async function certificateCheck(pageUrl: URL, isHttps: boolean): Promise<Securit
     title,
     sev,
     "pass",
-    `The certificate verifies against the public trust stores and is valid for another ${days} day(s), until ${expiry.toISOString().slice(0, 10)}.`,
+    `The certificate verifies against the public trust stores — chain included, as the server sent it — and is valid ` +
+      `for another ${days} day(s), until ${expiry.toISOString().slice(0, 10)}.`,
     undefined,
     { observed },
   );
+}
+
+async function certificateCheck(pageUrl: URL, isHttps: boolean): Promise<SecurityCheck> {
+  const id = "tls-certificate";
+  const cat: SecurityCheckCategory = "transport";
+  const title = "TLS certificate validity";
+  const sev: SecuritySeverity = "critical";
+
+  if (!isHttps) {
+    return check(id, cat, title, sev, "not-tested", "The storefront resolved to a plaintext HTTP URL, so there is no certificate to inspect.");
+  }
+
+  const host = pageUrl.hostname;
+  const port = Number(pageUrl.port || 443);
+  const info = await inspectCertificate(host, port);
+  if (!info) {
+    return check(id, cat, title, sev, "not-tested", `A TLS handshake with ${host}:${port} did not complete within ${TIMEOUT_MS / 1000}s.`);
+  }
+
+  return certificateVerdict(info, host);
 }
 
 /** Attributes whose value the browser fetches as a subresource of the page. Split by whether the
@@ -721,7 +873,7 @@ async function certificateCheck(pageUrl: URL, isHttps: boolean): Promise<Securit
 const ACTIVE_MIXED_SELECTORS = ["script[src]", 'link[rel="stylesheet"][href]', "iframe[src]", "object[data]", "form[action]"];
 const PASSIVE_MIXED_SELECTORS = ["img[src]", "video[src]", "audio[src]", "source[src]", "track[src]"];
 
-function mixedContentCheck($: cheerio.CheerioAPI, isHttps: boolean, csp: CspContext): SecurityCheck {
+export function mixedContentCheck($: cheerio.CheerioAPI, isHttps: boolean, csp: CspContext): SecurityCheck {
   const id = "mixed-content";
   const cat: SecurityCheckCategory = "transport";
   const title = "No mixed content in the delivered HTML";
@@ -753,14 +905,25 @@ function mixedContentCheck($: cheerio.CheerioAPI, isHttps: boolean, csp: CspCont
   const scopeNote = "Read from the HTML the server delivered; resources requested later by JavaScript are outside what this check can see.";
 
   if (active.length > 0) {
+    // upgrade-insecure-requests rewrites http:// subresource URLs to https:// before the request
+    // is made, active content included. Telling a client their scripts are blocked on a site that
+    // sets it would be a false finding about a page that renders correctly — the markup is still
+    // wrong, and it breaks the day a referenced host has no working HTTPS, but that is a warning
+    // about fragility rather than a report of a broken storefront.
     return check(
       id,
       cat,
       title,
       sev,
-      "fail",
+      upgrades ? "warn" : "fail",
       `${active.length} script, stylesheet, iframe or form target on the page is referenced over plaintext http://. ` +
-        `Browsers block insecure active content on an HTTPS page outright, so these are broken as well as insecure. ${scopeNote}`,
+        (upgrades
+          ? "The page's CSP sets upgrade-insecure-requests, so browsers rewrite each of these to https:// before " +
+            "requesting it: they are not blocked today, and nothing visible is broken. They break the moment a " +
+            "referenced host stops answering on https://, and the upgrade does not apply to a visitor whose browser " +
+            "never sees the policy. "
+          : "Browsers block insecure active content on an HTTPS page outright, so these are broken as well as insecure. ") +
+        scopeNote,
       "Change these references to https:// (or to protocol-relative paths served by the theme). If a vendor genuinely " +
         "has no HTTPS endpoint, that vendor cannot be used on a secure page — `upgrade-insecure-requests` papers over " +
         "the symptom without fixing the underlying reference.",
@@ -800,7 +963,7 @@ interface ParsedCookie {
   raw: string;
 }
 
-function parseCookies(res: Response): ParsedCookie[] {
+export function parseCookies(res: Response): ParsedCookie[] {
   return res.headers.getSetCookie().map((raw) => {
     const [pair, ...attrs] = raw.split(";");
     const lower = attrs.map((a) => a.trim().toLowerCase());
@@ -820,13 +983,44 @@ function parseCookies(res: Response): ParsedCookie[] {
  * missing HttpOnly matters, because reading one is equivalent to being the customer. */
 const SESSION_COOKIE = /(^|_)(sess|session|sid|auth|token|jwt|login|logged_in|remember|csrf|xsrf)(_|$)|^_secure_|_sig$|^secure_/i;
 
-/** Cookies a front-end script is supposed to read, so their lack of HttpOnly is by design and
- * demanding it would break the tag. Kept explicit rather than inferred: telling a client to set
- * HttpOnly on `_ga` is a recommendation that cannot be followed, and one of those is enough for an
- * engineer to stop reading the section. */
-const CLIENT_READ_COOKIE = /^(_ga|_gid|_gat|_gcl|_fbp|_fbc|_clck|_clsk|_uet|_shopify_|_landing_page|_orig_referrer|cart_currency|localization|keep_alive)/i;
+/** Cookies the storefront does not issue: Shopify's own platform cookies and the analytics cookies
+ * a vendor's tag writes from JavaScript. Two consequences, and both matter:
+ *
+ * - A front-end script is *supposed* to read them, so a missing HttpOnly is by design.
+ * - Nobody working on this storefront can change their flags. The Secure and SameSite attributes on
+ *   `_shopify_y` are Shopify's to set; on `_ga` they come from the gtag configuration, not from the
+ *   theme. A finding that names them with a fix the reader cannot carry out is an instruction to
+ *   stop reading the section, which is why the same distinction is applied to all three cookie
+ *   checks rather than to HttpOnly alone. It mirrors `splitByOwner` in consent/testcases.ts, which
+ *   exists for exactly this problem on the consent side. */
+const VENDOR_OWNED_COOKIE = /^(_ga|_gid|_gat|_gcl|_fbp|_fbc|_clck|_clsk|_uet|_shopify_|_landing_page|_orig_referrer|cart_currency|localization|keep_alive)/i;
 
-function cookieSecureCheck(cookies: ParsedCookie[], isHttps: boolean): SecurityCheck {
+interface CookieOwners {
+  /** Set by the storefront (or by code deployed with it), so its flags are the site's to change. */
+  siteOwned: ParsedCookie[];
+  /** Set by Shopify or by a third-party tag; reportable, but not actionable in the theme. */
+  vendorOwned: ParsedCookie[];
+}
+
+function splitByOwner(cookies: ParsedCookie[]): CookieOwners {
+  return {
+    siteOwned: cookies.filter((c) => !VENDOR_OWNED_COOKIE.test(c.name)),
+    vendorOwned: cookies.filter((c) => VENDOR_OWNED_COOKIE.test(c.name)),
+  };
+}
+
+function names(cookies: ParsedCookie[]): string {
+  return cookies.map((c) => c.name).join(", ");
+}
+
+/** What can honestly be asked about a cookie the site does not set. Deliberately not "add the flag
+ * where it is issued" — there is no such place in this codebase. */
+const VENDOR_COOKIE_NOTE =
+  "These are set by Shopify or by a third-party tag rather than by the storefront, so the theme cannot add the flag. " +
+  "The levers that do exist are the vendor's own configuration (gtag's `cookie_flags`, a tag manager's cookie " +
+  "settings) and, for the `_shopify_*` cookies, nothing at all — those are Shopify's to change.";
+
+export function cookieSecureCheck(cookies: ParsedCookie[], isHttps: boolean): SecurityCheck {
   const id = "cookie-secure";
   const cat: SecurityCheckCategory = "cookies";
   const title = "Cookies carry the Secure flag";
@@ -846,22 +1040,47 @@ function cookieSecureCheck(cookies: ParsedCookie[], isHttps: boolean): SecurityC
     });
   }
 
+  const { siteOwned, vendorOwned } = splitByOwner(insecure);
+  const exposure =
+    "Without it the browser will attach these to a future plaintext request to the same domain, which is the request " +
+    "an on-path attacker can read.";
+  const siteFix =
+    "Add `Secure` to every cookie the storefront itself sets. For cookies written by theme or app JavaScript, add " +
+    "`; Secure` to the document.cookie write; for cookies set server-side, add the flag at the point they are issued.";
+
+  // A storefront that only carries vendor-set insecure cookies has nothing to fix in its own code,
+  // so this is reported as an observation about the stack rather than as a failure of the site.
+  if (siteOwned.length === 0) {
+    return check(
+      id,
+      cat,
+      title,
+      sev,
+      "warn",
+      `${vendorOwned.length} of ${cookies.length} cookie(s) set on this HTTPS response omit the Secure flag: ` +
+        `${names(vendorOwned)}. ${exposure} None of them is set by the storefront.`,
+      VENDOR_COOKIE_NOTE,
+      { observed: vendorOwned.map((c) => c.raw).slice(0, 10) },
+    );
+  }
+
   return check(
     id,
     cat,
     title,
     sev,
     "fail",
-    `${insecure.length} of ${cookies.length} cookie(s) set on this HTTPS response omit the Secure flag: ` +
-      `${insecure.map((c) => c.name).join(", ")}. Without it the browser will attach these to a future plaintext ` +
-      "request to the same domain, which is the request an on-path attacker can read.",
-    "Add `Secure` to every cookie the storefront sets. For cookies set by theme or app JavaScript, add `; Secure` to " +
-      "the document.cookie write; for cookies set server-side, add the flag at the point they are issued.",
-    { observed: insecure.map((c) => c.raw).slice(0, 10) },
+    `${siteOwned.length} of ${cookies.length} cookie(s) set on this HTTPS response omit the Secure flag: ${names(siteOwned)}. ` +
+      exposure +
+      (vendorOwned.length > 0
+        ? ` ${names(vendorOwned)} also omit it, but those are set by Shopify or by a third-party tag and are not the storefront's to change.`
+        : ""),
+    siteFix + (vendorOwned.length > 0 ? ` ${VENDOR_COOKIE_NOTE}` : ""),
+    { observed: [...siteOwned, ...vendorOwned].map((c) => c.raw).slice(0, 10) },
   );
 }
 
-function cookieSameSiteCheck(cookies: ParsedCookie[]): SecurityCheck {
+export function cookieSameSiteCheck(cookies: ParsedCookie[]): SecurityCheck {
   const id = "cookie-samesite";
   const cat: SecurityCheckCategory = "cookies";
   const title = "Cookies declare SameSite";
@@ -875,32 +1094,46 @@ function cookieSameSiteCheck(cookies: ParsedCookie[]): SecurityCheck {
   // functional bug as much as a security one — the cookie simply is not stored.
   const noneWithoutSecure = cookies.filter((c) => c.sameSite === "none" && !c.secure);
   if (noneWithoutSecure.length > 0) {
+    const owners = splitByOwner(noneWithoutSecure);
     return check(
       id,
       cat,
       title,
       sev,
       "fail",
-      `${noneWithoutSecure.map((c) => c.name).join(", ")} declare SameSite=None without Secure. Current browsers reject ` +
-        "that combination, so these cookies are not stored at all — whatever depends on them is silently broken.",
-      "Add `Secure` alongside `SameSite=None`, or drop to `SameSite=Lax` if the cookie is not needed on cross-site requests.",
+      `${names(noneWithoutSecure)} declare SameSite=None without Secure. Current browsers reject that combination, so ` +
+        "these cookies are not stored at all — whatever depends on them is silently broken." +
+        (owners.siteOwned.length === 0 ? " All of them are set by Shopify or by a third-party tag rather than by the storefront." : ""),
+      owners.siteOwned.length === 0
+        ? VENDOR_COOKIE_NOTE
+        : "Add `Secure` alongside `SameSite=None`, or drop to `SameSite=Lax` if the cookie is not needed on cross-site " +
+          `requests. This applies to ${names(owners.siteOwned)}` +
+          (owners.vendorOwned.length > 0 ? `; ${names(owners.vendorOwned)} are vendor-set and not the storefront's to change.` : ".") +
+          (owners.vendorOwned.length > 0 ? ` ${VENDOR_COOKIE_NOTE}` : ""),
       { observed: noneWithoutSecure.map((c) => c.raw) },
     );
   }
 
   const unset = cookies.filter((c) => !c.sameSite);
   if (unset.length > 0) {
+    const owners = splitByOwner(unset);
+    const exposure =
+      "Chromium-based browsers apply Lax by default, so the practical exposure today is small, but the behaviour is " +
+      "the browser's choice rather than the site's and it differs between engines.";
     return check(
       id,
       cat,
       title,
       sev,
       "warn",
-      `${unset.length} of ${cookies.length} cookie(s) declare no SameSite attribute: ${unset.map((c) => c.name).join(", ")}. ` +
-        "Chromium-based browsers apply Lax by default, so the practical exposure today is small, but the behaviour is " +
-        "the browser's choice rather than the site's and it differs between engines.",
-      "Set SameSite explicitly on each cookie — `Lax` for anything session-related, `None; Secure` only where a genuine " +
-        "cross-site flow (an embedded checkout, a third-party iframe) needs it.",
+      `${unset.length} of ${cookies.length} cookie(s) declare no SameSite attribute: ${names(unset)}. ${exposure}` +
+        (owners.siteOwned.length === 0 ? " None of them is set by the storefront." : ""),
+      owners.siteOwned.length === 0
+        ? VENDOR_COOKIE_NOTE
+        : `Set SameSite explicitly on the cookies the storefront issues (${names(owners.siteOwned)}) — \`Lax\` for anything ` +
+          "session-related, `None; Secure` only where a genuine cross-site flow (an embedded checkout, a third-party " +
+          "iframe) needs it." +
+          (owners.vendorOwned.length > 0 ? ` ${VENDOR_COOKIE_NOTE}` : ""),
       { observed: unset.map((c) => c.raw).slice(0, 10) },
     );
   }
@@ -910,7 +1143,7 @@ function cookieSameSiteCheck(cookies: ParsedCookie[]): SecurityCheck {
   });
 }
 
-function cookieHttpOnlyCheck(cookies: ParsedCookie[]): SecurityCheck {
+export function cookieHttpOnlyCheck(cookies: ParsedCookie[]): SecurityCheck {
   const id = "cookie-httponly";
   const cat: SecurityCheckCategory = "cookies";
   const title = "Session cookies carry HttpOnly";
@@ -920,7 +1153,7 @@ function cookieHttpOnlyCheck(cookies: ParsedCookie[]): SecurityCheck {
     return check(id, cat, title, sev, "not-tested", "The homepage response set no cookies, so there was nothing to inspect.");
   }
 
-  const sessionish = cookies.filter((c) => SESSION_COOKIE.test(c.name) && !CLIENT_READ_COOKIE.test(c.name));
+  const sessionish = splitByOwner(cookies).siteOwned.filter((c) => SESSION_COOKIE.test(c.name));
   if (sessionish.length === 0) {
     return check(
       id,
@@ -965,22 +1198,55 @@ function cookieHttpOnlyCheck(cookies: ParsedCookie[]): SecurityCheck {
  * the storefront's own HTML, which would turn this check into a false-positive generator on exactly
  * the sites it is meant to reassure. Each probe therefore has to match a signature only the real
  * file would produce. */
-const EXPOSED_PROBES: { path: string; label: string; matches: (body: string) => boolean }[] = [
+
+/** A PEM private key block, which is unambiguous wherever it appears — no catch-all route and no
+ * error envelope emits one. */
+const PRIVATE_KEY_BLOCK = /-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----/;
+
+/** Key names whose *value* is a credential. Matched against JSON keys only, and only when the
+ * value is a non-trivial string, because the whole difficulty with `/config.json` is that a
+ * headless storefront's catch-all route answers unknown paths with a perfectly valid JSON 200 —
+ * `{}` and `{"error":"Not found"}` parse exactly as well as a leaked deploy config does. */
+const SECRET_KEY_NAME = /(pass(word|wd)?|secret|token|api[-_]?key|apikey|access[-_]?key|private[-_]?key|credential|client[-_]?secret)/i;
+
+/** True only when the body carries something that reads as a live credential rather than merely as
+ * well-formed JSON. This cannot prove the file is the site's real config — it proves the response
+ * contains a secret-shaped key with a substantial value, which is the narrower claim the finding
+ * is then allowed to make. A config file whose secrets happen to be named something this pattern
+ * does not know goes unreported: a miss here is a coverage gap, whereas a match on `{}` is a
+ * `critical` finding telling a client to rotate every credential they own. */
+export function looksLikeSecretBundle(body: string): boolean {
+  if (PRIVATE_KEY_BLOCK.test(body)) return true;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return false;
+  }
+
+  let found = false;
+  const walk = (node: unknown, depth: number): void => {
+    if (found || depth > 6 || node === null || typeof node !== "object") return;
+    for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+      // An empty or placeholder value ("", "changeme", "null") is a template, not a leak, so a
+      // length floor stands in for "this looks like an actual secret".
+      if (SECRET_KEY_NAME.test(key) && typeof value === "string" && value.trim().length >= 8) {
+        found = true;
+        return;
+      }
+      walk(value, depth + 1);
+    }
+  };
+  walk(parsed, 0);
+  return found;
+}
+
+export const EXPOSED_PROBES: { path: string; label: string; matches: (body: string) => boolean }[] = [
   { path: "/.env", label: ".env", matches: (b) => /^[ \t]*(export[ \t]+)?[A-Z][A-Z0-9_]{2,}[ \t]*=/m.test(b) },
   { path: "/.git/config", label: ".git/config", matches: (b) => /\[core\]/.test(b) && /repositoryformatversion/i.test(b) },
   { path: "/.git/HEAD", label: ".git/HEAD", matches: (b) => /^ref:\s+refs\//m.test(b.trim()) },
-  {
-    path: "/config.json",
-    label: "config.json",
-    matches: (b) => {
-      try {
-        const parsed = JSON.parse(b);
-        return typeof parsed === "object" && parsed !== null;
-      } catch {
-        return false;
-      }
-    },
-  },
+  { path: "/config.json", label: "config.json", matches: looksLikeSecretBundle },
 ];
 
 async function exposedFilesCheck(origin: string): Promise<SecurityCheck> {
@@ -1020,7 +1286,8 @@ async function exposedFilesCheck(origin: string): Promise<SecurityCheck> {
       sev,
       "fail",
       `${exposed.map((r) => r.probe.label).join(", ")} ${exposed.length === 1 ? "is" : "are"} served publicly, and the ` +
-        `response body matches the real file's format rather than a catch-all HTML page. Treat any credential in ` +
+        `response body carries the file's own signature — environment-variable assignments, git repository metadata or ` +
+        `a secret-shaped key with a real value — rather than a catch-all page. Treat any credential in ` +
         `${exposed.length === 1 ? "it" : "them"} as compromised.`,
       "Block these paths at the edge and remove the files from the deployed document root. Then rotate every " +
         "credential the exposed file contained — the fix is not complete until the secrets themselves are replaced, " +
@@ -1043,13 +1310,14 @@ async function exposedFilesCheck(origin: string): Promise<SecurityCheck> {
     sev,
     "pass",
     `${reached.length} sensitive path(s) were requested (${reached.map((r) => r.probe.path).join(", ")}) and none returned ` +
-      "content matching the real file. This covers these specific paths only, not every file a deploy could leave behind.",
+      "content matching that file's signature. This covers these specific paths only, not every file a deploy could " +
+      "leave behind, and for /config.json it rules out a served credential rather than every possible configuration leak.",
     undefined,
     { urls: reached.map((r) => r.url), observed: reached.map((r) => `${r.probe.path} → ${r.note}`) },
   );
 }
 
-async function sourceMapCheck(scriptUrls: string[], pageOrigin: string): Promise<SecurityCheck> {
+export async function sourceMapCheck(scriptUrls: string[], pageOrigin: string): Promise<SecurityCheck> {
   const id = "source-maps";
   const cat: SecurityCheckCategory = "exposure";
   const title = "Source maps are not published";
@@ -1115,7 +1383,7 @@ async function sourceMapCheck(scriptUrls: string[], pageOrigin: string): Promise
   );
 }
 
-function versionDisclosureCheck(res: Response): SecurityCheck {
+export function versionDisclosureCheck(res: Response): SecurityCheck {
   const id = "version-disclosure";
   const cat: SecurityCheckCategory = "exposure";
   const title = "Server software versions are not advertised";
@@ -1201,7 +1469,7 @@ function readScripts($: cheerio.CheerioAPI, pageUrl: string): ScriptRef[] {
   return refs;
 }
 
-function sriCheck(thirdParty: ScriptRef[]): SecurityCheck {
+export function sriCheck(thirdParty: ScriptRef[]): SecurityCheck {
   const id = "script-sri";
   const cat: SecurityCheckCategory = "supply-chain";
   const title = "Third-party scripts use subresource integrity";
@@ -1238,7 +1506,7 @@ function sriCheck(thirdParty: ScriptRef[]): SecurityCheck {
   );
 }
 
-function thirdPartyOriginCheck(origins: string[]): SecurityCheck {
+export function thirdPartyOriginCheck(origins: string[]): SecurityCheck {
   const id = "third-party-origins";
   const cat: SecurityCheckCategory = "supply-chain";
   const title = "Third-party script origins";
@@ -1287,7 +1555,7 @@ function compareVersion(a: number[], b: readonly number[]): number {
  * `/assets/jquery.min.js` carries no version, and a path like `/cdn/jquery-3.2.1.min.js` can be a
  * stale filename in front of a different build — the banner and the `.fn.jquery` assignment are
  * written by the library and cannot disagree with it. */
-function jqueryVersionFrom(body: string): string | null {
+export function jqueryVersionFrom(body: string): string | null {
   return (
     /jQuery(?: JavaScript Library)?\s+v?(\d+\.\d+\.\d+)/i.exec(body)?.[1] ??
     /\.fn\.jquery\s*=\s*["'](\d+\.\d+(?:\.\d+)?)/.exec(body)?.[1] ??
@@ -1295,16 +1563,27 @@ function jqueryVersionFrom(body: string): string | null {
   );
 }
 
-async function jqueryCheck(scripts: ScriptRef[]): Promise<SecurityCheck> {
+/** One jQuery script tag and what reading it produced. `version: null` covers both "the file could
+ * not be fetched" and "the file was fetched but says nothing about its version" — the distinction
+ * is kept in `fetched` because only the second tells us anything about the library. */
+export interface JqueryReading {
+  url: string;
+  fetched: boolean;
+  version: string | null;
+}
+
+/** A storefront that loads jQuery twice — a modern copy in the theme and an ancient one dragged in
+ * by an app — is running the app's copy for anything the app touches, and whichever loaded last
+ * owns the global. The vulnerable one is the finding, so every candidate is read and the *lowest*
+ * version decides the verdict. Stopping at the first readable copy, as this used to, passes a site
+ * on its theme's jQuery 3.7.1 while jQuery 1.12.4 sits underneath it. */
+export function jqueryVerdict(readings: JqueryReading[]): SecurityCheck {
   const id = "jquery-version";
   const cat: SecurityCheckCategory = "supply-chain";
   const title = "jQuery version";
   const sev: SecuritySeverity = "high";
 
-  // jQuery UI and jQuery Migrate carry their own, unrelated version numbers; matching them here
-  // would produce a confident finding about the wrong library.
-  const candidates = scripts.filter((s) => /jquery/i.test(s.src) && !/jquery[.\-_]?(ui|migrate|mobile|validate)/i.test(s.src)).slice(0, 2);
-  if (candidates.length === 0) {
+  if (readings.length === 0) {
     return check(
       id,
       cat,
@@ -1316,44 +1595,60 @@ async function jqueryCheck(scripts: ScriptRef[]): Promise<SecurityCheck> {
     );
   }
 
-  for (const candidate of candidates) {
-    const fetched = await getWithBody(candidate.resolved);
-    if (!fetched?.res.ok) continue;
-    const version = jqueryVersionFrom(fetched.body);
-    if (!version) continue;
+  const read = readings.filter((r): r is JqueryReading & { version: string } => r.version !== null);
+  const unread = readings.filter((r) => r.version === null);
 
-    const parts = version.split(".").map(Number);
-    const observed = [`${candidate.resolved} reports version ${version}`];
-
-    if (compareVersion(parts, JQUERY_XSS_FIXED_IN) < 0) {
-      const unsupportedBranch = parts[0] < 3;
-      return check(
-        id,
-        cat,
-        title,
-        sev,
-        "fail",
-        `jQuery ${version} is loaded. jQuery 3.5.0 is the release that fixed the htmlPrefilter cross-site-scripting ` +
-          `issues published as CVE-2020-11022 and CVE-2020-11023, and ${version} predates it.` +
-          (unsupportedBranch ? ` The ${parts[0]}.x branch is also no longer maintained, so it will not receive further fixes.` : ""),
-        "Upgrade to the current jQuery 3.7.x. If a theme or app depends on removed 1.x/2.x APIs, add jQuery Migrate " +
-          "alongside the upgrade to surface exactly which call sites need changing, rather than staying on the old " +
-          "branch. Nothing beyond the version string was tested here — whether this site actually reaches the " +
-          "vulnerable code path is a separate question.",
-        { urls: [candidate.resolved], observed },
-      );
-    }
-
+  if (read.length === 0) {
     return check(
       id,
       cat,
       title,
       sev,
-      "pass",
-      `jQuery ${version} is loaded, which is at or past 3.5.0 — the release that fixed the last widely-reported jQuery ` +
-        "XSS issues. No claim is made here about advisories published after this tool was written.",
+      "not-tested",
+      `${readings.length} jQuery script tag(s) were found (${readings.map((r) => r.url).join(", ")}) but no version could be ` +
+        "read from any of them, so no version claim is made.",
       undefined,
-      { urls: [candidate.resolved], observed },
+      { urls: readings.map((r) => r.url) },
+    );
+  }
+
+  const sorted = [...read].sort((a, b) =>
+    compareVersion(
+      a.version.split(".").map(Number),
+      b.version.split(".").map(Number),
+    ),
+  );
+  const lowest = sorted[0];
+  const observed = read.map((r) => `${r.url} reports version ${r.version}`);
+  // Any copy we could not read might be older still, so a pass has to say so rather than imply the
+  // whole page was covered.
+  const coverage =
+    unread.length > 0
+      ? ` ${unread.length} further jQuery tag(s) could not be read (${unread.map((r) => r.url).join(", ")}), and one of those could be older.`
+      : "";
+
+  const parts = lowest.version.split(".").map(Number);
+  if (compareVersion(parts, JQUERY_XSS_FIXED_IN) < 0) {
+    const unsupportedBranch = parts[0] < 3;
+    const others = read.filter((r) => r !== lowest);
+    return check(
+      id,
+      cat,
+      title,
+      sev,
+      "fail",
+      `jQuery ${lowest.version} is loaded from ${lowest.url}. jQuery 3.5.0 is the release that fixed the htmlPrefilter ` +
+        `cross-site-scripting issues published as CVE-2020-11022 and CVE-2020-11023, and ${lowest.version} predates it.` +
+        (unsupportedBranch ? ` The ${parts[0]}.x branch is also no longer maintained, so it will not receive further fixes.` : "") +
+        (others.length > 0
+          ? ` The page also loads ${others.map((r) => `${r.version}`).join(", ")}; the oldest copy on the page is the one reported here, because a newer copy elsewhere does not remove the old one from the page.`
+          : ""),
+      "Upgrade to the current jQuery 3.7.x. If a theme or app depends on removed 1.x/2.x APIs, add jQuery Migrate " +
+        "alongside the upgrade to surface exactly which call sites need changing, rather than staying on the old " +
+        "branch. Where the old copy comes from an app rather than the theme, the upgrade is the vendor's — the theme " +
+        "cannot patch a script it does not serve. Nothing beyond the version string was tested here: whether this site " +
+        "actually reaches the vulnerable code path is a separate question.",
+      { urls: read.map((r) => r.url), observed },
     );
   }
 
@@ -1362,12 +1657,36 @@ async function jqueryCheck(scripts: ScriptRef[]): Promise<SecurityCheck> {
     cat,
     title,
     sev,
-    "not-tested",
-    `A jQuery script tag was found (${candidates.map((c) => c.resolved).join(", ")}) but its version could not be read ` +
-      "from the file, so no version claim is made.",
+    "pass",
+    `${read.length} jQuery cop${read.length === 1 ? "y was" : "ies were"} read${read.length === 1 ? ` (${lowest.url}), reporting` : ", and the oldest is"} ` +
+      `${lowest.version}, which is at or past 3.5.0 — the ` +
+      "release that fixed the last widely-reported jQuery XSS issues. No claim is made here about advisories published " +
+      `after this tool was written.${coverage}`,
     undefined,
-    { urls: candidates.map((c) => c.resolved) },
+    { urls: read.map((r) => r.url), observed },
   );
+}
+
+/** Enough to catch a theme copy plus a couple of app copies without turning one check into a
+ * crawl. A page loading more jQuery tags than this has a problem this analyzer is not measuring. */
+const JQUERY_CANDIDATE_LIMIT = 6;
+
+export async function jqueryCheck(scripts: ScriptRef[]): Promise<SecurityCheck> {
+  // jQuery UI and jQuery Migrate carry their own, unrelated version numbers; matching them here
+  // would produce a confident finding about the wrong library.
+  const candidates = scripts
+    .filter((s) => /jquery/i.test(s.src) && !/jquery[.\-_]?(ui|migrate|mobile|validate)/i.test(s.src))
+    .slice(0, JQUERY_CANDIDATE_LIMIT);
+
+  const readings = await Promise.all(
+    candidates.map(async (candidate): Promise<JqueryReading> => {
+      const fetched = await getWithBody(candidate.resolved);
+      if (!fetched?.res.ok) return { url: candidate.resolved, fetched: false, version: null };
+      return { url: candidate.resolved, fetched: true, version: jqueryVersionFrom(fetched.body) };
+    }),
+  );
+
+  return jqueryVerdict(readings);
 }
 
 /* ── scoring ─────────────────────────────────────────────────────────────────────────────── */
@@ -1413,6 +1732,97 @@ function scoreOf(checks: SecurityCheck[]): number | null {
   return Math.round(hasCritical ? raw * 0.49 : raw);
 }
 
+/* ── did we actually read the storefront? ────────────────────────────────────────────────── */
+
+/** Bodies that identify a page as something standing in front of the storefront rather than the
+ * storefront. Matched only on an otherwise-successful response, because a challenge page is
+ * routinely served with HTTP 200 and would otherwise sail past a status check. */
+const INTERSTITIAL_MARKERS: { pattern: RegExp; label: string }[] = [
+  {
+    pattern: /cf-browser-verification|challenge-platform|__cf_chl|cf_chl_opt|Just a moment\.\.\.|Checking your browser before accessing|Attention Required! \| Cloudflare|Enable JavaScript and cookies to continue/i,
+    label: "a Cloudflare bot-protection challenge",
+  },
+  { pattern: /Request unsuccessful\. Incapsula incident|_Incapsula_Resource/i, label: "an Imperva/Incapsula block page" },
+  { pattern: /Pardon Our Interruption|distil_r_captcha|distilCaptcha/i, label: "a bot-detection interstitial" },
+  { pattern: /_pxAppId|px-captcha|PerimeterX/i, label: "a PerimeterX bot-detection interstitial" },
+  { pattern: /<title>[^<]*Access [Dd]enied[^<]*<\/title>/i, label: "an access-denied page" },
+];
+
+/** Why the homepage response cannot stand in for the storefront, or null when it can.
+ *
+ * The user-agent this analyzer sends exists to avoid being served one of these, and it usually
+ * works — but "usually" is not a guarantee, and until this guard existed the failure was silent
+ * and inverted the finding. A Cloudflare interstitial ships `x-frame-options: SAMEORIGIN`,
+ * `x-content-type-options: nosniff` and a `referrer-policy` of its own, so the storefront was
+ * credited with three header controls it may not set anywhere; meanwhile CSP, HSTS and every
+ * Set-Cookie line were read off the edge's page rather than the site's, and the markup checks
+ * (mixed content, SRI, third-party origins, jQuery) ran against a challenge page with no scripts
+ * on it and reported clean.
+ *
+ * Everything derived from this response therefore becomes `not-tested`. That is a coverage gap
+ * and reads as one; a pass here would be a claim about a page we never saw. */
+export function describeUnusablePage(res: Response, body: string, finalUrl: URL): string | null {
+  if (!res.ok) {
+    return `the homepage answered HTTP ${res.status}${res.statusText ? ` ${res.statusText}` : ""} rather than a page`;
+  }
+
+  // Cloudflare stamps this on any response it decided to challenge or block, whatever status it
+  // then chose to send.
+  if (res.headers.get("cf-mitigated")) return "the request was intercepted by Cloudflare bot mitigation (cf-mitigated header)";
+
+  for (const marker of INTERSTITIAL_MARKERS) {
+    if (marker.pattern.test(body)) return `the response body is ${marker.label} rather than the storefront`;
+  }
+
+  // A Shopify storefront with password protection on redirects everything to /password and serves
+  // a stub page. Its headers are Shopify's defaults for that page, not the theme's.
+  if (finalUrl.pathname === "/password" || /<form[^>]+action="\/password"/i.test(body)) {
+    return "the storefront is password-protected and served its password page instead of the store";
+  }
+
+  return null;
+}
+
+/** The checks whose entire verdict comes out of the homepage response — its status line, its
+ * headers, its Set-Cookie lines or its markup. Listed here so the guard can report every one of
+ * them as `not-tested` without having to run them against a page that is not the storefront.
+ *
+ * Kept as a table rather than inferred by running the checks with empty inputs, because a check
+ * run on fabricated input would have to have its detail text discarded and rewritten anyway. A
+ * test in cli/test/security-checks.test.ts asserts this table still matches what each check
+ * function actually emits, so the two cannot drift apart unnoticed. */
+export const PAGE_DERIVED_CHECKS: { id: string; category: SecurityCheckCategory; title: string; severity: SecuritySeverity }[] = [
+  { id: "csp", category: "headers", title: "Content-Security-Policy", severity: "high" },
+  { id: "frame-ancestors", category: "headers", title: "Clickjacking protection (frame-ancestors / X-Frame-Options)", severity: "medium" },
+  { id: "hsts", category: "headers", title: "Strict-Transport-Security", severity: "high" },
+  { id: "x-content-type-options", category: "headers", title: "X-Content-Type-Options: nosniff", severity: "medium" },
+  { id: "referrer-policy", category: "headers", title: "Referrer-Policy", severity: "low" },
+  { id: "permissions-policy", category: "headers", title: "Permissions-Policy", severity: "low" },
+  { id: "mixed-content", category: "transport", title: "No mixed content in the delivered HTML", severity: "high" },
+  { id: "cookie-secure", category: "cookies", title: "Cookies carry the Secure flag", severity: "high" },
+  { id: "cookie-samesite", category: "cookies", title: "Cookies declare SameSite", severity: "medium" },
+  { id: "cookie-httponly", category: "cookies", title: "Session cookies carry HttpOnly", severity: "medium" },
+  { id: "version-disclosure", category: "exposure", title: "Server software versions are not advertised", severity: "low" },
+  { id: "source-maps", category: "exposure", title: "Source maps are not published", severity: "low" },
+  { id: "script-sri", category: "supply-chain", title: "Third-party scripts use subresource integrity", severity: "medium" },
+  { id: "third-party-origins", category: "supply-chain", title: "Third-party script origins", severity: "low" },
+  { id: "jquery-version", category: "supply-chain", title: "jQuery version", severity: "high" },
+];
+
+function untestedPageChecks(reason: string): SecurityCheck[] {
+  return PAGE_DERIVED_CHECKS.map((meta) =>
+    check(
+      meta.id,
+      meta.category,
+      meta.title,
+      meta.severity,
+      "not-tested",
+      `This verdict is read out of the homepage response, and ${reason}. What that page sends is the edge's or the ` +
+        "platform's, not the storefront's, so nothing here is reported either way.",
+    ),
+  );
+}
+
 /* ── entry point ─────────────────────────────────────────────────────────────────────────── */
 
 export async function analyzeSecurity(url: string, options: AnalyzeSecurityOptions = {}): Promise<SecuritySection> {
@@ -1448,41 +1858,63 @@ export async function analyzeSecurity(url: string, options: AnalyzeSecurityOptio
   const isHttps = finalUrl.protocol === "https:";
   const origin = finalUrl.origin;
 
+  // The origin as it was asked for, before any redirect. The transport and exposure probes use
+  // this one: an apex that serves plaintext and 301s to the canonical www host would otherwise be
+  // credited with the canonical host's redirect behaviour, and `http://apex/` — the URL a visitor
+  // actually types — would never be tested at all.
+  const requestedOrigin = new URL(url).origin;
+
   const $ = cheerio.load(home.body);
+  const unusable = describeUnusablePage(home.res, home.body, finalUrl);
+
   const csp = readCsp(home.res, $);
   const cookies = parseCookies(home.res);
-  const scripts = readScripts($, finalUrl.toString());
+  const scripts = unusable ? [] : readScripts($, finalUrl.toString());
   const thirdPartyScripts = scripts.filter((s) => s.origin !== origin);
   const thirdPartyScriptOrigins = [...new Set(thirdPartyScripts.map((s) => s.origin))].sort();
 
-  const checks: SecurityCheck[] = [
-    cspCheck(csp),
-    frameAncestorsCheck(home.res, csp),
-    hstsCheck(home.res, isHttps),
-    nosniffCheck(home.res),
-    referrerPolicyCheck(home.res),
-    permissionsPolicyCheck(home.res),
-    mixedContentCheck($, isHttps, csp),
-    cookieSecureCheck(cookies, isHttps),
-    cookieSameSiteCheck(cookies),
-    cookieHttpOnlyCheck(cookies),
-    versionDisclosureCheck(home.res),
-    sriCheck(thirdPartyScripts),
-    thirdPartyOriginCheck(thirdPartyScriptOrigins),
-  ];
+  const checks: SecurityCheck[] = unusable
+    ? untestedPageChecks(unusable)
+    : [
+        cspCheck(csp),
+        frameAncestorsCheck(home.res, csp),
+        hstsCheck(home.res, isHttps),
+        nosniffCheck(home.res),
+        referrerPolicyCheck(home.res),
+        permissionsPolicyCheck(home.res),
+        mixedContentCheck($, isHttps, csp),
+        cookieSecureCheck(cookies, isHttps),
+        cookieSameSiteCheck(cookies),
+        cookieHttpOnlyCheck(cookies),
+        versionDisclosureCheck(home.res),
+        sriCheck(thirdPartyScripts),
+        thirdPartyOriginCheck(thirdPartyScriptOrigins),
+      ];
 
   stage?.("Security: probing transport, exposed paths & script supply chain");
+  // These three make their own requests and reach their own verdicts, so an unreadable homepage
+  // does not invalidate them — a certificate is a certificate whether or not a bot wall sits in
+  // front of the store.
   const probed = await Promise.all([
-    httpRedirectCheck(origin),
+    httpRedirectCheck(requestedOrigin),
+    // The certificate stays on the host that actually served the store: that is the certificate a
+    // visitor's browser ends up validating, and it names the host it inspected in its own detail.
     certificateCheck(finalUrl, isHttps),
-    exposedFilesCheck(origin),
-    sourceMapCheck(
-      scripts.map((s) => s.resolved),
-      origin,
-    ),
-    jqueryCheck(scripts),
+    exposedFilesCheck(requestedOrigin),
   ]);
   checks.push(...probed);
+
+  if (!unusable) {
+    checks.push(
+      ...(await Promise.all([
+        sourceMapCheck(
+          scripts.map((s) => s.resolved),
+          origin,
+        ),
+        jqueryCheck(scripts),
+      ])),
+    );
+  }
 
   // Grouped by category so the rendered list reads as a report rather than as the order the
   // requests happened to finish in.
@@ -1495,5 +1927,13 @@ export async function analyzeSecurity(url: string, options: AnalyzeSecurityOptio
     checks,
     totals: tally(checks),
     thirdPartyScriptOrigins,
+    fatalError: unusable
+      ? `The storefront's own homepage was never read: ${unusable}. ${PAGE_DERIVED_CHECKS.length} of the checks below are read entirely out ` +
+        "of that response — its headers, its cookies and its markup — and an error, challenge or password page is sent " +
+        "by the edge or the platform rather than by the store. A challenge page in particular carries security headers " +
+        "of its own, so treating it as the homepage would credit this storefront with controls it may not set anywhere. " +
+        "Those checks are therefore untested rather than passed. The TLS, HTTP-to-HTTPS and exposed-file probes make " +
+        "their own requests and their results below stand on their own."
+      : undefined,
   };
 }

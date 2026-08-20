@@ -385,20 +385,32 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   delivered HTML and one TLS handshake (no browser, ~2s): the security headers
   (`Content-Security-Policy` — present *and* whether its `script-src` is meaningfully
   restrictive, `Strict-Transport-Security` and its `max-age`, `X-Content-Type-Options`,
-  clickjacking protection via CSP `frame-ancestors` or `X-Frame-Options`, `Referrer-Policy`,
-  `Permissions-Policy`); transport (HTTP→HTTPS redirect and whether it's permanent, mixed
-  content in the delivered markup, TLS certificate validity and days to expiry); cookie flags
-  (`Secure` and `SameSite` on everything the homepage sets, `HttpOnly` on session/auth cookies
-  only — analytics cookies are read by the front-end scripts that own them, so demanding it of
-  them would break the tag); exposed surface (`/.env`, `/.git/config`, `/.git/HEAD`,
-  `/config.json` — each only reported when the response body actually matches that file's
-  format, since plenty of hosts answer every unknown path with the storefront's own HTML;
-  published source maps; `Server`/`X-Powered-By` version disclosure); and the script supply
-  chain (cross-origin `<script src>` without SRI, the count of distinct third-party script
-  origins, and the jQuery version read from the library file itself). Every check carries the
-  header value, cookie name or URL it was read from, so a reader can re-check it with `curl`.
-  A control that could not be observed is reported as **not tested** — never rounded into a
-  pass or a fail — and excluded from the score entirely. Skip with `--skip-security`.
+  clickjacking protection via CSP `frame-ancestors` or `X-Frame-Options` — the CSP half read
+  from the response header only, since browsers ignore `frame-ancestors` in a `<meta>` tag —
+  `Referrer-Policy`, `Permissions-Policy` including whether it wildcards camera/microphone/
+  geolocation/payment rather than merely being present); transport (HTTP→HTTPS redirect on the
+  hostname as given, before redirects, so an apex serving plaintext isn't excused by its
+  canonical host; mixed content in the delivered markup, read against
+  `upgrade-insecure-requests` so a page the browser silently upgrades isn't called broken; TLS
+  certificate validity and days to expiry, with an incomplete chain reported as the
+  integration problem it is rather than as an outage, because mainstream browsers fetch the
+  missing intermediate themselves); cookie flags (`Secure` and `SameSite` on everything the
+  homepage sets, `HttpOnly` on session/auth cookies only — with cookies the storefront cannot
+  change, `_shopify_*` and vendor analytics, separated out in all three, since a fix
+  instruction nobody can carry out is worse than no finding); exposed surface (`/.env`,
+  `/.git/config`, `/.git/HEAD`, `/config.json` — each only reported when the response body
+  actually matches that file's signature, and for `/config.json` that means secret-shaped
+  content, not merely valid JSON, since plenty of hosts answer every unknown path with the
+  storefront's own HTML or a JSON 200; published source maps; `Server`/`X-Powered-By` version
+  disclosure); and the script supply chain (cross-origin `<script src>` without SRI, the count
+  of distinct third-party script origins, and the **lowest** jQuery version on the page, read
+  from each library file itself — a modern copy in the theme does not remove an old one an app
+  drags in). Every check carries the header value, cookie name or URL it was read from, so a
+  reader can re-check it with `curl`. A control that could not be observed is reported as
+  **not tested** — never rounded into a pass or a fail — and excluded from the score entirely;
+  if the homepage request is answered by a bot challenge, an error page or a Shopify password
+  page, every header-, cookie- and markup-derived check becomes *not tested* rather than
+  reading the edge's own security headers as the store's. Skip with `--skip-security`.
 - **Best Practices** — a verdict table (Good / Needs Improvement / Poor) synthesized from
   the sections above: deprecated Liquid patterns, performance, accessibility, theme
   structure, page-builder usage, and lint/CI enforcement.
