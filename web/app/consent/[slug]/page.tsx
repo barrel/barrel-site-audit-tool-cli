@@ -15,9 +15,10 @@ import type {
 
 export const dynamic = "force-dynamic";
 
-const STATE_ORDER: ConsentStateId[] = ["clean", "reject", "accept", "granular", "returning"];
+const STATE_ORDER: ConsentStateId[] = ["clean", "dismiss", "reject", "accept", "granular", "returning"];
 const STATE_LABEL: Record<ConsentStateId, string> = {
   clean: "No choice made",
+  dismiss: "Banner closed",
   reject: "Rejected all",
   accept: "Accepted all",
   granular: "Analytics only",
@@ -52,6 +53,7 @@ const SUITE_LABEL: Record<string, string> = {
   E: "Persistence — does the choice survive?",
   F: "Granular — analytics yes, marketing no",
   G: "Compliance surface — links, preference centre, GPC",
+  H: "Dismissal — is closing the banner treated as a yes?",
 };
 
 /** Whether a tag firing in a given state was the right outcome.
@@ -82,6 +84,51 @@ function verdict(
     ? { label: "Silent", color: "#D97706", note: "Did not fire even though it was permitted — check attribution." }
     : { label: "OK", color: "#10B981", note: "Correctly blocked." };
 }
+
+/** Groups findings by the kind of exposure they describe.
+ *
+ * The suites are organised by *when* something was tested — before consent, after reject — which
+ * is the right shape for running the scan and the wrong shape for reading it. Someone deciding
+ * what to do needs the failures gathered by what they have in common.
+ *
+ * Each heading names an observed pattern and the rule family it belongs to. It deliberately stops
+ * there: whether a given behaviour breaches a given statute depends on the visitors a site
+ * actually has, and that is counsel's call, not a scanner's. */
+const EXPOSURE_GROUPS: Array<{ key: string; title: string; blurb: string; tests: string[] }> = [
+  {
+    key: "pre-consent",
+    title: "Tracking before consent",
+    blurb:
+      "Third-party tags that ran, or data that left the browser, before the visitor made any choice — including closing the banner without answering it, which is not agreement.",
+    tests: ["B1", "B2", "B3", "B4", "B5", "A5", "H1", "H2"],
+  },
+  {
+    key: "opt-out",
+    title: "Opt-out effectiveness",
+    blurb:
+      "What actually happened after the visitor declined, and whether that decision was recorded, respected downstream and offered as prominently as accepting.",
+    tests: ["C1", "C2", "C3", "C4", "C5", "F1", "F2", "A3", "G2"],
+  },
+  {
+    key: "signals",
+    title: "Browser opt-out signals",
+    blurb: "How the site responded to a Global Privacy Control signal, and whether it told the visitor it had.",
+    tests: ["G4", "G5"],
+  },
+  {
+    key: "disclosure",
+    title: "Notice and reachability",
+    blurb: "Whether the required notices and opt-out controls exist and can be reached from anywhere on the site.",
+    tests: ["A1", "A2", "G1", "G3", "E1", "E2", "E3", "E4"],
+  },
+  {
+    key: "attribution",
+    title: "Tags not firing when permitted",
+    blurb:
+      "The opposite failure, and the reason a scan cannot only look for over-firing: tags that stayed down after the visitor agreed cost measurement rather than compliance.",
+    tests: ["D1", "D2", "D3"],
+  },
+];
 
 function Chip({ status }: { status: ConsentTestStatus }) {
   return (
@@ -283,6 +330,59 @@ export default async function ConsentSiteReport({
               before any choice was made, or after an explicit rejection.
             </div>
           )}
+        </Card>
+
+        {/* ── Exposure summary ───────────────────────────────────────────────────────────── */}
+        <Card
+          title="What this adds up to"
+          subtitle="The same findings grouped by the kind of exposure they describe rather than by when they were tested. Observed behaviour only — whether any of it breaches a given statute depends on who visits this site, and is a question for counsel."
+        >
+          <ul className="divide-y divide-[#E5E5E5]">
+            {EXPOSURE_GROUPS.map((g) => {
+              const inGroup = tests.filter((t) => g.tests.includes(t.id));
+              const failed = inGroup.filter((t) => t.status === "fail");
+              const unproven = inGroup.filter((t) => t.status === "flaky" || t.status === "blocked");
+              const confirmed = inGroup.filter((t) => t.status === "pass" || t.status === "fail");
+              if (confirmed.length === 0 && unproven.length === 0) return null;
+              const worst = failed.some((t) => t.severity === "blocker");
+              return (
+                <li key={g.key} className="px-5 py-3.5 break-inside-avoid">
+                  <div className="flex items-baseline gap-2.5 flex-wrap">
+                    <span className="text-sm font-semibold text-[#1A1A1A]">{g.title}</span>
+                    <span
+                      className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded"
+                      style={
+                        failed.length === 0
+                          ? { color: "#10B981", backgroundColor: "#10B98114" }
+                          : { color: worst ? "#B91C1C" : "#EA580C", backgroundColor: worst ? "#B91C1C14" : "#EA580C14" }
+                      }
+                    >
+                      {failed.length === 0 ? "Nothing observed" : `${failed.length} finding${failed.length === 1 ? "" : "s"}`}
+                    </span>
+                    {unproven.length > 0 && (
+                      <span className="text-xs text-[#9A9A9A]">{unproven.length} unproven</span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-[#6B6B6B] leading-relaxed max-w-[95ch]">{g.blurb}</p>
+                  {failed.length > 0 && (
+                    <ul className="mt-2 space-y-1">
+                      {failed.map((t) => (
+                        <li key={t.id} className="text-sm text-[#1A1A1A] flex gap-2">
+                          <span
+                            className="font-mono text-[11px] font-semibold shrink-0 mt-0.5"
+                            style={{ color: SEVERITY_COLOR[t.severity] }}
+                          >
+                            {t.id}
+                          </span>
+                          <span className="text-[#6B6B6B]">{t.detail}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
         </Card>
 
         {/* ── Every test ─────────────────────────────────────────────────────────────────── */}

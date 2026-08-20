@@ -698,6 +698,23 @@ const G3: TestDef = {
       return skip(`Not applicable to the "${ctx.region}" region.`);
     }
     const clean = state(ctx, "clean");
+    if (clean?.links?.doNotSell) {
+      // Present on the scanned page — but the requirement is every page, and a footer that only
+      // carries the link on the homepage meets it in appearance rather than in fact.
+      const returning = state(ctx, "returning");
+      const second = returning?.linksAfterNavigate;
+      if (returning?.reached && second && !second.doNotSell) {
+        return bad(
+          `A Do Not Sell / Your Privacy Choices link is present on the scanned page, but missing from ${returning.secondPageUrl ?? "a second page"}.`,
+          "The opt-out has to be reachable from every page, not only the one it was first found on. Move the link into the global footer or header rather than a template that only some pages use.",
+        );
+      }
+      return ok(
+        second?.doNotSell
+          ? "A Do Not Sell / Your Privacy Choices link is present, and still present after navigating to another page."
+          : "A Do Not Sell / Your Privacy Choices link is present.",
+      );
+    }
     return clean?.links?.doNotSell
       ? ok("A Do Not Sell / Your Privacy Choices link is present.")
       : bad(
@@ -724,7 +741,88 @@ const G4: TestDef = {
   },
 };
 
-export const TEST_DEFS: TestDef[] = [A1, A2, A3, A4, B1, B2, B3, B4, B5, C1, C2, C3, C4, C5, D1, D2, D3, E1, E2, E3, E4, F1, F2, G1, G2, G3, G4];
+const A5: TestDef = {
+  id: "A5",
+  suite: "A",
+  title: "CMP loads before the tag manager",
+  severity: "error",
+  run(ctx) {
+    return requireState(ctx, "clean", (s) => {
+      if (s.cmpBeforeTagManager === undefined) {
+        return skip("Either the CMP script or a tag manager was absent, so there is no ordering to check.");
+      }
+      return s.cmpBeforeTagManager
+        ? ok("The CMP's script was requested before the tag manager's.")
+        : bad(
+            "The tag manager was requested before the CMP's own script.",
+            "A CMP that loads second cannot gate what the tag manager has already fired, however correct its configuration. Move the CMP script above the GTM snippet in theme.liquid so consent state exists before any tag is evaluated.",
+          );
+    });
+  },
+};
+
+const G5: TestDef = {
+  id: "G5",
+  suite: "G",
+  title: "GPC opt-out is visibly confirmed to the visitor",
+  severity: "warning",
+  run(ctx) {
+    if (!ctx.engine.gpc.ran) return { status: "blocked", detail: "The GPC probe did not complete." };
+    if (ctx.region !== "us") return skip("Visible GPC confirmation is a US-state requirement; this scan ran elsewhere.");
+    return ctx.engine.gpc.confirmationShown
+      ? ok("The page visibly acknowledges the Global Privacy Control signal.")
+      : bad(
+          "No visible confirmation was shown to a visitor sending a Global Privacy Control signal.",
+          "California has required a visible confirmation that the opt-out was processed since January 2026, and Colorado has a parallel rule. Honouring the signal silently satisfies only half of it — surface a notice or a persistent indicator when GPC is detected. Whether either rule applies to this site is a question for counsel.",
+        );
+  },
+};
+
+/* ── Suite H · Dismissal ─────────────────────────────────────────────────────────────────── */
+
+const H1: TestDef = {
+  id: "H1",
+  suite: "H",
+  title: "Closing the banner is not treated as consent",
+  severity: "blocker",
+  run(ctx) {
+    return requireState(ctx, "dismiss", (s) => {
+      const hits = marketingIn(s.transmissionsPost);
+      return hits.length === 0
+        ? ok("Closing the banner without choosing did not release any marketing tag.")
+        : bad(
+            `${names(hits)} transmitted visitor data after the visitor closed the banner without choosing.`,
+            "Dismissing a banner is not affirmative consent, and a CMP that starts tags on close is transmitting on a choice the visitor never made. Configure the close control to leave consent undecided — the same state as before the banner was shown — rather than mapping it to accept.",
+            { requests: transmissionEvidence(hits, s.requestsPost) },
+          );
+    });
+  },
+};
+
+const H2: TestDef = {
+  id: "H2",
+  suite: "H",
+  title: "Closing the banner does not record a consent decision",
+  severity: "error",
+  run(ctx) {
+    return requireState(ctx, "dismiss", (s) => {
+      const cmp = s.cmpState;
+      const shopify = s.shopifyConsent;
+      const cmpGranted = cmp ? cmp.marketing === true || cmp.analytics === true : false;
+      const shopifyGranted = shopify ? shopify.marketingAllowed === true : false;
+      if (!cmp && !shopify) return skip("Neither the CMP nor Shopify exposes a consent state to read after dismissal.");
+      return !cmpGranted && !shopifyGranted
+        ? ok("No consent was recorded when the banner was closed without a choice.")
+        : bad(
+            `Closing the banner recorded consent: ${JSON.stringify(cmp ?? shopify)}.`,
+            "The close control is wired to accept. A visitor who dismissed the banner has not agreed to anything, and a stored 'granted' here will also suppress the banner on their next visit, so they are never asked again.",
+            { notes: [JSON.stringify({ cmp, shopify })] },
+          );
+    });
+  },
+};
+
+export const TEST_DEFS: TestDef[] = [A1, A2, A3, A4, A5, B1, B2, B3, B4, B5, C1, C2, C3, C4, C5, D1, D2, D3, E1, E2, E3, E4, F1, F2, G1, G2, G3, G4, G5, H1, H2];
 
 export const SUITE_NAMES: Record<ConsentSuiteId, string> = {
   A: "Presence",
@@ -734,6 +832,7 @@ export const SUITE_NAMES: Record<ConsentSuiteId, string> = {
   E: "Persistence",
   F: "Granular",
   G: "Compliance surface",
+  H: "Dismissal",
 };
 
 export function runTests(ctx: TestContext): ConsentTestResult[] {

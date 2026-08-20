@@ -1,5 +1,5 @@
 import type { TrackerCategory } from "@barrel/site-audit-shared";
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor } from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** OneTrust. Category membership is read from the OptanonActiveGroups string (",C0001,C0002,"),
  * whose group IDs are OneTrust's own fixed taxonomy and stable across tenants. */
@@ -83,6 +83,10 @@ export const onetrustAdapter: CmpAdapter = {
       }
       return true;
     });
+  },
+
+  async dismiss(page) {
+    return dismissBanner(page, () => this.waitForBanner(page, 1_500));
   },
 
   async readState(page) {

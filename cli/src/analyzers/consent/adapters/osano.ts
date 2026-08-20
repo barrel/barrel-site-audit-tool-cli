@@ -1,5 +1,5 @@
 import type { TrackerCategory } from "@barrel/site-audit-shared";
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor } from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** Osano. Renders its banner into a shadow root, which is why the text-matching fallback in
  * types.ts walks shadow roots rather than using page.$(). */
@@ -77,6 +77,10 @@ export const osanoAdapter: CmpAdapter = {
         return true;
       }, consent)
       .catch(() => false);
+  },
+
+  async dismiss(page) {
+    return dismissBanner(page, () => this.waitForBanner(page, 1_500));
   },
 
   async readState(page) {

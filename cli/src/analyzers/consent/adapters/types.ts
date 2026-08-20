@@ -38,6 +38,12 @@ export interface CmpAdapter {
   /** Consent to exactly `allow` and nothing else. Absent when the CMP offers no granular API —
    * Suite F is then reported `skipped`, which is honest, rather than silently passing. */
   granular?(page: Page, allow: TrackerCategory[]): Promise<boolean>;
+  /** Close the banner *without* choosing — the X, the overlay, Escape.
+   *
+   * Its own method rather than a variant of reject because the whole question is whether the CMP
+   * treats the two the same. A banner offering no way to dismiss is a correct design, not a
+   * failure, so absence of a control yields `false` and the suite reports `skipped`. */
+  dismiss?(page: Page): Promise<boolean>;
   readState(page: Page): Promise<CmpCategoryState | null>;
   /** The configured consent model, when the vendor exposes it. Absent adapters fall back to a
    * conservative inference in the engine. */
@@ -50,6 +56,9 @@ export interface CmpAdapter {
  * more often than it changes the word "Reject". */
 export const REJECT_PATTERNS = /^(reject|decline|deny|refuse)( all)?$|necessary only|only necessary|essential only|opt.?out|do not (sell|accept)|continue without/i;
 export const ACCEPT_PATTERNS = /^(accept|allow|agree|got it|ok)( all| cookies| and close)?$|i (accept|agree)|enable all/i;
+/** Controls that close a banner without expressing a preference either way. */
+export const DISMISS_PATTERNS = /^(close|dismiss|×|x|✕|✖|not now|maybe later|no thanks)$|close (this )?(banner|dialog|notice)/i;
+
 export const PREFS_PATTERNS = /cookie (settings|preferences)|manage (cookies|preferences|consent)|privacy (settings|preferences)|customi[sz]e/i;
 
 /** Text that marks a container as the consent UI rather than some other dialog. */
@@ -125,6 +134,18 @@ export async function clickByAccessibleName(page: Page, pattern: RegExp): Promis
       return false;
     }, pattern.source, pattern.flags, CONSENT_CONTEXT.source, MARKETING_POPUP.source)
     .catch(() => false);
+}
+
+/** Closes a banner without answering it: a dismiss control if there is one, Escape if not.
+ *
+ * Verifies the banner actually went away. Returning true on a click that did nothing would
+ * produce a "dismissed" state in which the banner is still up and nothing was dismissed — and if
+ * no tags happened to fire, that reads as a pass on precisely the thing being tested. */
+export async function dismissBanner(page: Page, stillShowing: () => Promise<boolean>): Promise<boolean> {
+  const clicked = await clickByAccessibleName(page, DISMISS_PATTERNS);
+  if (!clicked) await page.keyboard.press("Escape").catch(() => undefined);
+  await new Promise((r) => setTimeout(r, 1_000));
+  return !(await stillShowing().catch(() => true));
 }
 
 /** Runs `fn` in the page, returning `fallback` on any error. Page-context code touching a CMP's

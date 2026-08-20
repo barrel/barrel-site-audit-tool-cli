@@ -1,5 +1,5 @@
 import type { TrackerCategory } from "@barrel/site-audit-shared";
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor } from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** Shopify's own Customer Privacy API, used by the native privacy banner and by any store whose
  * tags go through Customer Events. setTrackingConsent is callback-based, so each call is wrapped
@@ -43,6 +43,10 @@ export const shopifyAdapter: CmpAdapter = {
       preferences: allow.includes("preferences"),
       sale_of_data: allow.includes("marketing"),
     });
+  },
+
+  async dismiss(page) {
+    return dismissBanner(page, () => this.waitForBanner(page, 1_500));
   },
 
   async readState(page) {

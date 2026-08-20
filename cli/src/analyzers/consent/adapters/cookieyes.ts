@@ -1,4 +1,4 @@
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor } from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** CookieYes. Exposes getCkyConsent() for reading but no supported setter, so the choice has to
  * be made through the DOM. Its button classes are stable enough to try first, with the generic
@@ -36,6 +36,10 @@ export const cookieyesAdapter: CmpAdapter = {
 
   async acceptAll(page) {
     return (await clickCky(page, ".cky-btn-accept")) || clickByAccessibleName(page, ACCEPT_PATTERNS);
+  },
+
+  async dismiss(page) {
+    return dismissBanner(page, () => this.waitForBanner(page, 1_500));
   },
 
   async readState(page) {

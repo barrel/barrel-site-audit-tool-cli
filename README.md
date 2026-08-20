@@ -621,7 +621,7 @@ pnpm barrel-audit consent-scan --inventory          # which CMP is where — fas
 pnpm barrel-audit consent-scan --seed               # draft sites.yml from stores/
 ```
 
-27 tests across 7 suites, run in five fresh incognito browser states plus a Global Privacy Control
+32 tests across 8 suites, run in five fresh incognito browser states plus a Global Privacy Control
 probe. Results land on **/consent** in the dashboard (worst sites first) and, for a single site,
 as a **Privacy Compliance** section in its normal report. The command exits non-zero on any
 blocker-severity failure, so it can gate CI unchanged.

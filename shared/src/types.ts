@@ -593,14 +593,14 @@ export type CmpVendor = "cookiebot" | "onetrust" | "osano" | "cookieyes" | "shop
 export type TrackerCategory = "essential" | "analytics" | "marketing" | "preferences";
 
 /** The five browser states each site is driven through, each in its own fresh incognito context. */
-export type ConsentStateId = "clean" | "reject" | "accept" | "granular" | "returning";
+export type ConsentStateId = "clean" | "dismiss" | "reject" | "accept" | "granular" | "returning";
 
 /** `blocked` (site down / bot-walled / banner never appeared) is deliberately NOT `fail`.
  * Conflating "we couldn't test it" with "it failed" is how a compliance report loses its
  * audience. `skipped` means the CMP genuinely has no such capability. */
 export type ConsentTestStatus = "pass" | "fail" | "blocked" | "skipped" | "flaky";
 
-export type ConsentSuiteId = "A" | "B" | "C" | "D" | "E" | "F" | "G";
+export type ConsentSuiteId = "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H";
 
 /** Separate from the shared `Severity` because consent needs a level above `error`: a blocker
  * fails the whole run's exit code, which nothing else in the audit does. */

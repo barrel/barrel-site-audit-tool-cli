@@ -8,9 +8,10 @@ import type {
 } from "@/lib/shared";
 import { screenshotUrl } from "@/lib/screenshot";
 
-const STATE_ORDER: ConsentStateId[] = ["clean", "reject", "accept", "granular", "returning"];
+const STATE_ORDER: ConsentStateId[] = ["clean", "dismiss", "reject", "accept", "granular", "returning"];
 const STATE_LABEL: Record<ConsentStateId, string> = {
   clean: "Clean",
+  dismiss: "Dismissed",
   reject: "Reject",
   accept: "Accept",
   granular: "Analytics only",
@@ -40,6 +41,7 @@ const SUITE_LABEL: Record<string, string> = {
   E: "Persistence",
   F: "Granular",
   G: "Compliance surface",
+  H: "Dismissal",
 };
 
 /** Was this tag firing in this state the right outcome?

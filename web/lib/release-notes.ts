@@ -12,6 +12,19 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.18",
+    date: "2026-08-19",
+    title: "Privacy Compliance — closing the banner, chat widgets, and load order",
+    notes: [
+      "**New: closing the banner is tested as its own state.** Dismissing a notice is not agreement, but plenty of CMPs wire the X to accept and start transmitting on a choice the visitor never made. Nothing else in the scan could see it. Two new tests (H1, H2) drive the close control — or Escape — and assert that nothing fired and no consent was recorded. A banner offering no way to dismiss is reported as such rather than as a failure: forcing a choice is the safer design.",
+      "**Chat widgets and session-replay tools are now catalogued** — Intercom, Drift, Gorgias, Zendesk, Tidio, Tawk, FullStory, LogRocket, Smartlook, Mouseflow, Lucky Orange. Sharper exposure than a page-view pixel, because they capture what a visitor typed rather than which page they saw.",
+      "**New: does the CMP load before the tag manager?** (A5) A CMP that loads second cannot gate what the tag manager has already fired, however correct its configuration.",
+      "**New: is a GPC opt-out visibly confirmed?** (G5) California has required a visible confirmation since January 2026 and Colorado has a parallel rule, so honouring the signal silently now satisfies only half of it.",
+      "**The opt-out link is checked on a second page**, not just the one scanned. A footer link present on the homepage and missing from a collection page meets the requirement in appearance rather than in fact.",
+      "**The per-site report now groups findings by exposure** — tracking before consent, opt-out effectiveness, browser signals, notice and reachability, and tags not firing when permitted. The suites are ordered by when something was tested, which is right for running the scan and wrong for reading it.",
+    ],
+  },
+  {
     version: "1.17",
     date: "2026-08-19",
     title: "Privacy Compliance — marketing interstitials can no longer be mistaken for the consent banner",

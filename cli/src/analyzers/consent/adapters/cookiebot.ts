@@ -1,6 +1,6 @@
 import type { Page } from "puppeteer-core";
 import type { TrackerCategory } from "@barrel/site-audit-shared";
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor } from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** Cookiebot. Exposes the richest JS API of any CMP we run into, including true granular consent
  * via submitCustomConsent(preferences, statistics, marketing) — note Cookiebot calls the
@@ -89,6 +89,10 @@ export const cookiebotAdapter: CmpAdapter = {
       );
       return true;
     });
+  },
+
+  async dismiss(page) {
+    return dismissBanner(page, () => this.waitForBanner(page, 1_500));
   },
 
   async readState(page) {

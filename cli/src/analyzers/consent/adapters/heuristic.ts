@@ -1,4 +1,4 @@
-import { type CmpAdapter, ACCEPT_PATTERNS, PREFS_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval } from "./types.js";
+import { type CmpAdapter, ACCEPT_PATTERNS, PREFS_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, dismissBanner} from "./types.js";
 
 /** Last-resort adapter for a CMP we don't have a vendor integration for — an in-house banner, a
  * Shopify app, or a vendor that was swapped in since this list was last touched.
@@ -44,6 +44,10 @@ export const heuristicAdapter: CmpAdapter = {
 
   async acceptAll(page) {
     return clickByAccessibleName(page, ACCEPT_PATTERNS);
+  },
+
+  async dismiss(page) {
+    return dismissBanner(page, () => this.waitForBanner(page, 1_500));
   },
 
   async readState() {

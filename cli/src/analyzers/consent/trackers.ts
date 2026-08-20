@@ -54,6 +54,23 @@ export const TRACKERS: TrackerSignature[] = [
   { id: "triplewhale", name: "Triple Whale", category: "analytics", pattern: /triplewhale\.com|triplepixel/i },
   { id: "elevar", name: "Elevar", category: "analytics", pattern: /elevar\.(com|dev)|getelevar\.com/i },
 
+  // ── Session replay & chat ────────────────────────────────────────────────────────────────
+  // Categorised analytics, but the sharpest exposure in the catalogue: unlike a page-view pixel
+  // these capture what a visitor typed and clicked. That is the "contents of a communication"
+  // language CIPA §631 turns on, which is why gating them matters more than their category
+  // suggests — and why "strictly necessary" is the wrong bucket for a chat widget.
+  { id: "fullstory", name: "FullStory", category: "analytics", pattern: /fullstory\.com/i },
+  { id: "logrocket", name: "LogRocket", category: "analytics", pattern: /logrocket\.(com|io)|lr-in\.com/i },
+  { id: "smartlook", name: "Smartlook", category: "analytics", pattern: /smartlook\.(com|cloud)/i },
+  { id: "mouseflow", name: "Mouseflow", category: "analytics", pattern: /mouseflow\.com/i },
+  { id: "luckyorange", name: "Lucky Orange", category: "analytics", pattern: /luckyorange\.(com|net)/i },
+  { id: "intercom", name: "Intercom", category: "analytics", pattern: /intercom\.(io|com)|intercomcdn\.com/i },
+  { id: "drift", name: "Drift", category: "analytics", pattern: /drift\.com|driftt\.com/i },
+  { id: "gorgias", name: "Gorgias", category: "analytics", pattern: /gorgias\.(com|chat)/i },
+  { id: "zendesk-chat", name: "Zendesk Chat", category: "analytics", pattern: /zopim\.com|zdassets\.com/i },
+  { id: "tidio", name: "Tidio", category: "analytics", pattern: /tidio(chat)?\.(com|co)/i },
+  { id: "tawk", name: "Tawk.to", category: "analytics", pattern: /tawk\.to/i },
+
   // ── Essential ────────────────────────────────────────────────────────────────────────────
   // Shopify's own first-party analytics. Listed so it's visibly accounted for rather than
   // silently uncategorised — but never asserted against, because Shopify gates it through the
@@ -70,6 +87,8 @@ const COOKIE_CATEGORIES: Array<[RegExp, TrackerCategory]> = [
   [/^_shopify_marketing/i, "marketing"],
   [/^_ga$|^_ga_|^_gid$|^_gat/i, "analytics"],
   [/^_clck$|^_clsk$|^_hj/i, "analytics"],
+  [/^_fs_|^fs_uid$|^_lr_|^smartlook|^mf_|^__lo_/i, "analytics"],
+  [/^intercom-|^drift[_a-z]*$|^gorgias|^__zlcmid$|^tidio/i, "analytics"],
   [/^_shopify_analytics|^_shopify_y$|^_shopify_s$/i, "analytics"],
   [/^_orig_referrer$|^_landing_page$/i, "analytics"],
   [/^localization$|^cart_|^secure_customer_sig$|^_secure_session_id$/i, "essential"],

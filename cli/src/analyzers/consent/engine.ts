@@ -83,11 +83,19 @@ export interface RawStateCapture {
    * consent banner, and it fires its own vendor's tags on load. */
   marketingInterstitial?: string;
   screenshot?: Buffer;
+  /** Whether the CMP's own script was requested before the tag manager's.
+   *
+   * Undefined when one of the two never appeared, which is not the same as "out of order" and
+   * must not be reported as such. */
+  cmpBeforeTagManager?: boolean;
   /** returning state only. */
   bannerAfterReload?: boolean;
   cmpStateAfterReload?: CmpCategoryState | null;
   trackersAfterNavigate?: string[];
   cmpStateAfterNavigate?: CmpCategoryState | null;
+  /** Policy links found on the second page — the "on every page" half of the opt-out rule. */
+  linksAfterNavigate?: PolicyLinks;
+  secondPageUrl?: string;
   /** accept state only — whether the preference centre could be reopened. */
   preferencesReopenable?: boolean;
 }
@@ -98,6 +106,10 @@ export interface GpcProbe {
   marketingTrackers: string[];
   cmpState: CmpCategoryState | null;
   shopifyConsent?: ShopifyConsentState;
+  /** Whether the page visibly told the visitor their signal was honoured. California has required
+   * this since January 2026 and Colorado has a parallel rule; honouring the signal silently now
+   * satisfies only half the obligation. */
+  confirmationShown?: boolean;
 }
 
 export interface EngineResult {
@@ -291,6 +303,21 @@ async function probeLinks(page: Page): Promise<PolicyLinks> {
  * skews everything around it: the modal can cover the consent banner, and its vendor's tags fire
  * on load regardless of consent, so a reader who cannot see that it was there has no way to
  * account for it. */
+/** Did the consent platform get to run before the tag manager did?
+ *
+ * A CMP that loads after GTM cannot gate what GTM has already fired, however correct its
+ * configuration — the tags are gone before it has an opinion. Returns undefined rather than false
+ * when either script is absent: "no tag manager here" is not a failure. */
+const CMP_SCRIPT = /cookiebot\.com|cookielaw\.org|onetrust\.com|osano\.com|cookieyes\.com|usercentrics|termly\.io/i;
+const TAG_MANAGER = /googletagmanager\.com\/gtm\.js/i;
+
+function loadOrder(urls: string[]): boolean | undefined {
+  const cmpAt = urls.findIndex((u) => CMP_SCRIPT.test(u));
+  const gtmAt = urls.findIndex((u) => TAG_MANAGER.test(u));
+  if (cmpAt === -1 || gtmAt === -1) return undefined;
+  return cmpAt < gtmAt;
+}
+
 async function detectInterstitial(page: Page): Promise<string | null> {
   return safeEvalPage<string | null>(
     page,
@@ -478,6 +505,7 @@ async function finishCapture(
     cmpState: adapter ? await adapter.readState(sc.page).catch(() => null) : null,
     bannerVisible: await isBannerVisible(sc.page, adapter),
     marketingInterstitial: (await detectInterstitial(sc.page)) ?? undefined,
+    cmpBeforeTagManager: loadOrder(sc.requests.map((r) => r.url)),
     consoleErrors: Array.from(new Set(sc.consoleErrors)).slice(0, 10),
   };
 
@@ -598,6 +626,18 @@ export async function runConsentEngine(url: string, options: EngineOptions = {})
       withDeadline(`The "${id}" state`, STATE_DEADLINE_MS, work()).catch((err: any) =>
         unreachable(id, String(err?.message ?? err).slice(0, 200)),
       );
+
+    /* — S0b dismiss — closed the banner without answering it. The article-documented CIPA
+       pattern: a CMP that treats "go away" as "yes" starts transmitting on a choice the visitor
+       never made, and no other state in this scan would notice. */
+    stage("Consent: dismiss without choosing");
+    states.push(
+      outOfTime()
+        ? unreachable("dismiss", BUDGET_REASON)
+        : !adapter.dismiss
+          ? unreachable("dismiss", `${adapter.label} exposes no way to close the banner without choosing.`)
+          : await guarded("dismiss", () => runDismissState(browser, url, adapter!, screenshots)),
+    );
 
     /* — S1 reject — */
     stage("Consent: reject-all");
@@ -738,6 +778,43 @@ async function choiceRegistered(
   return !(await adapter.waitForBanner(page, 2_000).catch(() => false));
 }
 
+/** Close the banner without answering it, then look at what started up.
+ *
+ * Deliberately does *not* require the banner to disappear afterwards: some CMPs re-render it, and
+ * the question here is what the tags did, not what the UI did. */
+async function runDismissState(
+  browser: Browser,
+  url: string,
+  adapter: CmpAdapter,
+  screenshots: boolean,
+): Promise<RawStateCapture> {
+  let ctx: BrowserContext | null = null;
+  try {
+    const opened = await openState(browser, url);
+    ctx = opened.ctx;
+    const sc = opened.state;
+
+    const shown = await adapter.waitForBanner(sc.page, BANNER_TIMEOUT_MS);
+    if (!shown) return unreachable("dismiss", `${adapter.label} banner did not appear within ${BANNER_TIMEOUT_MS / 1000}s.`);
+
+    const preChoiceCookies = await readCookies(sc.page);
+    sc.choiceAt = sc.requests.length;
+
+    if (!(await adapter.dismiss!(sc.page))) {
+      // Not a failure. A banner a visitor cannot wave away is the safer design, and reporting it
+      // as one would push sites toward adding the very control this suite exists to test.
+      return unreachable("dismiss", `${adapter.label} offers no control to close the banner without choosing.`);
+    }
+
+    await sleep(POST_CHOICE_SETTLE_MS);
+    return await finishCapture("dismiss", sc, adapter, { screenshots, preChoiceCookies });
+  } catch (err: any) {
+    return unreachable("dismiss", String(err?.message ?? err).slice(0, 200));
+  } finally {
+    await ctx?.close().catch(() => undefined);
+  }
+}
+
 /** Accept, then reload and navigate — the only way to tell a CMP that persists a choice from one
  * that merely appears to, which is a failure shoppers experience as a banner that never goes away. */
 async function runReturningState(browser: Browser, url: string, adapter: CmpAdapter, screenshots: boolean): Promise<RawStateCapture> {
@@ -767,12 +844,18 @@ async function runReturningState(browser: Browser, url: string, adapter: CmpAdap
     await sleep(LOAD_SETTLE_MS);
     const trackersAfterNavigate = matchTrackers(deliveredUrls(sc.requests.slice(beforeNav))).map((t) => t.id);
     const cmpStateAfterNavigate = await adapter.readState(sc.page).catch(() => null);
+    // The opt-out link is required on every page, not just the one that happened to be scanned,
+    // and a footer link present on the homepage but missing from a collection page is a common
+    // way for that to be half-true.
+    const linksAfterNavigate = await probeLinks(sc.page).catch(() => ({}) as PolicyLinks);
 
     const capture = await finishCapture("returning", sc, adapter, { screenshots });
     capture.bannerAfterReload = bannerAfterReload;
     capture.cmpStateAfterReload = cmpStateAfterReload;
     capture.trackersAfterNavigate = trackersAfterNavigate;
     capture.cmpStateAfterNavigate = cmpStateAfterNavigate;
+    capture.linksAfterNavigate = linksAfterNavigate;
+    capture.secondPageUrl = secondUrl;
     return capture;
   } catch (err: any) {
     return unreachable("returning", String(err?.message ?? err).slice(0, 200));
@@ -805,6 +888,16 @@ async function runGpcProbe(browser: Browser, url: string, adapter: CmpAdapter | 
 
     return {
       ran: true,
+      confirmationShown: await safeEvalPage<boolean>(
+        sc.page,
+        () => {
+          const body = (document.body?.innerText || "").slice(0, 20_000);
+          return /(opted?[- ]out|opt[- ]out (request|signal|preference)|do not sell|privacy (choices|preferences?) (honou?red|applied|saved)|global privacy control|gpc)/i.test(
+            body,
+          );
+        },
+        false,
+      ),
       marketingTrackers: marketing,
       cmpState: adapter ? await adapter.readState(sc.page).catch(() => null) : null,
       shopifyConsent: await readShopifyConsent(sc.page),
