@@ -9,6 +9,7 @@ import { generateThemeArchitecture } from "../analyzers/theme-architecture.js";
 import { analyzeHealth } from "../analyzers/health.js";
 import { analyzePixels } from "../analyzers/pixels.js";
 import { analyzeConsent } from "../analyzers/consent/index.js";
+import { analyzeSecurity } from "../analyzers/security.js";
 import { analyzeThemeStructure } from "../analyzers/theme-structure.js";
 import { analyzeAnalytics } from "../analyzers/analytics.js";
 import { analyzeCompetitor } from "../analyzers/competitors.js";
@@ -35,6 +36,10 @@ export interface RunOptions {
   /** Skip the behavioural consent QA suite. It drives the banner through five browser states,
    * so it costs about a minute or two on top of the rest of the run. */
   skipConsent?: boolean;
+  /** Skip the Security & Compliance section. Cheap to run (HTTP requests and one TLS handshake,
+   * no browser), so there is rarely a reason to — the flag exists for parity and for runs against
+   * a host that rate-limits the extra probe requests. */
+  skipSecurity?: boolean;
   skipAnalytics?: boolean;
   skipSummary?: boolean;
   skipScreenshots?: boolean;
@@ -194,6 +199,13 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
       }).catch(() => null)) ?? undefined;
   }
 
+  if (!options.skipSecurity) {
+    hooks.onStage?.("Security & Compliance: headers, transport, cookies, exposed paths, script supply chain");
+    // Never fatal to the run, for the same reason as consent: a host that rate-limits or blocks
+    // the probe requests should cost this one section, not the whole report.
+    sections.security = (await analyzeSecurity(auditUrl, { onStage: hooks.onStage }).catch(() => null)) ?? undefined;
+  }
+
   if (!options.skipGeoSeo) {
     hooks.onStage?.("Auditing SEO opportunities & AI/agentic-commerce readiness (GEO)");
     sections.geoSeo = (await analyzeGeoSeo(auditUrl)) ?? undefined;
@@ -294,6 +306,7 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
   // Skipped rather than counted as zero: a section we could not test should not drag the overall
   // score down as if it had failed.
   if (sections.consent && sections.consent.score !== null) scores.push(sections.consent.score);
+  if (sections.security && sections.security.score !== null) scores.push(sections.security.score);
   if (sections.geoSeo) scores.push(sections.geoSeo.healthRating);
   if (sections.agentReadiness) scores.push(sections.agentReadiness.score);
   if (sections.ux) scores.push(sections.ux.score);

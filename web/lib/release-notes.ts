@@ -12,6 +12,19 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.21",
+    date: "2026-08-19",
+    title: "New: Security & Compliance",
+    notes: [
+      "**Every report now has a Security & Compliance section.** It checks the security headers (`Content-Security-Policy` — present *and* whether its `script-src` actually restricts anything, `Strict-Transport-Security` and its `max-age`, `X-Content-Type-Options`, clickjacking protection, `Referrer-Policy`, `Permissions-Policy`), transport (HTTP→HTTPS redirect, mixed content, TLS certificate validity and days to expiry), the flags on every cookie the homepage sets, four commonly-leaked paths, published source maps, server version disclosure, missing subresource integrity on third-party scripts, and the jQuery version.",
+      "**Every finding shows the header value, cookie name or URL it was read from.** A security claim a client's own engineer cannot re-check with one `curl` is worth nothing, and one that turns out to be wrong discredits the rest of the report with it.",
+      "**A check that could not be run says so, as its own state.** \"Not tested\" is never rounded into a pass or a fail, and is excluded from the score entirely — so a site we could not fully reach cannot out-rank one we could.",
+      "**No guessing, deliberately.** Exposed-file checks only fire when the response body actually matches that file's format, because a great many hosts answer `/.env` with a 200 and their own homepage — a naive scanner reports a critical breach on a perfectly healthy store. Source maps are only reported once the map has actually been fetched. The jQuery version is read out of the library file rather than off its filename, and the only advisory named is the one that fixed 3.5.0.",
+      "**It adds about two seconds.** No browser: everything comes from HTTP responses, the delivered HTML and one TLS handshake. Skip it with `--skip-security`.",
+      "**Scored like Privacy Compliance** — a weighted proportion of what was actually confirmed, no score at all when too little was, and any critical failure scales the section into the bottom half so a readable `.env` can never present as a passing grade.",
+    ],
+  },
+  {
     version: "1.20",
     date: "2026-08-19",
     title: "A report you can actually send a client",

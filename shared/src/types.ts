@@ -441,6 +441,7 @@ export interface ReportSections {
   health?: HealthSection;
   pixels?: PixelSection;
   consent?: ConsentSection;
+  security?: SecuritySection;
   themeStructure?: ThemeStructureSection;
   bestPractices?: BestPracticesSection;
   analytics?: AnalyticsSection;
@@ -580,6 +581,79 @@ export interface RunsIndex {
  * without a local stores/ directory. */
 export interface StoresIndex {
   stores: Array<{ slug: string; name: string; url: string; updatedAt: string }>;
+}
+
+/* ── Security & Compliance ──────────────────────────────────────────────────────────────────
+ * Everything here is read from an HTTP response, the served HTML, or a TLS handshake — no
+ * browser, no multi-state flows. That ceiling is deliberate: it keeps the section cheap enough
+ * to run on every audit, and keeps every verdict reproducible with curl by whoever is reading
+ * the report. Anything that would need a real browser to observe belongs in the consent or
+ * pixel sections, which already pay for one.
+ */
+
+export type SecuritySeverity = "critical" | "high" | "medium" | "low";
+
+/** `not-tested` is a first-class outcome, never rounded into `pass` or `fail`. A request that
+ * timed out, a port that refused a connection and a header we chose not to judge are all
+ * coverage gaps, and a report that presents a coverage gap as a clean bill of health is worse
+ * than one that admits it looked and could not tell. `warn` is different: it IS an observation
+ * — the control exists but is weaker than it should be. */
+export type SecurityCheckStatus = "pass" | "warn" | "fail" | "not-tested";
+
+export type SecurityCheckCategory = "headers" | "transport" | "cookies" | "exposure" | "supply-chain";
+
+/** The raw material behind a verdict. Without it a security finding is an accusation the reader
+ * has to take on trust — with the header value or the URL in front of them they can re-check it
+ * in one command, which is the only reason a client-facing security claim is worth making. */
+export interface SecurityEvidence {
+  /** Verbatim header lines, cookie attributes or matched strings the verdict was read from. */
+  observed?: string[];
+  /** Exact URLs that were requested to reach this verdict. */
+  urls?: string[];
+  notes?: string[];
+}
+
+export interface SecurityCheck {
+  /** Stable id, e.g. "hsts" — the contract between the report and any follow-up ticket. */
+  id: string;
+  category: SecurityCheckCategory;
+  title: string;
+  /** How much this control matters if it is wrong — a fixed property of the check, not of this
+   * site's result. It doubles as the check's scoring weight, so a passing `critical` check earns
+   * as much as a failing one costs. */
+  severity: SecuritySeverity;
+  status: SecurityCheckStatus;
+  /** What was actually observed, stated plainly enough to quote to a client. */
+  detail: string;
+  /** Concrete remediation — omitted on `pass`, and on `not-tested`, where the next step is to
+   * re-test rather than to change anything. */
+  recommendation?: string;
+  evidence?: SecurityEvidence;
+}
+
+export interface SecurityTotals {
+  pass: number;
+  warn: number;
+  fail: number;
+  notTested: number;
+  /** Failures at `critical` severity — the ones that clamp the section score into the bottom half. */
+  critical: number;
+}
+
+export interface SecuritySection {
+  /** Null when too little was confirmed to score honestly — see SecurityCheckStatus. */
+  score: number | null;
+  /** The URL the checks were actually made against, after redirects — not necessarily the URL
+   * that was requested, and the difference matters when reading a header verdict. */
+  scannedUrl: string;
+  checks: SecurityCheck[];
+  totals: SecurityTotals;
+  /** Distinct cross-origin hosts serving <script src> in the delivered HTML. Reported as a
+   * supply-chain surface count: each one can change its own code without anyone here noticing. */
+  thirdPartyScriptOrigins: string[];
+  /** Set when the page itself could not be fetched, so nothing was testable. `checks` is empty
+   * and `score` is null — never zero, which would read as "this site failed everything". */
+  fatalError?: string;
 }
 
 /* ── Consent QA ─────────────────────────────────────────────────────────────────────────────

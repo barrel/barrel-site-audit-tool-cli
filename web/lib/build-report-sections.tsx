@@ -14,6 +14,7 @@ import { HealthChecklist } from "@/components/HealthChecklist";
 import { AdaScopeChecklist } from "@/components/AdaScopeChecklist";
 import { PixelAudit } from "@/components/PixelAudit";
 import { ConsentAudit } from "@/components/ConsentAudit";
+import { SecurityAudit } from "@/components/SecurityAudit";
 import { ThemeStructure } from "@/components/ThemeStructure";
 import { BestPracticesTable } from "@/components/BestPracticesTable";
 import { AnalyticsSection } from "@/components/AnalyticsSection";
@@ -37,6 +38,7 @@ import {
   buildRoadmap,
   type Finding,
   consentToFindings,
+  securityToFindings,
 } from "@/lib/findings";
 
 export type ReportCategory = "overview" | "vitals" | "theme" | "ux" | "seo-geo" | "ada";
@@ -85,6 +87,7 @@ export function collectAllFindings(report: Report): Finding[] {
   const themeConcernFindingsList = sections.themeArchitecture ? themeConcernFindings(sections.themeArchitecture.concerns) : [];
   const agentReadinessFindingsList = sections.agentReadiness ? agentReadinessIssueFindings(sections.agentReadiness.issues) : [];
   const adaScopeFindingsList = sections.adaScope ? adaScopeFindings(sections.adaScope) : [];
+  const securityFindingsList = sections.security ? securityToFindings(sections.security) : [];
 
   const allFindings: Finding[] = [
     ...perfFindings,
@@ -94,6 +97,7 @@ export function collectAllFindings(report: Report): Finding[] {
     ...sitespeedFindingsList,
     ...seoFindings,
     ...trustFindings,
+    ...securityFindingsList,
     ...consoleErrorFindingsList,
     ...agentReadinessFindingsList,
     ...seoOppFindings,
@@ -168,6 +172,9 @@ export function buildReportSections(report: Report): SectionDef[] {
   if (sections.health) stats.push({ label: "Site Health", score: sections.health.score });
   if (sections.geoSeo) stats.push({ label: "SEO & GEO Health", score: sections.geoSeo.healthRating });
   if (sections.pixels) stats.push({ label: "Trust & Privacy", score: sections.pixels.score });
+  // Only when there is a real number: a null score means too little was confirmed to rank, and a
+  // stat tile has nowhere to say that.
+  if (sections.security && sections.security.score !== null) stats.push({ label: "Security", score: sections.security.score });
   if (sections.themeStructure) stats.push({ label: "Theme Structure", score: sections.themeStructure.score });
   if (sections.code) stats.push({ label: "Theme Code", score: sections.code.score });
 
@@ -946,6 +953,27 @@ export function buildReportSections(report: Report): SectionDef[] {
       render: (n) => (
         <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={consent.score === null ? undefined : <GradePill score={consent.score} />}>
           <ConsentAudit section={consent} />
+        </ReportSection>
+      ),
+    });
+  }
+
+  if (sections.security) {
+    const security = sections.security;
+    sectionDefs.push({
+      id: "security",
+      label: "Security & Compliance",
+      category: "theme",
+      render: (n) => (
+        <ReportSection
+          id="security"
+          number={n}
+          title="Security & Compliance"
+          // No pill at all when the score is null, rather than a zero: too little was confirmed to
+          // put a number on, and a 0 would read as a verdict on the site instead of on the scan.
+          action={security.score === null ? undefined : <GradePill score={security.score} />}
+        >
+          <SecurityAudit section={security} />
         </ReportSection>
       ),
     });
