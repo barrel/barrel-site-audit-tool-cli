@@ -320,15 +320,22 @@ fails — and *how* it fails depends on where you are, which is what makes it co
 - **In a folder with no `package.json`** you get `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`, which at
   least points at the real problem.
 - **In a client theme repo that *does* have a `package.json`** — the normal case, since most themes
-  have a build — pnpm instead adopts *that repo* as the workspace, runs its own
-  verify-deps-before-run check, and tries to `pnpm install` the theme's dependencies. The CLI is
-  never reached at all. If the theme's install is broken for any unrelated reason you get a
-  `pnpm install` failure ending in `runDepsStatusCheck`, which looks like a bug in this tool and
-  isn't one.
+  have a build — pnpm adopts *that repo* as the workspace and runs its verify-deps-before-run check
+  first, meaning it runs `pnpm install` on the theme before it will run anything. If that install is
+  healthy the command then works (pnpm falls through to the global binary on `PATH`). If the theme's
+  install is broken for any reason of its own, you never reach the CLI at all: what you see is a
+  `pnpm install` failure ending in `runDepsStatusCheck`, which reads as a bug in this tool and isn't
+  one.
 
-Either way the fix is the same: call the global `barrel-audit` binary directly, with no `pnpm` in
-front. (There's also no `barrel-audit install` command; installing is the `npm install -g` step
-above.)
+  A real example, worth recognising because pnpm causes it silently: pnpm 11 writes an unresolved
+  `allowBuilds:` block into the theme's own `pnpm-workspace.yaml` (`esbuild: set this to true or
+  false`) and then fails every install with `ERR_PNPM_IGNORED_BUILDS` until those become real
+  booleans. Nothing about that involves this tool, but every `pnpm barrel-audit ...` in that repo
+  dies on it.
+
+So: call the global `barrel-audit` binary directly, with no `pnpm` in front. It doesn't depend on
+the theme's dependencies at all, so it's immune to the theme's install state. (There's also no
+`barrel-audit install` command; installing is the `npm install -g` step above.)
 
 With no `barrel-site-audit` checkout on disk, config/store data lives in `~/.barrel-audit/`
 instead of `stores/` (created automatically), and env vars (`BLOB_READ_WRITE_TOKEN`,

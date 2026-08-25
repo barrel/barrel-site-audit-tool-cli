@@ -342,20 +342,32 @@ export default function InstructionsPage() {
             including a client theme repo. That&apos;s the intended setup: the agent runs in the
             theme repo on your machine, and the dashboard in your browser drives it from there.
           </p>
-          <p className="text-sm text-[#6B6B6B]">
-            Leaving the <span className="font-mono text-[#1A1A1A]">pnpm</span> on matters more than
-            it looks, because how it fails depends on where you are. In a folder with no{" "}
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Leaving the <span className="font-mono text-[#1A1A1A]">pnpm</span> on is worth avoiding,
+            and the reason is subtle: the prefix isn&apos;t broken in itself, but it makes the CLI
+            depend on the <i>theme repo&apos;s</i> dependencies, which have nothing to do with this
+            tool. In a folder with no{" "}
             <span className="font-mono text-[#1A1A1A]">package.json</span> you get{" "}
-            <span className="font-mono text-[#1A1A1A]">ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND</span>,
-            which at least points at the problem. But in a client theme repo that{" "}
-            <i>does</i> have one — the normal case, since most themes have a build — pnpm adopts{" "}
-            <i>that</i> repo as the workspace and tries to install the theme&apos;s own
-            dependencies instead, so the CLI is never reached. If the theme&apos;s install happens
-            to be broken for some unrelated reason, what you see is a{" "}
+            <span className="font-mono text-[#1A1A1A]">ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND</span>.
+            In a theme repo that <i>does</i> have one — the normal case, since most themes have a
+            build — pnpm adopts <i>that</i> repo as the workspace and runs{" "}
+            <span className="font-mono text-[#1A1A1A]">pnpm install</span> on the theme before it
+            will run anything. If that install is healthy, the command works. If it&apos;s broken
+            for any reason of the theme&apos;s own, you never reach the CLI: what you see is a{" "}
             <span className="font-mono text-[#1A1A1A]">pnpm install</span> failure ending in{" "}
-            <span className="font-mono text-[#1A1A1A]">runDepsStatusCheck</span> — which looks like
-            a bug in this tool and isn&apos;t one. Either way: no{" "}
-            <span className="font-mono text-[#1A1A1A]">pnpm</span> in front.
+            <span className="font-mono text-[#1A1A1A]">runDepsStatusCheck</span>, which looks like a
+            bug in this tool and isn&apos;t one.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            One cause worth recognising, because pnpm creates it silently: pnpm 11 writes an
+            unresolved <span className="font-mono text-[#1A1A1A]">allowBuilds:</span> block into the
+            theme&apos;s own <span className="font-mono text-[#1A1A1A]">pnpm-workspace.yaml</span>{" "}
+            (literally <span className="font-mono text-[#1A1A1A]">esbuild: set this to true or
+            false</span>) and then fails every install with{" "}
+            <span className="font-mono text-[#1A1A1A]">ERR_PNPM_IGNORED_BUILDS</span> until those
+            are real booleans. Fix them in the theme repo, or just call{" "}
+            <span className="font-mono text-[#1A1A1A]">barrel-audit</span> directly — it doesn&apos;t
+            use the theme&apos;s dependencies, so it works either way.
           </p>
         </section>
 

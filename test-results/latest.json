@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-08-25T14:07:14.452Z",
+  "timestamp": "2026-08-25T14:34:06.461Z",
   "node": "v22.14.0",
   "ok": true,
   "counts": {
@@ -8,7 +8,7 @@
     "skipped": 0,
     "flaky": 0
   },
-  "durationMs": 781,
+  "durationMs": 479,
   "flaky": [],
   "failures": []
 }

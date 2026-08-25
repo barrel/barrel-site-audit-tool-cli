@@ -108,15 +108,24 @@ Anything there means publish.
 
 ## The `pnpm` prefix trap
 
-When telling someone how to run the global CLI, never write `pnpm barrel-audit ...`. That resolves
-the `barrel-audit` script from *this* repo's root `package.json`, so anywhere else it fails — and
-how it fails is misleading:
+When telling someone how to run the global CLI, write `barrel-audit ...`, never
+`pnpm barrel-audit ...`. The prefix is not itself broken — that is the confusing part — but it makes
+the CLI depend on the *theme repo's* dependency state, which has nothing to do with this tool:
 
 - In a folder with no `package.json`: `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`, which at least names
   the problem.
 - In a client theme repo that **does** have one — the normal case, since most themes have a build —
-  pnpm adopts *that repo* as the workspace and tries to install the theme's own dependencies. The
-  CLI is never reached, and a broken theme install surfaces as a `pnpm install` failure ending in
-  `runDepsStatusCheck`, which reads as a bug in this tool and is not one.
+  pnpm adopts that repo as the workspace and runs verify-deps-before-run first, i.e. `pnpm install`
+  on the theme, before running anything. Healthy install: the command works, since pnpm falls
+  through to the global binary on `PATH`. Broken install: the CLI is never reached, and what the
+  user sees is a `pnpm install` failure ending in `runDepsStatusCheck` — which reads as a bug in
+  this tool and is not one.
 
-The global binary is called directly: `barrel-audit serve`, no `pnpm`.
+Seen in the wild (2026-08-25): pnpm 11 wrote an unresolved `allowBuilds:` block into a theme's own
+`pnpm-workspace.yaml` (`esbuild: set this to true or false`) and then failed every install with
+`ERR_PNPM_IGNORED_BUILDS` until those became real booleans. Every `pnpm barrel-audit ...` in that
+repo died on it; plain `barrel-audit serve` worked throughout.
+
+So when someone reports the CLI failing with a `pnpm install` error, check two things before looking
+at this tool at all: whether they used the `pnpm` prefix, and what `barrel-audit --version` says
+(a stale global install is the other half of "my feature is missing").
