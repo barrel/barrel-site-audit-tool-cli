@@ -11,6 +11,7 @@ import { analyzePixels } from "../analyzers/pixels.js";
 import { analyzeConsent } from "../analyzers/consent/index.js";
 import { analyzeSecurity } from "../analyzers/security.js";
 import { analyzeThemeStructure } from "../analyzers/theme-structure.js";
+import { analyzeThemeProfile } from "../analyzers/theme-profile.js";
 import { analyzeAnalytics } from "../analyzers/analytics.js";
 import { analyzeCompetitor } from "../analyzers/competitors.js";
 import { captureScreenshot } from "../analyzers/screenshot.js";
@@ -20,6 +21,7 @@ import { analyzeUx } from "../analyzers/ux.js";
 import { deriveBestPractices } from "../analyzers/best-practices.js";
 import { generateAiSuggestions } from "../analyzers/ai-suggestions.js";
 import { generateSummary } from "../analyzers/summary.js";
+import { generateRecommendations } from "../analyzers/recommendations.js";
 import { resolveThemeDir } from "../store.js";
 import { writeBlobJson, writeBlobBinary } from "../blob.js";
 import { normalizeAuditUrl } from "../url.js";
@@ -47,6 +49,9 @@ export interface RunOptions {
   skipAgentReadiness?: boolean;
   skipUx?: boolean;
   skipAiSuggestions?: boolean;
+  /** Skip the client-ready Recommendations tab. It runs last and synthesizes every other section,
+   * so skipping it costs one Claude call and nothing else. */
+  skipRecommendations?: boolean;
   competitorUrls?: string[];
   /** The client's ADA scope, pasted verbatim. Present = run the ADA Scope Checker, verifying each
    * scoped line against this run's axe-core, Lighthouse and live keyboard/focus results. */
@@ -121,12 +126,17 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
       sections.code = (await analyzeCode(themeDir)) ?? undefined;
       hooks.onStage?.("Analyzing theme structure (orphaned files, page-builder apps)");
       sections.themeStructure = (await analyzeThemeStructure(themeDir)) ?? undefined;
+      hooks.onStage?.("Profiling the theme (identity, stack, codebase opportunities)");
+      sections.themeProfile = analyzeThemeProfile(themeDir) ?? undefined;
 
       if (!options.skipThemeArchitecture) {
         hooks.onStage?.("Assessing theme architecture & Shopify platform fit (Claude)");
-        const themeArchitectureResult = await generateThemeArchitecture(themeDir, sections.code, sections.themeStructure).catch(
-          () => null,
-        );
+        const themeArchitectureResult = await generateThemeArchitecture(
+          themeDir,
+          sections.code,
+          sections.themeStructure,
+          sections.themeProfile,
+        ).catch(() => null);
         if (themeArchitectureResult) {
           sections.themeArchitecture = themeArchitectureResult.section;
           aiUsage = addUsage(aiUsage, themeArchitectureResult.usage);
@@ -344,6 +354,19 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
       aiUsage = addUsage(aiUsage, result.usage);
     } else if (!process.env.ANTHROPIC_API_KEY) {
       hooks.onStage?.("ANTHROPIC_API_KEY not set — skipping executive summary");
+    }
+  }
+
+  // Last, deliberately: it reads every other section including the executive summary above, so it
+  // has to run once they are all final.
+  if (!options.skipRecommendations) {
+    hooks.onStage?.("Writing client-ready recommendations (Claude)");
+    const recommendationsResult = await generateRecommendations(report).catch(() => null);
+    if (recommendationsResult) {
+      report.sections.recommendations = recommendationsResult.section;
+      aiUsage = addUsage(aiUsage, recommendationsResult.usage);
+    } else if (!process.env.ANTHROPIC_API_KEY) {
+      hooks.onStage?.("ANTHROPIC_API_KEY not set — skipping client-ready recommendations");
     }
   }
 

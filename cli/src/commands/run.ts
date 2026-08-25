@@ -47,11 +47,12 @@ function preflightEnv(args: RunCommandArgs): void {
 
   // Optional, unlike the Blob token: the audit is still useful without AI, but say so before the
   // wait rather than at the end, when it's too late to decide differently.
-  const wantsAi = !args.skipSummary || !args.skipAiSuggestions || !args.skipThemeArchitecture;
+  const wantsAi =
+    !args.skipSummary || !args.skipAiSuggestions || !args.skipThemeArchitecture || !args.skipRecommendations;
   if (wantsAi && !process.env.ANTHROPIC_API_KEY) {
     console.log(
-      chalk.yellow(`ANTHROPIC_API_KEY is not set — the executive summary, AI suggestions and`) +
-        chalk.yellow(` theme architecture assessment will be skipped.`) +
+      chalk.yellow(`ANTHROPIC_API_KEY is not set — the executive summary, client-ready recommendations,`) +
+        chalk.yellow(` AI suggestions and theme architecture assessment will be skipped.`) +
         chalk.gray(`\n  Add it to ${dataRoot()}/.env to include them. Continuing without.\n`),
     );
   }
@@ -317,8 +318,18 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
   if (report.sections.themeStructure) {
     console.log(`  Theme Structure: ${report.sections.themeStructure.score}  (${report.sections.themeStructure.redFlags.length} flags)`);
   }
+  if (report.sections.themeProfile) {
+    const tp = report.sections.themeProfile;
+    const name = tp.identity.name ?? "unnamed theme";
+    console.log(
+      `  Theme & Codebase: ${name}${tp.identity.version ? ` v${tp.identity.version}` : ""} (${tp.identity.origin})  (${tp.opportunities.length} scanned opportunity/ies)`,
+    );
+  }
   if (report.sections.themeArchitecture) {
-    console.log(`  Theme Architecture: ${report.sections.themeArchitecture.concerns.length} other concern(s) flagged`);
+    const ta = report.sections.themeArchitecture;
+    console.log(
+      `  Theme Architecture: ${ta.concerns.length} other concern(s) flagged, ${ta.opportunities?.length ?? 0} AI opportunity/ies`,
+    );
   }
   if (report.sections.health) {
     console.log(`  Site Health: ${report.sections.health.score}`);
@@ -363,6 +374,14 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
     console.log();
     console.log(chalk.bold("Summary:"));
     console.log(`  ${report.sections.summary.overview}`);
+  }
+  if (report.sections.recommendations) {
+    const recs = report.sections.recommendations;
+    console.log();
+    console.log(chalk.bold(`Client-ready recommendations (${recs.recommendations.length}):`));
+    recs.recommendations.forEach((r, i) => {
+      console.log(`  ${i + 1}. ${r.title}  ${chalk.gray(`[${r.area} · ${r.effort}]`)}`);
+    });
   }
   if (report.aiUsage) {
     const u = report.aiUsage;

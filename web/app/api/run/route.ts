@@ -61,6 +61,7 @@ interface RunAuditBody {
   skipScreenshots?: boolean;
   skipAiSuggestions?: boolean;
   skipSummary?: boolean;
+  skipRecommendations?: boolean;
   competitorUrls?: string[];
   /** The client's ADA scope, pasted verbatim — verified item by item during the run. Passed to
    * the child through the environment rather than argv (see buildEnv below). */
@@ -116,6 +117,7 @@ function buildArgs(body: RunAuditBody): string[] {
   if (body.skipScreenshots) args.push("--skip-screenshots");
   if (body.skipAiSuggestions) args.push("--skip-ai-suggestions");
   if (body.skipSummary) args.push("--skip-summary");
+  if (body.skipRecommendations) args.push("--skip-recommendations");
   // Always — this process's stdin isn't a TTY anyway, but a hung confirm() prompt with nothing
   // able to answer it would otherwise wedge the request forever.
   args.push("--skip-github");

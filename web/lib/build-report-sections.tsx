@@ -16,6 +16,8 @@ import { PixelAudit } from "@/components/PixelAudit";
 import { ConsentAudit } from "@/components/ConsentAudit";
 import { SecurityAudit } from "@/components/SecurityAudit";
 import { ThemeStructure } from "@/components/ThemeStructure";
+import { ThemeProfile } from "@/components/ThemeProfile";
+import { ClientRecommendations } from "@/components/ClientRecommendations";
 import { BestPracticesTable } from "@/components/BestPracticesTable";
 import { AnalyticsSection } from "@/components/AnalyticsSection";
 import { CompetitorComparison } from "@/components/CompetitorComparison";
@@ -45,7 +47,15 @@ import {
 // written, and moving that import is churn for no gain.
 export { collectAllFindings };
 
-export type ReportCategory = "overview" | "vitals" | "theme" | "ux" | "seo-geo" | "ada" | "data";
+export type ReportCategory =
+  | "overview"
+  | "recommendations"
+  | "vitals"
+  | "theme"
+  | "ux"
+  | "seo-geo"
+  | "ada"
+  | "data";
 
 export interface SectionDef {
   id: string;
@@ -56,6 +66,7 @@ export interface SectionDef {
 
 export const CATEGORY_LABELS: Record<ReportCategory, string> = {
   overview: "Overview",
+  recommendations: "Recommendations",
   vitals: "Site Vitals",
   theme: "Theme Check",
   ux: "UX",
@@ -148,6 +159,32 @@ export function buildReportSections(report: Report): SectionDef[] {
       ),
     },
   ];
+
+  // Right after the executive summary: on the "All" page and in a shared report — both of which
+  // render every section in this order — the client-facing recommendations should be the first
+  // thing read, before any of the technical detail they were derived from.
+  if (sections.recommendations) {
+    const recommendations = sections.recommendations;
+    sectionDefs.push({
+      id: "recommendations",
+      label: "Recommendations",
+      category: "recommendations",
+      render: (n) => (
+        <ReportSection
+          id="recommendations"
+          number={n}
+          title="Recommendations"
+          action={
+            <span className="text-sm text-[#6B6B6B]">
+              {recommendations.recommendations.length} action{recommendations.recommendations.length === 1 ? "" : "s"}
+            </span>
+          }
+        >
+          <ClientRecommendations section={recommendations} storeName={report.storeName} />
+        </ReportSection>
+      ),
+    });
+  }
 
   if (sections.analytics) {
     const analytics = sections.analytics;
@@ -908,6 +945,32 @@ export function buildReportSections(report: Report): SectionDef[] {
           action={security.score === null ? undefined : <GradePill score={security.score} />}
         >
           <SecurityAudit section={security} />
+        </ReportSection>
+      ),
+    });
+  }
+
+  if (sections.themeProfile) {
+    const themeProfile = sections.themeProfile;
+    const opportunityCount = themeProfile.opportunities.length + (sections.themeArchitecture?.opportunities?.length ?? 0);
+    sectionDefs.push({
+      id: "theme-profile",
+      label: "Theme & Codebase",
+      category: "theme",
+      render: (n) => (
+        <ReportSection
+          id="theme-profile"
+          number={n}
+          title="Theme & Codebase"
+          action={
+            <span className="text-sm text-[#6B6B6B]">
+              {themeProfile.identity.name ?? "Unnamed theme"}
+              {themeProfile.identity.version ? ` v${themeProfile.identity.version}` : ""} ·{" "}
+              {opportunityCount} opportunit{opportunityCount === 1 ? "y" : "ies"}
+            </span>
+          }
+        >
+          <ThemeProfile section={themeProfile} aiOpportunities={sections.themeArchitecture?.opportunities ?? []} />
         </ReportSection>
       ),
     });

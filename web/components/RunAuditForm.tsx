@@ -36,6 +36,7 @@ const CHECKS: CheckDef[] = [
   { key: "skipScreenshots", label: "Screenshots", detail: "Homepage + competitor screenshots." },
   { key: "skipAiSuggestions", label: "AI suggestions", detail: "Claude-written performance/accessibility fixes." },
   { key: "skipSummary", label: "AI executive summary", detail: "Claude-written overview and key findings." },
+  { key: "skipRecommendations", label: "Client-ready recommendations", detail: "The Recommendations tab: 5-10 conversion actions synthesized from every other section, written for a client deck. Runs last, so it needs the rest of the run to have happened." },
 ];
 
 // Everything on by default except GA4, which is only meaningful once a property is linked.

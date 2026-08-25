@@ -4,10 +4,16 @@ A reusable tool for auditing client Shopify storefronts: theme code quality and 
 Lighthouse performance/accessibility/SEO, storefront health, live marketing-pixel detection,
 behavioural cookie-consent QA across the whole client fleet, a best-practices verdict table,
 and an AI-written executive summary.
-Reports are generated from the CLI and published to a password-protected web app on Vercel.
+Reports are generated from the CLI and published to a web app on Vercel, behind Barrel Google
+sign-in.
 
-**Live report site:** https://barrel-site-audit.vercel.app (password-protected — ask in
-`#barrel` or check the Vercel project's `SITE_PASSWORD` env var)
+It also produces a second, separate report type: a **CRO audit**, which reviews a storefront by page
+type against the store's own GA4 data and produces the slides of a client conversion deck rather
+than a scored report. See [CRO audits](#cro-audits).
+
+**Live report site:** https://barrel-site-audit.vercel.app — sign in with your Barrel Google
+account via [Barrel Labs](https://barrel-labs.vercel.app/go/site-audit). No password to share
+around; if it says access is denied, a Labs admin needs to grant you the `site-audit` app.
 
 ## Quick start: running a report
 
@@ -49,8 +55,8 @@ token to paste); after that it fetches your repos, lets you pick one (type to se
 clones it straight into `stores/<slug>/theme/` before the audit runs. See
 [`link-repo`](#adding-a-store) below to do this on its own, any time.
 
-**2. View it** — open https://barrel-site-audit.vercel.app, enter the site password, and
-the report is already there, at the top of the list. No deploy step, no waiting — it's
+**2. View it** — open https://barrel-site-audit.vercel.app, sign in with your Barrel Google
+account, and the report is already there, at the top of the list. No deploy step, no waiting — it's
 live the moment step 1 finishes. The CLI also prints the exact report ID/URL when it's
 done.
 
@@ -82,10 +88,14 @@ each piece.
 barrel-site-audit/
   cli/      the barrel-audit CLI — runs analyzers, writes report JSON
   shared/   report types + scoring helpers shared by the CLI (source of truth)
-  web/      Next.js report site, deployed to Vercel, password-gated
+  web/      Next.js report site, deployed to Vercel, behind Barrel Labs SSO
   stores/   one folder per client store: config.json + theme/ (theme code you drop in)
   tools/    the test harness and build gate (`pnpm check`) — see docs/testing.md
 ```
+
+Blob storage holds three separate namespaces, deliberately: `reports/` for site audits, `consent/`
+for fleet privacy scans, and `cro/` for CRO audits. Each has its own index, and a report from one
+never appears in the list of another.
 
 Reports live in **Vercel Blob storage**, not in this repo — the CLI uploads each report to
 `reports/<store>/<report-id>.json` and updates a `reports/manifest.json` index blob after
@@ -112,15 +122,63 @@ automatically. `BLOB_READ_WRITE_TOKEN` is required for `pnpm barrel-audit run` a
 to reach Blob storage; `ANTHROPIC_API_KEY` is optional and enables the AI-written executive
 summary (skipped cleanly if unset).
 
-The `web/` app needs three env vars (see `web/.env.example`):
+The `web/` app needs these env vars (see `web/.env.example`):
 
-- `SITE_PASSWORD` — shared password to view the report site
-- `SESSION_SECRET` — long random string used to sign the login session cookie
-- `BLOB_READ_WRITE_TOKEN` — same Blob store as the CLI, so the site can read reports
+- `LABS_APP_SLUG` — `site-audit`, the slug this app is registered under in Barrel Labs. It is
+  the audience of every token Labs signs for us, so a mismatch fails every sign-in.
+- `LABS_SESSION_SECRET` — long random string (`openssl rand -base64 32`) that signs this app's
+  own session cookie. Not shared with Labs and not shared with any other Barrel app.
+- `LABS_URL` — optional, defaults to `https://barrel-labs.vercel.app`.
+- `LABS_APP_ORIGIN` — optional. The origin Labs redirects back to; normally derived from
+  `VERCEL_PROJECT_PRODUCTION_URL`/`VERCEL_URL`, falling back to `localhost:3000`. Set it when
+  running on a different local port.
+- `SESSION_SECRET` — long random string, now used *only* to sign public `/share/<token>` links.
+  Nothing to do with login.
+- `BLOB_READ_WRITE_TOKEN` — same Blob store as the CLI, so the site can read reports.
 
 These are already set on the Vercel project (`barrel-8677f380/barrel-site-audit`) for
 Production and Preview. For local dev, copy `web/.env.example` to `web/.env.local` and
 fill in your own values.
+
+### Login and who can see what
+
+Sign-in is delegated to **Barrel Labs**, so this app holds no Google OAuth client, no password
+and no user table. A request with no session is bounced to Labs, which checks the Barrel Google
+session and the access list for the `site-audit` app and hands back a 60-second RS256 token; the
+app verifies it against Labs' public JWKS and swaps it for its own 8-hour cookie. The app has no
+key capable of *minting* a token — only of verifying one — so a compromise here cannot forge
+access to any other Barrel tool.
+
+Two consequences worth knowing:
+
+- **Revocation takes up to 8 hours.** When the cookie expires the app silently re-authorizes
+  through Labs, which is invisible to anyone whose Labs sign-in is still live. Shorten
+  `SESSION_TTL_SECONDS` in `web/lib/labs-auth.ts` if that window is too long.
+- **Privacy Compliance is admins only.** `/consent`, `/consent/<site>`, `/consent/run` and
+  `/api/consent-run` require a Labs `admin` role — it is a live list of where client sites are
+  setting tracking cookies before consent, which is a legal-exposure record about our clients
+  rather than a to-do list. The nav link is omitted for members, middleware rewrites the routes
+  to an explanation, and each page re-checks on its own. Everything else — every store's audit
+  report — is open to anyone who can sign in.
+
+Everything the app serves is behind sign-in, `/instructions` and `/release-notes` included. Two
+routes are ungated, each for a reason:
+
+- **`/share/<token>`** — client report links. Opening for someone with no Barrel account is the
+  entire feature; they carry their own security model (HMAC-signed, scoped to one report, 30-day
+  expiry) rather than relying on the session gate.
+- **`/labs-error`** — where a failed handoff lands. It *cannot* be gated: the gate is what failed,
+  so a gated error page redirects back into it and loops until the browser gives up.
+
+Registering the app in Labs is a one-time job for a Labs admin, in **Control → Experiments**:
+set the slug to `site-audit`, list every hostname allowed to receive a token under **SSO
+redirect hosts** (exact hosts, no wildcards — `barrel-site-audit.vercel.app`,
+`localhost:3000`, plus any preview alias you actually use), and set **Access**. An empty
+redirect-host list means SSO is refused outright.
+
+Share the app with `https://barrel-labs.vercel.app/go/site-audit` rather than the raw Vercel
+URL: it signs the recipient in, checks their access, and someone without it sees a
+request-access button instead of a wall.
 
 ## Adding a store
 
@@ -305,15 +363,42 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   (unreferenced and, for sections, without customizer presets), leftover test/backup
   files, hash-named auto-generated files, and competing page-builder apps (Shogun,
   PageFly, EComposer, GemPages, Zipify, Replo).
+- **Theme & Codebase** — what theme the store actually runs and what its codebase is made of.
+  Entirely deterministic (a file scan, no API key), so every claim cites the count or filename it
+  came from. Three parts:
+  - *Identity*, read from the theme's own `config/settings_schema.json` `theme_info` block: name,
+    version, author, docs URL, and a classification — **stock** Shopify theme, a **fork** of one
+    (the name still matches Dawn/Horizon but the author doesn't, so upstream releases can no longer
+    be merged in), **third-party/agency**, **custom-built**, or honestly **unidentified**. Shopify's
+    own parser tolerates trailing commas in that file and real themes contain them, so a strict
+    `JSON.parse` failure falls back to a tolerant parse and then to scraping the four fields
+    directly rather than losing the theme's identity.
+  - *Codebase facts*: template architecture (JSON vs Liquid) and section groups, theme blocks and
+    app-block support, Liquid line count, asset count/weight with the largest files named, JS/CSS
+    totals, the build tooling actually committed, front-end libraries detectable in the code,
+    localization (including per-market section-group variants), metafield/metaobject usage, and
+    whether `.theme-check.yml`/CI/README are in the repo.
+  - *Codebase opportunities*, each with an impact, an effort and its own evidence: deprecated
+    `{% include %}` tags, oversized images and animated GIFs, legacy `.ttf`/`.otf` fonts, several
+    generations of one content-hashed bundle left in `assets/`, page-builder-owned page templates,
+    templates still Liquid-only in an Online Store 2.0 theme, missing header/footer section groups,
+    theme blocks or app blocks never adopted, jQuery (named down to the file it's bundled inside),
+    heavy metafield use with no metaobjects, a bloated `assets/`, and missing lint/CI. A theme whose
+    hashed build *output* is committed without its build config is its own finding — that isn't "no
+    build step", it's a build nobody else can reproduce. Deliberately conservative in the other
+    direction too: `_backup_do_not_delete` templates are never recommended for migration, and files
+    that merely share a filename prefix are not reported as abandoned build output.
 - **Theme Architecture** *(AI, shown inside the Theme Code Quality section)* — a Claude-written
-  assessment of how the theme is actually built, grounded in the Theme Check/Theme Structure
-  signals above plus a real sample of the theme's source (same sampler `ai-suggestions.ts`
-  uses): a short narrative (custom-built vs. stock-based, page-builder reliance, Online Store
-  2.0 vs. legacy Liquid-template architecture), a verdict table for specific platform-feature
-  adoption (JSON templates, section groups, theme blocks/app-block support, metafields,
-  settings-schema quality), and any other architectural concerns beyond raw lint errors — all
-  of which feed the Roadmap/Dev To-Do list like any other finding. Requires
-  `ANTHROPIC_API_KEY`; skip with `--skip-theme-architecture`.
+  assessment of how the theme is actually built, grounded in the Theme & Codebase profile and the
+  Theme Check/Theme Structure signals above plus a real sample of the theme's source (same sampler
+  `ai-suggestions.ts` uses): a short narrative that names the theme and version (custom-built vs.
+  stock-based, page-builder reliance, Online Store 2.0 vs. legacy Liquid-template architecture), a
+  verdict table for specific platform-feature adoption (JSON templates, section groups, theme
+  blocks/app-block support, metafields, settings-schema quality), any other architectural concerns
+  beyond raw lint errors, and the opportunities a file scan can't find (a pattern repeated across
+  sections, render-blocking script loading, state that wants to be a metaobject) — it is told what
+  the scan already found and asked not to restate it. All of which feed the Roadmap/Dev To-Do list
+  like any other finding. Requires `ANTHROPIC_API_KEY`; skip with `--skip-theme-architecture`.
 - **Performance** — Lighthouse across the shopping journey: the CLI auto-discovers a
   Home, Collection (`/collections/all`), Product (via the store's public
   `/products.json`), and Cart page, then runs full Lighthouse passes on each for both
@@ -485,7 +570,7 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   inline in the Lighthouse Vitals and Competitor Benchmark sections. Skip with
   `--skip-screenshots`.
 
-Flags: `--skip-code`, `--skip-performance`, `--skip-axe`, `--skip-theme-architecture`, `--skip-health`, `--skip-pixels`, `--skip-geo-seo`, `--skip-agent-readiness`, `--skip-ux`, `--skip-analytics`, `--skip-screenshots`, `--skip-ai-suggestions`, `--skip-summary`, `--skip-github`, `--competitor <url>` (repeatable), `--ada-scope <text>` / `--ada-scope-file <path>`, `--sitespeed` (opt-in, off by default), `--local-repo <path>`.
+Flags: `--skip-code`, `--skip-performance`, `--skip-axe`, `--skip-theme-architecture`, `--skip-health`, `--skip-pixels`, `--skip-geo-seo`, `--skip-agent-readiness`, `--skip-ux`, `--skip-analytics`, `--skip-screenshots`, `--skip-ai-suggestions`, `--skip-summary`, `--skip-recommendations`, `--skip-github`, `--competitor <url>` (repeatable), `--ada-scope <text>` / `--ada-scope-file <path>`, `--sitespeed` (opt-in, off by default), `--local-repo <path>`.
 
 Without `--skip-code`, the run refuses to start unless it can find theme code to review — see
 [Auditing a repo you already have cloned](#auditing-a-repo-you-already-have-cloned).
@@ -495,13 +580,15 @@ Without `--skip-code`, the run refuses to start unless it can find theme code to
 Per `run`, the tool's external-API footprint is small and fixed, independent of how often the
 team runs audits:
 
-- **Claude (Anthropic API)** — up to 5 calls per run: the executive summary, the UX audit's
+- **Claude (Anthropic API)** — up to 6 calls per run: the executive summary, the UX audit's
   screenshot critique (skipped if `--skip-ux` or `--skip-summary`, or if no UX pages could be
   loaded), the AI performance/accessibility suggestions list (skipped with
   `--skip-ai-suggestions`, or if there's neither Lighthouse data nor theme code to ground it
   in), the Theme Architecture assessment (skipped with `--skip-theme-architecture`, or if
-  there's no theme code), and the ADA Scope Checker's mapping call (only when an ADA scope was
-  supplied *and* some line in it didn't match the keyword catalog). Combined token usage across all calls is recorded on the report and
+  there's no theme code), the client-ready Recommendations (skipped with
+  `--skip-recommendations`; runs last, since it reads every other finished section), and the ADA
+  Scope Checker's mapping call (only when an ADA scope was supplied *and* some line in it didn't
+  match the keyword catalog). Combined token usage across all calls is recorded on the report and
   shown in its footer, so real spend is always visible per audit.
 - **Google Analytics Data API (GA4)** — exactly 3 `runReport` calls per run, only when a store
   has `ga4PropertyId` configured, plus 5 more each time a Data Analysis is generated from the web
@@ -645,6 +732,67 @@ barrel-audit serve` only works *inside* this checkout: `pnpm <script>` needs a `
 the current directory, so from anywhere else drop the `pnpm` and call `barrel-audit serve`
 directly (see [Installing the CLI outside this repo](#installing-the-cli-outside-this-repo)).
 
+## CRO audits
+
+A **separate report type** from everything above, with its own command, its own pages and its own
+storage. A site audit says what is technically wrong with a storefront and scores it; a CRO audit is
+an argument about where conversion is being lost, and what comes out of it is a deck — one slide per
+page type, three to five opportunities each, in the house `Short title: short description` format.
+
+It runs in two passes, split by what each one physically needs.
+
+```bash
+# Pass 1 — needs a real browser, so it runs on your machine.
+pnpm barrel-audit cro https://client-store.com
+pnpm barrel-audit cro <slug> --competitor https://rival.com --competitor https://other.com
+pnpm barrel-audit cro <slug> --groups home,pdp --devices mobile --skip-competitors
+```
+
+That walks the nav, home, collection, product and cart page types at a phone width and a laptop
+width, screenshots each one, records what it measured, and writes the UX and competitive-benchmark
+slides. It prints the report URL when it finishes.
+
+**Pass 2 is a Generate button on that report**, and runs on the deployed site with no browser and no
+terminal: the analytics step from the store's GA4 property, then the four key insights across
+everything the audit found. A store with GA4 linked can get that half with no local setup at all.
+
+Capture and interpretation are stored separately on purpose. The browser pass writes the evidence —
+screenshots, the signals read out of each page, and the fold/scroll measurements — as its own blob,
+and every slide is drafted from that rather than from the live site. That is what lets a section be
+rewritten later without crawling a client's storefront again.
+
+**What the measurements buy you.** "The add-to-cart control sits 867px down, 23px below the first
+mobile screen" is a sentence a developer can act on and a client can check. Where each section of
+the page starts, how many controls begin below the fold, how many tap targets are under 44px, and
+the contrast of the primary button all come out of the page itself. They are a proxy for where
+attention stops, not evidence of it, and every surface that shows them says so.
+
+**The deck format is enforced in code, not asked for in a prompt.** A bullet whose title runs past a
+slide, or that opens by naming a fault ("Missing trust signals") instead of an opportunity, is
+discarded — as is any bullet carrying a figure that appears nowhere in the evidence it cited, the
+same rule the Data Analysis tab runs on. Discarded bullets are listed with their reason rather than
+dropped quietly.
+
+**Every bullet is editable, and editing never rewrites the audit.** Corrections are saved as an
+overlay beside the generated record, which may already have been sent to a client. Bullets can be
+hidden from the deck rather than deleted. **Deck view** prints one 16:9 slide per page, and **Share
+with client** mints the same kind of signed 30-day link the site audit uses, scoped so it authorises
+that one audit's screenshots and nothing else.
+
+`--checkout` is off by default: reaching checkout means adding a real item to a real cart on the
+client's live store, which leaves an abandoned checkout in their admin.
+
+Three parts of the CRO process are still done by hand, and the report says so on the page rather
+than showing an empty section: heatmaps and session recordings, the voice-of-customer review
+analysis, and the CX journey map.
+
+Fill in a store's **CRO brief** before the first run (linked from any store on `/cro`): up to three
+competitors, which analytics and heatmap tools the client actually has, business model, and their
+own stated hypotheses. It lives on the store, so later audits reuse it.
+
+Full step-by-step of what the tool does and does not do:
+[`docs/cro-audit.md`](docs/cro-audit.md).
+
 ## Privacy Compliance
 
 Behavioural cookie-consent testing across every client site at once. It drives each banner for
@@ -753,17 +901,28 @@ dependency this CLI uses elsewhere (`cli/src/analyzers/code.ts`).
 ## Report pages
 
 Each report is split across multiple pages instead of one long scroll, with a sticky
-tab bar (Overview / Site Vitals / Theme Check / UX / SEO/GEO / ADA / Data Analysis / All /
-Dev To-Do) at `/reports/<slug>/<id>[/<page>]`:
+tab bar (Overview / Recommendations / Site Vitals / Theme Check / UX / SEO/GEO / ADA /
+Data Analysis / All / Dev To-Do) at `/reports/<slug>/<id>[/<page>]`:
 
 - **Overview** (the default — `/reports/<slug>/<id>`) — Executive Summary, stat tiles,
   Traffic & Revenue, Competitor Benchmark, and the Prioritized Roadmap (synthesized
   across every section in the report, regardless of which page it's shown on).
+- **Recommendations** (`/recommendations`) — **the tab you present.** The 5-10 highest-impact
+  actions read across the whole report and ordered by how much each should move *conversion*,
+  not by technical severity: related findings merged into one business-level action, anything
+  only a developer cares about left to the Dev To-Do. Each one gives the action, the area of the
+  experience it moves, why it matters commercially, what we'd actually do, what to expect, and
+  the specific audit figures behind it. Opens on what's already working, cited with real numbers.
+  Written in an account manager's voice, and deliberately framed as building on the site rather
+  than faulting it — we often built it. Expected impact stays directional; it never invents a
+  percentage lift for the store. **Copy for deck** puts the whole set on the clipboard as
+  markdown. Requires `ANTHROPIC_API_KEY`; skip with `--skip-recommendations`.
 - **Site Vitals** (`/vitals`) — Lighthouse Vitals, Performance findings, Sitespeed.io (if run
   with `--sitespeed`), AI performance suggestions.
-- **Theme Check** (`/theme`) — Theme Code Quality (incl. the Theme Architecture assessment —
-  how the theme is built, Shopify platform-feature fit, other concerns), Theme Structure, Best
-  Practices Verdict, Trust & Privacy.
+- **Theme Check** (`/theme`) — Theme & Codebase (what theme this is, what the codebase is made
+  of, and its codebase opportunities), Theme Code Quality (incl. the Theme Architecture
+  assessment — how the theme is built, Shopify platform-feature fit, other concerns), Theme
+  Structure, Best Practices Verdict, Trust & Privacy.
 - **UX** (`/ux`) — UX & Conversion.
 - **SEO/GEO** (`/seo-geo`) — Technical Health & SEO (with the full site-health
   checklist tucked in a collapsible), SEO Opportunities, GEO, Agent Readiness.
@@ -866,7 +1025,7 @@ The pure half of all this — the sufficiency gates, the gap arithmetic, the num
 The "Share" button in the report header (visible on every report page) generates a
 private link at `/share/<token>` that opens the full report — every section, on one
 scrollable page — with **no login required**, so it's safe to send to a client or
-prospect who doesn't have the site password. Clicking it copies the link to your
+prospect who has no Barrel account at all. Clicking it copies the link to your
 clipboard immediately.
 
 The link is a signed, stateless token (HMAC'd with `SESSION_SECRET`, no database row to

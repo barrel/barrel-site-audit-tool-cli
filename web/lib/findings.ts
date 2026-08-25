@@ -1,4 +1,4 @@
-import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsentSection, ConsentTestResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SecuritySection, SecuritySeverity, SeoOpportunity, SitespeedAdvice, ThemeConcern, UxOpportunity, Report } from "./shared";
+import type { AdaScopeItem, AdaScopeSection, AdaScopeStatus, AiSuggestion, AxeImpact, AxePageResult, ConsentSection, ConsentTestResult, ConsoleErrorItem, HealthCheckItem, LighthouseCategoryResult, PixelFinding, SecuritySection, SecuritySeverity, SeoOpportunity, SitespeedAdvice, ThemeConcern, ThemeOpportunity, UxOpportunity, Report } from "./shared";
 import { stripMarkdownLinks, extractMarkdownLinkUrl } from "./format";
 
 export type FindingSeverity = "critical" | "high" | "medium" | "low" | "good";
@@ -188,6 +188,20 @@ export function themeConcernFindings(concerns: ThemeConcern[]): Finding[] {
     description: c.detail,
     scope: "Theme architecture",
     recommendation: c.recommendation,
+  }));
+}
+
+/** Codebase opportunities (from the deterministic theme scan and from Claude's code review) as
+ * findings, so they reach the roadmap and the Dev To-Do like every other section's output. `low`
+ * impact maps to `low` rather than being dropped: these are cheap, real cleanups. */
+export function themeOpportunityFindings(opportunities: ThemeOpportunity[]): Finding[] {
+  return opportunities.map((o, i) => ({
+    id: `theme-opportunity-${i}`,
+    title: o.title,
+    severity: o.impact,
+    description: o.detail,
+    scope: "Theme codebase",
+    recommendation: o.recommendation,
   }));
 }
 
@@ -478,6 +492,10 @@ export function collectAllFindings(report: Report): Finding[] {
   const uxOppFindings = sections.ux ? uxOpportunityFindings(sections.ux.opportunities) : [];
   const aiSuggestionFindingsList = sections.aiSuggestions ? aiSuggestionFindings(sections.aiSuggestions.suggestions) : [];
   const themeConcernFindingsList = sections.themeArchitecture ? themeConcernFindings(sections.themeArchitecture.concerns) : [];
+  const themeOpportunityFindingsList = themeOpportunityFindings([
+    ...(sections.themeProfile?.opportunities ?? []),
+    ...(sections.themeArchitecture?.opportunities ?? []),
+  ]);
   const agentReadinessFindingsList = sections.agentReadiness ? agentReadinessIssueFindings(sections.agentReadiness.issues) : [];
   const adaScopeFindingsList = sections.adaScope ? adaScopeFindings(sections.adaScope) : [];
   const securityFindingsList = sections.security ? securityToFindings(sections.security) : [];
@@ -497,6 +515,7 @@ export function collectAllFindings(report: Report): Finding[] {
     ...uxOppFindings,
     ...aiSuggestionFindingsList,
     ...themeConcernFindingsList,
+    ...themeOpportunityFindingsList,
   ];
   if (sections.themeStructure) {
     for (const flag of sections.themeStructure.redFlags) {

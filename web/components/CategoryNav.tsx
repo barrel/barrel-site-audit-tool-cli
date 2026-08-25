@@ -11,6 +11,7 @@ import { CATEGORY_LABELS } from "@/lib/build-report-sections";
  * an unconfigured one. */
 const TABS: Array<{ slug: string; label: string; gated?: "ga4" }> = [
   { slug: "", label: CATEGORY_LABELS.overview },
+  { slug: "recommendations", label: CATEGORY_LABELS.recommendations },
   { slug: "vitals", label: CATEGORY_LABELS.vitals },
   { slug: "theme", label: CATEGORY_LABELS.theme },
   { slug: "ux", label: CATEGORY_LABELS.ux },
@@ -21,8 +22,8 @@ const TABS: Array<{ slug: string; label: string; gated?: "ga4" }> = [
   { slug: "dev-todo", label: "Dev To-Do" },
 ];
 
-/** Cross-page tabs (Overview / Site Vitals / Theme Check / UX / SEO/GEO / ADA / Data Analysis /
- * All) — distinct from ReportNav, which jumps to anchors within whichever of those pages is
+/** Cross-page tabs (Overview / Recommendations / Site Vitals / Theme Check / UX / SEO/GEO / ADA /
+ * Data Analysis / All) — distinct from ReportNav, which jumps to anchors within whichever of those pages is
  * currently open. */
 export function CategoryNav({ slug, id, hasGa4 }: { slug: string; id: string; hasGa4: boolean }) {
   const pathname = usePathname();

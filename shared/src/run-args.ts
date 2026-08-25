@@ -19,6 +19,7 @@ export interface RunAuditBody {
   skipScreenshots?: boolean;
   skipAiSuggestions?: boolean;
   skipSummary?: boolean;
+  skipRecommendations?: boolean;
   competitorUrls?: string[];
   /** The client's ADA scope, pasted verbatim — verified item by item during the run. */
   adaScope?: string;
@@ -81,6 +82,7 @@ export function buildRunArgs(body: RunAuditBody): string[] {
   if (body.skipScreenshots) args.push("--skip-screenshots");
   if (body.skipAiSuggestions) args.push("--skip-ai-suggestions");
   if (body.skipSummary) args.push("--skip-summary");
+  if (body.skipRecommendations) args.push("--skip-recommendations");
   // Always — stdin isn't a TTY when spawned this way anyway, but a hung confirm() prompt with
   // nothing able to answer it would otherwise wedge the request forever.
   args.push("--skip-github");

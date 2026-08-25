@@ -1,3 +1,5 @@
+import type { CroBrief } from "./cro-types.js";
+
 export type Severity = "error" | "warning" | "info";
 
 export interface CodeIssue {
@@ -520,6 +522,67 @@ export interface ThemeConcern {
   recommendation?: string;
 }
 
+/** Where a theme's codebase came from, read off `config/settings_schema.json`'s `theme_info`
+ * block — the only place a Shopify theme records its own name/version/author. */
+export type ThemeOrigin =
+  /** A stock Shopify theme, unrenamed: theme_author is Shopify and the name is a known stock theme. */
+  | "shopify-stock"
+  /** A stock Shopify theme that has been forked and renamed — the name still matches a stock theme
+   * but the author doesn't, so upstream updates no longer apply cleanly. */
+  | "shopify-fork"
+  /** A named third-party/agency theme (Barrel's own base framework, a Theme Store theme, etc.). */
+  | "third-party"
+  /** theme_info exists but names nothing recognizable, or is missing entirely — built from scratch. */
+  | "custom"
+  /** No config/settings_schema.json at all, so nothing can be claimed either way. */
+  | "unknown";
+
+export interface ThemeIdentity {
+  /** `theme_name` — the theme's own name for itself. Absent if theme_info is missing. */
+  name?: string;
+  version?: string;
+  author?: string;
+  documentationUrl?: string;
+  origin: ThemeOrigin;
+  /** The stock Shopify theme this appears to be based on, when one was recognized. */
+  basedOn?: string;
+  /** One sentence stating what was found and where, so the claim is auditable. */
+  detail: string;
+}
+
+/** One measured fact about the codebase — deliberately a value plus its provenance, never a
+ * verdict. The verdicts live in `opportunities` and in the AI architecture assessment. */
+export interface CodebaseFact {
+  label: string;
+  value: string;
+  /** How the value was derived, or what it implies — one short sentence. */
+  detail?: string;
+}
+
+/** A concrete, evidence-backed improvement available in the theme codebase. */
+export interface ThemeOpportunity {
+  title: string;
+  impact: OpportunityImpact;
+  /** Rough implementation size, so a list of these can be triaged. */
+  effort?: "low" | "medium" | "high";
+  /** What was found, with the numbers/filenames it was found in. */
+  detail: string;
+  recommendation?: string;
+  /** "scan" = derived deterministically from the files on disk; "ai" = Claude's read of the code. */
+  source: "scan" | "ai";
+}
+
+/** What theme this store runs, what its codebase is made of, and what could be improved in it.
+ * Entirely deterministic — no API key needed — and computed from the synced theme directory. */
+export interface ThemeProfileSection {
+  identity: ThemeIdentity;
+  /** Measured facts: template architecture, Liquid footprint, asset weight, build tooling,
+   * front-end approach, localization, custom-data usage, repo hygiene. */
+  facts: CodebaseFact[];
+  /** Modernization and cleanup opportunities found by scanning the files, impact-first. */
+  opportunities: ThemeOpportunity[];
+}
+
 export interface ThemeArchitectureSection {
   /** 2-4 sentence narrative: how the theme appears to be built (custom vs. stock-based, page-builder
    * reliance, Online Store 2.0 vs. legacy template architecture). */
@@ -530,6 +593,9 @@ export interface ThemeArchitectureSection {
   /** Other architectural concerns beyond raw lint errors — e.g. page-builder reliance fighting the
    * theme's own architecture, inconsistent patterns, sections missing block/app-block support. */
   concerns: ThemeConcern[];
+  /** Forward-looking upgrades Claude sees in the code that the deterministic scan can't spot —
+   * always `source: "ai"`, and prompted to avoid restating what the scan already found. */
+  opportunities?: ThemeOpportunity[];
 }
 
 export type AdaScopeStatus = "complete" | "partial" | "incomplete" | "manual" | "unverified";
@@ -587,12 +653,47 @@ export interface AdaScopeSection {
   axeScore?: number;
 }
 
+/** How much work a recommendation is, phrased for a client-facing deck rather than a dev ticket. */
+export type RecommendationEffort = "quick win" | "moderate" | "larger project";
+
+/** One action to put in front of a client — the deliverable of the Recommendations tab. Written in
+ * the voice of an account manager or business analyst, not a linter: what to do, why it matters
+ * commercially, and which numbers in this report say so. */
+export interface ClientRecommendation {
+  /** The action, phrased as something to do ("Cut the product page's load time in half"). */
+  title: string;
+  /** Which part of the experience it moves — "Product page", "Site speed", "Navigation", "Checkout". */
+  area: string;
+  /** Why it matters commercially, in plain language a stakeholder can repeat in a meeting. */
+  why: string;
+  /** The work itself, described so a client can approve it without reading a dev ticket. */
+  what: string;
+  /** The conversion outcome to expect — directional and honest, never an invented percentage. */
+  expectedImpact: string;
+  /** The specific figures or findings elsewhere in this report that support it. */
+  evidence: string[];
+  effort: RecommendationEffort;
+}
+
+/** The client-ready read of the whole report: 5-10 things to do next, ordered by how much they
+ * should move conversion, plus the credit due for what already works. Synthesized by Claude from
+ * every other section, so it is only present when the run had an API key. */
+export interface RecommendationsSection {
+  /** Positive, plain-language framing of where the storefront stands today (2-4 sentences). */
+  headline: string;
+  /** What is already working, named specifically — so the deck opens on credit, not criticism. */
+  strengths: string[];
+  /** The actions, highest conversion impact first. */
+  recommendations: ClientRecommendation[];
+}
+
 export interface ReportSections {
   code?: CodeSection;
   performance?: PerformanceSection;
   accessibility?: AccessibilitySection;
   adaScope?: AdaScopeSection;
   sitespeed?: SitespeedSection;
+  themeProfile?: ThemeProfileSection;
   themeArchitecture?: ThemeArchitectureSection;
   agentReadiness?: AgentReadinessSection;
   health?: HealthSection;
@@ -607,6 +708,7 @@ export interface ReportSections {
   ux?: UxSection;
   aiSuggestions?: AiSuggestionsSection;
   summary?: SummarySection;
+  recommendations?: RecommendationsSection;
 }
 
 export interface AiUsage {
@@ -694,6 +796,11 @@ export interface StoreConfig {
    * dashboard's Run Audit form or `run --ada-scope`, and reused by later runs for this store so
    * the same scope doesn't have to be re-pasted every time. */
   adaScope?: string;
+  /** Step 0 of a CRO audit — the intake: competitors, reviews source, business model, the client's
+   * own hypotheses. On the store rather than on a CRO report because it describes the client and
+   * not one audit of them, and because a second CRO audit should not need it re-typed. Each report
+   * copies the brief it was run against, so editing this never rewrites history. */
+  croBrief?: CroBrief;
   notes?: string;
 }
 

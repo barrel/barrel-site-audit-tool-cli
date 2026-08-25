@@ -161,9 +161,8 @@ export default function InstructionsPage() {
               >
                 barrel-site-audit.vercel.app
               </a>{" "}
-              in your browser, enter the site password (ask in{" "}
-              <span className="font-mono text-[#1A1A1A]">#barrel</span> if you don&apos;t have
-              it), and the new report is already sitting at the top of the list — no extra step to
+              in your browser and sign in with your Barrel Google account — there is no separate
+              password. The new report is already sitting at the top of the list — no extra step to
               publish it. You can search by store name and page through past reports too.
             </p>
             <p className="mt-2">
@@ -352,6 +351,68 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            The Recommendations tab is the one you present
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Every other tab in a report is evidence. Recommendations is the argument. It reads the
+            whole finished report — Lighthouse, axe, site health, consent, security, SEO/GEO, agent
+            readiness, the UX audit, the theme codebase, and the store&apos;s real GA4 traffic and
+            revenue when a property is linked — and comes back with the five to ten things to do
+            next, ordered by how much each should move <b>conversion</b> rather than by how severe
+            it is technically. A critical lint error no shopper can perceive ranks below a slow
+            product page, several related technical findings become one business-level action, and
+            anything only a developer cares about stays on the Dev To-Do where it belongs.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Each item is written to be said out loud in a client meeting: the action, the part of
+            the experience it moves, why it matters commercially, what we&apos;d actually do, what
+            to expect, and the specific audit figures behind it. It opens on what&apos;s already
+            working, cited with real numbers, before anything it suggests changing — the tone is a
+            partnership, not a verdict, because we often built the site ourselves. Expected impact
+            stays honest and directional: it will never invent a percentage lift for the store.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            <span className="font-medium text-[#1A1A1A]">Copy for deck</span> puts the whole set on
+            your clipboard as structured markdown — headline, strengths and all ten items — ready to
+            paste into slides. It needs an{" "}
+            <span className="font-mono text-[#1A1A1A]">ANTHROPIC_API_KEY</span>; leave the
+            &ldquo;Client-ready recommendations&rdquo; box ticked on the run form (or skip it with{" "}
+            <span className="font-mono text-[#1A1A1A]">--skip-recommendations</span>).
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Theme Check tells you what theme the store runs
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            The <b>Theme &amp; Codebase</b> section at the top of Theme Check reads the theme&apos;s
+            own settings file and reports its name, version and author — and, more usefully, whether
+            that&apos;s a stock Shopify theme, a <b>fork</b> of one (the name still says Dawn or
+            Horizon but the author doesn&apos;t, so upstream releases can no longer be merged in), a
+            third-party or agency theme, or something built from scratch. When the theme can&apos;t
+            identify itself, it says so rather than guessing.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Below that is what the codebase is actually made of: template architecture and section
+            groups, theme blocks and app-block support, Liquid line count, asset weight with the
+            largest files named, JS and CSS totals, the build tooling actually committed to the
+            repo, the front-end libraries genuinely detectable in the code, localization, metafield
+            and metaobject usage, and whether lint config and CI exist at all.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            Then the codebase opportunities that fall out of it, each citing its own evidence —
+            deprecated tags with the files they&apos;re in, oversized images and animated GIFs with
+            their real sizes, legacy font formats, several generations of the same bundle left
+            behind in assets, page-builder-owned templates, unadopted Online Store 2.0 features,
+            jQuery named down to the file it&apos;s bundled inside. All of that is a file scan, so
+            it needs theme code but no API key. It&apos;s careful the other way too: a
+            &ldquo;backup, do not delete&rdquo; template is never recommended as migration work.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Getting AI to draft an actual code fix
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-3">
@@ -366,6 +427,57 @@ export default function InstructionsPage() {
             actual storefront via the Shopify CLI, nothing pushed; or <b>Push branch &amp; open
             PR</b> to send it to GitHub for someone to review and merge normally. This never
             merges anything itself, and nothing runs for more than the one item you clicked.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            A CRO audit is a different report, run a different way
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Everything above produces a <b>site audit</b>: scores, technical findings, a dev to-do
+            list. A <b>CRO audit</b> is a separate deliverable under the{" "}
+            <span className="font-medium text-[#1A1A1A]">CRO Audits</span> tab — the slides of a
+            client deck rather than a scored report. It reviews the storefront by page type (nav,
+            home, collection, product, cart) at both a phone and a laptop width, and crosses that
+            with the store&apos;s own Google Analytics.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            It runs in two passes, split by what each one physically needs. The first drives a real
+            browser, so it runs from your machine:
+          </p>
+          <Code>pnpm barrel-audit cro &lt;url-or-slug&gt;</Code>
+          <p className="text-sm text-[#6B6B6B] mt-3 mb-3">
+            That captures each page type, records what it measured, and writes the UX and
+            competitor slides. You can also start it from{" "}
+            <span className="font-medium text-[#1A1A1A]">CRO Audits → New CRO audit</span> if the
+            local agent is running (same setup as &ldquo;Run audit&rdquo; above).
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            The second pass is a <b>Generate</b> button on the finished audit and runs on this
+            website — no browser, no terminal. It reads the store&apos;s Google Analytics for the
+            conversion picture, then writes the four key insights across everything the audit
+            found. A store with Analytics linked can get that half with no local setup at all.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Before the first run, fill in the client&apos;s <b>CRO brief</b> (linked from any store
+            on the CRO Audits page): up to three competitors, what analytics and heatmap tools they
+            actually have, whether they sell subscriptions, and what they already think is wrong.
+            It is saved on the store, so later audits reuse it.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Every bullet is editable — hover it and click <b>Edit</b>. Edits are saved separately
+            from the generated audit, so the record of what the tool actually concluded is never
+            rewritten, and a bullet can be hidden from the deck rather than deleted.{" "}
+            <b>Deck view</b> prints one 16:9 slide per page for a PDF, and{" "}
+            <b>Share with client</b> makes a 30-day link that opens without a Barrel account.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            Three parts of the CRO process are still done by hand and the report says so on the
+            page: heatmaps and session recordings, the voice-of-customer review analysis, and the
+            CX journey map. See{" "}
+            <span className="font-mono text-[#1A1A1A]">docs/cro-audit.md</span> for what the tool
+            does and does not do, step by step.
           </p>
         </section>
 
@@ -409,9 +521,21 @@ export default function InstructionsPage() {
               </div>
             </div>
             <div>
-              <div className="font-semibold text-[#1A1A1A] mb-1">I don't know the site password.</div>
+              <div className="font-semibold text-[#1A1A1A] mb-1">It won't let me in.</div>
               <div className="text-[#6B6B6B]">
-                Ask in Slack <span className="font-mono text-[#1A1A1A]">#barrel</span>.
+                Sign-in goes through Barrel Labs using your Barrel Google account. If Labs says
+                access is denied, someone needs to add you to this tool in Barrel Labs — ask in
+                Slack <span className="font-mono text-[#1A1A1A]">#barrel</span>.
+              </div>
+            </div>
+            <div>
+              <div className="font-semibold text-[#1A1A1A] mb-1">
+                Where did Privacy Compliance go?
+              </div>
+              <div className="text-[#6B6B6B]">
+                That tab is limited to Barrel Labs admins — it is a live list of where client sites
+                are setting tracking cookies before consent. Everything else, including every
+                store's audit report, is open to everyone who can sign in.
               </div>
             </div>
             <div>

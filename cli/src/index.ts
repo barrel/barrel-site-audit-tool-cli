@@ -10,6 +10,7 @@ import { pullThemeCommand } from "./commands/pull-theme.js";
 import { linkRepoCommand } from "./commands/link-repo.js";
 import { serveCommand } from "./commands/serve.js";
 import { consentScanCommand } from "./commands/consent-scan.js";
+import { croCommand } from "./commands/cro.js";
 import { dataRoot } from "./paths.js";
 import { recordRunFailure } from "./report/run-record.js";
 import { syncAllStores } from "./store-sync.js";
@@ -144,6 +145,7 @@ program
   .option("--skip-screenshots", "Skip capturing homepage/competitor screenshots")
   .option("--skip-ai-suggestions", "Skip the AI-generated performance & accessibility suggestions list")
   .option("--skip-summary", "Skip the AI-generated executive summary")
+  .option("--skip-recommendations", "Skip the client-ready Recommendations tab (the 5-10 conversion actions synthesized from the whole report)")
   .option("--skip-github", "Don't prompt to connect a GitHub repo, even on a store with no theme code yet")
   .option(
     "--ada-scope <text>",
@@ -189,6 +191,7 @@ program
         skipScreenshots?: boolean;
         skipAiSuggestions?: boolean;
         skipSummary?: boolean;
+        skipRecommendations?: boolean;
         skipGithub?: boolean;
         adaScope?: string;
         adaScopeFile?: string;
@@ -215,6 +218,7 @@ program
           skipScreenshots: opts.skipScreenshots,
           skipAiSuggestions: opts.skipAiSuggestions,
           skipSummary: opts.skipSummary,
+          skipRecommendations: opts.skipRecommendations,
           skipGithub: opts.skipGithub,
           adaScope: opts.adaScope,
           adaScopeFile: opts.adaScopeFile,
@@ -225,6 +229,70 @@ program
         // Before reportRunFailure, so the dashboard's copy of the failure is written even if the
         // process is about to be killed by whoever spawned it.
         await recordRunFailure(String(err?.message ?? err));
+        reportRunFailure(err);
+      }
+    },
+  );
+
+program
+  .command("cro <slug-or-url>")
+  .description(
+    "Run a CRO (conversion-rate optimisation) audit and write a separate CRO report — not part of the " +
+      "site audit. Captures each page group (nav, home, collection, product, cart) at mobile and desktop " +
+      "widths, records the DOM signals and the fold/scroll measurements behind each one, and drafts the " +
+      "deck's UX and competitive-benchmark slides from them. " +
+      "The analytics step (GA4) and the key-insights summary need no browser and are generated from the " +
+      "dashboard instead — press Generate on the report this prints.",
+  )
+  .option("--skip-ux", "Skip the page-group capture and the UX slides drafted from it")
+  .option("--skip-competitors", "Skip the competitive benchmark")
+  .option(
+    "--capture-only",
+    "Capture and store the pages, and draft nothing. For a run whose slides you intend to write (or " +
+      "rewrite) from the dashboard.",
+  )
+  .option(
+    "--checkout",
+    "Also capture the first checkout step. Off by default: reaching it means adding a real item to a real " +
+      "cart on the client's live store, which leaves an abandoned checkout in their admin.",
+  )
+  .option("--groups <list>", "Comma-separated page groups to capture (default: nav,home,plp,pdp,cart)")
+  .option("--devices <list>", "Comma-separated devices to capture (default: mobile,desktop)")
+  .option(
+    "--competitor <url>",
+    "Benchmark against a competitor storefront (repeatable, max 3 — each one is a full capture sweep). " +
+      "Saved to the store's CRO brief, so later runs reuse them without the flag.",
+    (value: string, previous: string[]) => [...previous, value],
+    [] as string[],
+  )
+  .option("--no-upload", "Run everything but don't upload the report, capture or screenshots")
+  .action(
+    async (
+      slug: string,
+      opts: {
+        skipUx?: boolean;
+        skipCompetitors?: boolean;
+        captureOnly?: boolean;
+        checkout?: boolean;
+        groups?: string;
+        devices?: string;
+        competitor: string[];
+        upload?: boolean;
+      },
+    ) => {
+      try {
+        await croCommand({
+          slug,
+          skipUx: opts.skipUx,
+          skipCompetitors: opts.skipCompetitors,
+          captureOnly: opts.captureOnly,
+          checkout: opts.checkout,
+          groups: opts.groups,
+          devices: opts.devices,
+          competitor: opts.competitor,
+          upload: opts.upload,
+        });
+      } catch (err: any) {
         reportRunFailure(err);
       }
     },

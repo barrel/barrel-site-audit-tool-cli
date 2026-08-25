@@ -11,7 +11,10 @@ function estimateCostUsd(inputTokens: number, outputTokens: number): number {
   );
 }
 
-function buildDataSummary(storeName: string, storeUrl: string, sections: ReportSections): string {
+/** Flattens the measured half of a report into prose an LLM can reason over. Exported because the
+ * client-recommendations analyzer needs exactly the same digest as the executive summary — it just
+ * appends the sections this one doesn't cover rather than re-deriving the overlap. */
+export function buildDataSummary(storeName: string, storeUrl: string, sections: ReportSections): string {
   const parts: string[] = [`Store: ${storeName} (${storeUrl})`];
 
   if (sections.performance) {
