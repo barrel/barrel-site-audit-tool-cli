@@ -1,2 +1,6 @@
 .vercel
 .env*
+# The template is the documented source of truth for this app's env vars (the README points at
+# it), so it has to be committable. It holds placeholders only — the real values live in
+# .env.local and on Vercel, both still ignored by the line above.
+!.env.example

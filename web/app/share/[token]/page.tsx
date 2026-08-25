@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
-import { getReport } from "@/lib/data";
+import { getCroEdits, getCroReport, getReport } from "@/lib/data";
 import { verifyShareToken } from "@/lib/share";
 import { ReportHeader } from "@/components/ReportHeader";
 import { ReportNav } from "@/components/ReportNav";
 import { AboutBadge } from "@/components/AboutBadge";
 import { buildReportSections } from "@/lib/build-report-sections";
 import { ClientReport } from "@/components/ClientReport";
+import { SharedCroReport } from "@/components/SharedCroReport";
 import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,32 @@ export default async function SharedReportPage({
   const { token } = await params;
   const payload = await verifyShareToken(token);
   if (!payload) notFound();
+
+  // A CRO audit is a different artefact with a different renderer, and its token says so. Branched
+  // before the report lookup because the two live in separate blob namespaces — asking for a CRO id
+  // in reports/ would 404 on a perfectly valid link.
+  if (payload.resource === "cro") {
+    const cro = await getCroReport(payload.slug, payload.id);
+    if (!cro) notFound();
+    const edits = await getCroEdits(payload.slug, payload.id);
+    return (
+      <div className="min-h-screen bg-[#f9f8f6] print:bg-white">
+        <header className="bg-white border-b border-[#E5E5E5] px-6 lg:px-8 py-4 print:hidden">
+          <div className="max-w-[1040px] mx-auto flex items-center justify-between gap-3">
+            <span className="text-sm font-semibold text-[#1A1A1A]">Barrel — CRO Audit</span>
+            <span className="text-[11px] text-[#9A9A9A] text-right">
+              Shared audit — view only
+              <br />
+              Link expires {formatDate(new Date(payload.expires).toISOString())}
+            </span>
+          </div>
+        </header>
+        <main className="max-w-[1040px] mx-auto px-6 lg:px-8 py-8 print:px-0 print:py-0">
+          <SharedCroReport report={cro} edits={edits?.bullets ?? {}} />
+        </main>
+      </div>
+    );
+  }
 
   const report = await getReport(payload.slug, payload.id);
   if (!report) notFound();

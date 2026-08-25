@@ -63,3 +63,58 @@ export function consentSiteBlobPath(scanId: string, slug: string): string {
 export function consentScreenshotBlobPath(slug: string, scanId: string, state: string): string {
   return `screenshots/consent/${slug}/${scanId}/${state}.jpg`;
 }
+
+/* ── CRO audits ───────────────────────────────────────────────────────────────────────────────
+ *
+ * A separate namespace from reports/, for the same reason consent/ is one: a CRO audit is not a
+ * site-audit report and must never appear in the report manifest. It has its own index, its own
+ * pages and its own share links.
+ */
+
+/** Index of every CRO audit, so the list page can render without enumerating blobs. Same
+ * read-modify-write shape as the report manifest. */
+export const CRO_INDEX_BLOB_PATH = "cro/index.json";
+
+/** One CRO audit — the interpreted deck. */
+export function croReportBlobPath(storeSlug: string, croId: string): string {
+  return `cro/${storeSlug}/${croId}.json`;
+}
+
+/** What the browser saw: pages, DOM signals, measurements, screenshot pathnames.
+ *
+ * Stored apart from the report because it is evidence rather than conclusion. Every AI section is
+ * drafted from this, which is what lets a section be re-drafted — from the deployed app, where
+ * there is no browser — without crawling the client's storefront a second time. */
+export function croCaptureBlobPath(storeSlug: string, croId: string): string {
+  return `cro/${storeSlug}/${croId}-capture.json`;
+}
+
+/** A strategist's corrections to a generated deck, kept as an overlay.
+ *
+ * Never folded into the report blob: that blob is the record of what the tool concluded at a
+ * moment, and by the time anyone edits it, it may already have been shared with a client. Same
+ * reasoning as dataAnalysisBlobPath above. */
+export function croEditsBlobPath(storeSlug: string, croId: string): string {
+  return `cro/${storeSlug}/${croId}-edits.json`;
+}
+
+/** One captured page screenshot.
+ *
+ * Under screenshots/ deliberately, to reuse the web app's blob proxy — which is hard-scoped to that
+ * one prefix so it can never read arbitrary blobs — and the login gate that comes with it. The same
+ * tradeoff consentScreenshotBlobPath documents.
+ *
+ * The store segment is `cro-<slug>`, not `cro/<slug>`, and this is load-bearing: the app's
+ * middleware authorises a shared report's images by splitting the proxy path into
+ * `<store>/<report>/…` and checking that pair against the share token's scope. With `cro/<slug>`
+ * the pair would be `cro/<slug>`, and one CRO share link would authorise every CRO audit that
+ * store has ever had. */
+export function croScreenshotBlobPath(
+  storeSlug: string,
+  croId: string,
+  group: string,
+  device: string,
+  crop: "full" | "fold",
+): string {
+  return `screenshots/cro-${storeSlug}/${croId}/${group}-${device}-${crop}.jpg`;
+}

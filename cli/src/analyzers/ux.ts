@@ -1,6 +1,18 @@
 import * as chromeLauncher from "chrome-launcher";
-import * as cheerio from "cheerio";
 import type { AiUsage, HealthCheckItem, HealthStatus, UxOpportunity, UxSection } from "@barrel/site-audit-shared";
+// The deterministic signal half of this analyzer now lives in cro/signals.ts, where the CRO
+// audit reads it too. Two copies of "what counts as a trust badge" would have drifted, and this
+// analyzer's two-page verdict has to agree with the CRO tool's sweep of the same storefront.
+import {
+  DESKTOP_UA,
+  SOFT_404_MARKERS,
+  buildCollectionChecks,
+  buildProductChecks,
+  check,
+  hasAnyMarker,
+  sleep,
+  throttleDelay,
+} from "./cro/signals.js";
 
 // Same pricing note as cli/src/analyzers/summary.ts — informational only, not billed against.
 const OPUS_5_PRICING_PER_MILLION = { input: 5, output: 25 };
@@ -10,28 +22,6 @@ function estimateCostUsd(inputTokens: number, outputTokens: number): number {
     (inputTokens / 1_000_000) * OPUS_5_PRICING_PER_MILLION.input +
     (outputTokens / 1_000_000) * OPUS_5_PRICING_PER_MILLION.output
   );
-}
-
-// A realistic, current desktop Chrome UA — chrome-launcher's default headless UA advertises
-// itself as "HeadlessChrome", which is an easy, unnecessary bot signal for a legitimate audit
-// tool to be sending. This isn't fingerprint spoofing, just not needlessly announcing automation.
-const DESKTOP_UA =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Random 2–4s pause between page loads — one collection page + one product page, loaded
- * sequentially through a single browser session, with human-plausible dwell time in between.
- * This is the "throttle": no parallel tabs, no rapid-fire requests, nothing that looks like a
- * scraper hammering the site — just two page views a normal visitor could plausibly make. */
-function throttleDelay(): Promise<void> {
-  return sleep(2000 + Math.random() * 2000);
-}
-
-function check(id: string, label: string, status: HealthStatus, detail: string): HealthCheckItem {
-  return { id, label, status, detail };
 }
 
 async function discoverProductUrl(origin: string): Promise<string | null> {
@@ -46,48 +36,6 @@ async function discoverProductUrl(origin: string): Promise<string | null> {
   }
 }
 
-function hasAnyMarker(html: string, patterns: RegExp[]): boolean {
-  return patterns.some((p) => p.test(html));
-}
-
-const REVIEW_APP_MARKERS = [
-  /judge\.?me|jdgm/i,
-  /yotpo/i,
-  /loox/i,
-  /okendo/i,
-  /stamped\.io|stamped-reviews/i,
-  /ali-?reviews/i,
-  /reviews\.io/i,
-  /"@type"\s*:\s*"AggregateRating"/i,
-];
-
-const TRUST_BADGE_MARKERS = [
-  /free shipping/i,
-  /money.?back guarantee/i,
-  /secure checkout/i,
-  /satisfaction guarantee/i,
-  /\b\d+.?day returns?\b/i,
-  /ssl secure/i,
-];
-
-const ADD_TO_CART_MARKERS = [/name=["']add["']/i, />\s*add to (cart|bag)\s*</i, /add-to-cart/i];
-
-const BREADCRUMB_MARKERS = [/aria-label=["']breadcrumb["']/i, /class=["'][^"']*breadcrumb/i, /"@type"\s*:\s*"BreadcrumbList"/i];
-
-const COLLECTION_FILTER_MARKERS = [/class=["'][^"']*(facet|filter)/i, /<facet-filters/i, /data-filter/i];
-
-const QUICK_ADD_MARKERS = [/quick.?add/i, /quick.?shop/i, /quick.?view/i];
-
-// Some themes return HTTP 200 for a dead/renamed collection URL but render a friendly
-// "nothing here" page instead of a real 404 — response.ok() alone won't catch that. Detecting
-// it here avoids reporting misleading "no filters/no quick-add" warnings against an empty page.
-const SOFT_404_MARKERS = [
-  /page (you (requested|are looking for)|not found)/i,
-  /doesn'?t exist/i,
-  /nothing to see here/i,
-  /we can'?t find/i,
-  /404[\s-]*(error|page)/i,
-];
 
 interface PageCaptureResult {
   url: string;
@@ -110,85 +58,6 @@ async function loadAndCapture(
   if (!screenshotData) return null;
 
   return { url, html, screenshot: Buffer.from(screenshotData) };
-}
-
-function buildCollectionChecks(html: string): HealthCheckItem[] {
-  return [
-    check(
-      "ux-collection-filters",
-      "Collection filtering/sorting",
-      hasAnyMarker(html, COLLECTION_FILTER_MARKERS) ? "pass" : "warn",
-      hasAnyMarker(html, COLLECTION_FILTER_MARKERS)
-        ? "Filter or facet UI detected on the collection page."
-        : "No filter/facet UI detected — shoppers browsing a large catalog may struggle to narrow results.",
-    ),
-    check(
-      "ux-collection-quick-add",
-      "Quick add-to-cart from collection grid",
-      hasAnyMarker(html, QUICK_ADD_MARKERS) ? "pass" : "warn",
-      hasAnyMarker(html, QUICK_ADD_MARKERS)
-        ? "Quick add/shop/view affordance detected on the collection grid."
-        : "No quick-add affordance detected — shoppers must open each product page to add to cart, adding friction.",
-    ),
-    check(
-      "ux-collection-breadcrumbs",
-      "Breadcrumb navigation",
-      hasAnyMarker(html, BREADCRUMB_MARKERS) ? "pass" : "warn",
-      hasAnyMarker(html, BREADCRUMB_MARKERS)
-        ? "Breadcrumb navigation detected."
-        : "No breadcrumb navigation detected on the collection page.",
-    ),
-  ];
-}
-
-function buildProductChecks(html: string): HealthCheckItem[] {
-  const $ = cheerio.load(html);
-  const galleryImages = $('img[src*="/products/"], img[class*="product"], [class*="product-media"] img, [class*="product__media"] img').length;
-  const totalImages = $("img").length;
-  const imageCount = galleryImages > 0 ? galleryImages : totalImages;
-
-  return [
-    check(
-      "ux-pdp-add-to-cart",
-      "Add-to-cart visibility",
-      hasAnyMarker(html, ADD_TO_CART_MARKERS) ? "pass" : "fail",
-      hasAnyMarker(html, ADD_TO_CART_MARKERS)
-        ? "Add-to-cart control detected on the product page."
-        : "No add-to-cart control detected in the rendered page — this is critical; shoppers may not find a way to purchase.",
-    ),
-    check(
-      "ux-pdp-reviews",
-      "Reviews / social proof",
-      hasAnyMarker(html, REVIEW_APP_MARKERS) ? "pass" : "warn",
-      hasAnyMarker(html, REVIEW_APP_MARKERS)
-        ? "A reviews widget or aggregate rating markup was detected."
-        : "No reviews widget or rating markup detected — social proof is one of the strongest conversion levers on a PDP.",
-    ),
-    check(
-      "ux-pdp-trust-badges",
-      "Trust badges & shipping/return info",
-      hasAnyMarker(html, TRUST_BADGE_MARKERS) ? "pass" : "warn",
-      hasAnyMarker(html, TRUST_BADGE_MARKERS)
-        ? "Shipping, return, or security trust messaging detected near the product."
-        : "No shipping/return/security trust messaging detected — this is a common source of checkout hesitation.",
-    ),
-    check(
-      "ux-pdp-images",
-      "Product image count",
-      imageCount > 1 ? "pass" : "warn",
-      imageCount > 1
-        ? `${imageCount} product image(s) detected.`
-        : "Only one (or zero) product images detected — multiple angles/lifestyle shots typically lift conversion.",
-    ),
-    check(
-      "ux-pdp-breadcrumbs",
-      "Breadcrumb navigation",
-      hasAnyMarker(html, BREADCRUMB_MARKERS) ? "pass" : "warn",
-      hasAnyMarker(html, BREADCRUMB_MARKERS)
-        ? "Breadcrumb navigation detected."
-        : "No breadcrumb navigation detected on the product page.",
-    ),
-  ];
 }
 
 const UX_SCHEMA = {

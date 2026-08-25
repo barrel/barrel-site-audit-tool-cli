@@ -1,11 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/session";
+import {
+  LABS_COOKIE_NAME,
+  authorizeUrl,
+  isAdminOnlyPath,
+  verifySessionCookie,
+} from "@/lib/labs-auth";
 import { SHARE_SCOPE_COOKIE_NAME, tokenScope, verifyShareToken } from "@/lib/share";
 
-const PUBLIC_PATHS = ["/login", "/api/login", "/instructions", "/release-notes"];
+/** Reachable with no Barrel Labs session at all.
+ *
+ * This list is deliberately down to one entry. /labs-error cannot be gated: it is where a failed
+ * handoff lands, so putting it behind the gate sends the browser straight back through the gate
+ * that just failed, forever. /instructions and /release-notes were public under the old
+ * shared-password login and are not any more — everything the app itself serves now needs a Barrel
+ * identity.
+ *
+ * The two other ungated surfaces are handled by their own branches below rather than living here:
+ * the SSO callback (which is the only route that can land a session) and /share/<token> client
+ * report links (whose entire purpose is to open for someone with no Barrel account). */
+const PUBLIC_PATHS = ["/labs-error"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // The SSO callback MUST stay ungated: it is the only route that can land a session cookie, so
+  // gating it is an infinite redirect loop.
+  if (pathname.startsWith("/api/labs-auth")) {
+    return NextResponse.next();
+  }
 
   // Share links are the one intentionally-public report view — anyone with the link needs to
   // see it with no session. Verifying the token here (not just in the page) also lets us drop
@@ -28,12 +50,13 @@ export async function middleware(req: NextRequest) {
     return res;
   }
 
-  // Screenshots are proxied blobs, normally gated by the same login session as the rest of the
+  // Screenshots are proxied blobs, normally gated by the same Labs session as the rest of the
   // app. A valid share-scope cookie (set above, scoped to exactly one report) additionally
   // authorizes only the screenshots living under that report's own path prefix.
   if (pathname.startsWith("/api/screenshot/")) {
-    const sessionToken = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-    if (await verifySessionToken(sessionToken)) return NextResponse.next();
+    if (await verifySessionCookie(req.cookies.get(LABS_COOKIE_NAME)?.value)) {
+      return NextResponse.next();
+    }
 
     const scope = req.cookies.get(SHARE_SCOPE_COOKIE_NAME)?.value ?? "";
     const [storeSlug, reportId] = pathname.slice("/api/screenshot/".length).split("/");
@@ -48,15 +71,25 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
-  const token = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const valid = await verifySessionToken(token);
+  const session = await verifySessionCookie(req.cookies.get(LABS_COOKIE_NAME)?.value);
 
-  if (!valid) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/login";
-    url.search = "";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+  // No session, or one that has aged past its 8-hour window: hand the browser to Labs. For anyone
+  // whose Labs sign-in is still live this is a redirect they never see, which is why the window
+  // can be short enough for an access revocation to bite the same day.
+  if (!session) {
+    const { pathname: p, search } = req.nextUrl;
+    return NextResponse.redirect(authorizeUrl(`${p}${search}`));
+  }
+
+  // Signed in, but Privacy Compliance is admins only. Enforced here as well as in the pages so a
+  // route added under /consent later is covered by default rather than by remembering to.
+  if (session.role !== "admin" && isAdminOnlyPath(pathname)) {
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json({ error: "Admins only." }, { status: 403 });
+    }
+    // Rewrite, not redirect: the person keeps the URL they were sent, so the explanation lands
+    // where they are instead of bouncing them somewhere that looks like the link was broken.
+    return NextResponse.rewrite(new URL("/admins-only", req.url));
   }
 
   return NextResponse.next();

@@ -3,6 +3,12 @@ import { get, put } from "@vercel/blob";
 import type {
   ConsentFleetReport,
   ConsentSection,
+  CroCapture,
+  CroEdits,
+  CroIndex,
+  CroIndexEntry,
+  CroReport,
+  CroStepKey,
   DataAnalysisSection,
   Manifest,
   ManifestEntry,
@@ -234,3 +240,128 @@ export const getLatestConsentScan = cache(async (): Promise<ConsentFleetReport |
   const newest = [...index].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
   return await getConsentScan(newest.id);
 });
+
+/* ── CRO audits ──────────────────────────────────────────────────────────────────────────────
+ *
+ * A separate namespace from reports/, for the same reason consent/ is one: a CRO audit is not a
+ * site-audit report and must never appear in the report manifest. Mirrors
+ * shared/src/blob-paths.ts — see shared/test/mirror-drift.test.ts, which compares the two.
+ */
+
+const CRO_INDEX_BLOB_PATH = "cro/index.json";
+
+function croReportBlobPath(storeSlug: string, croId: string): string {
+  return `cro/${storeSlug}/${croId}.json`;
+}
+
+function croCaptureBlobPath(storeSlug: string, croId: string): string {
+  return `cro/${storeSlug}/${croId}-capture.json`;
+}
+
+function croEditsBlobPath(storeSlug: string, croId: string): string {
+  return `cro/${storeSlug}/${croId}-edits.json`;
+}
+
+/** Never cached, for the same reason the report manifest is not: it is rewritten by every capture
+ * run and by every Generate, and a cached copy makes a finished run look like it never happened. */
+export const getCroIndex = cache(async (): Promise<CroIndexEntry[]> => {
+  const index = await readBlobJson<CroIndex>(CRO_INDEX_BLOB_PATH, false);
+  return index?.reports ?? [];
+});
+
+/** Never cached: the report page is opened immediately after Generate rewrites it, and a cached
+ * miss would show the pre-Generate state to the person who just paid for the generation. */
+export const getCroReport = cache(async (slug: string, id: string): Promise<CroReport | null> => {
+  return await readBlobJson<CroReport>(croReportBlobPath(slug, id), false);
+});
+
+/** The evidence a report was drafted from. Read only when a step is being re-generated, or when
+ * someone opens the evidence behind a bullet — the report itself carries everything the slides
+ * need, so the normal page load never pays for this. Cacheable because a capture is written once
+ * and never rewritten. */
+export const getCroCapture = cache(async (slug: string, id: string): Promise<CroCapture | null> => {
+  return await readBlobJson<CroCapture>(croCaptureBlobPath(slug, id));
+});
+
+export const getCroEdits = cache(async (slug: string, id: string): Promise<CroEdits | null> => {
+  return await readBlobJson<CroEdits>(croEditsBlobPath(slug, id), false);
+});
+
+export async function saveCroReport(report: CroReport): Promise<void> {
+  await put(croReportBlobPath(report.storeSlug, report.id), JSON.stringify(report, null, 2), {
+    access: "private",
+    contentType: "application/json",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+  });
+}
+
+export async function saveCroEdits(edits: CroEdits): Promise<void> {
+  await put(croEditsBlobPath(edits.storeSlug, edits.croId), JSON.stringify(edits, null, 2), {
+    access: "private",
+    contentType: "application/json",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+  });
+}
+
+/** Read-modify-write, newest first, replacing any entry with the same id — which is what makes
+ * re-publishing a report after a Generate safe. Mirrors appendToCroIndex in
+ * cli/src/report/cro-generate.ts. */
+export async function saveCroIndexEntry(entry: CroIndexEntry): Promise<void> {
+  const reports = (await readBlobJson<CroIndex>(CRO_INDEX_BLOB_PATH, false))?.reports ?? [];
+  const next = [entry, ...reports.filter((r) => r.id !== entry.id)];
+  await put(CRO_INDEX_BLOB_PATH, JSON.stringify({ reports: next }, null, 2), {
+    access: "private",
+    contentType: "application/json",
+    addRandomSuffix: false,
+    allowOverwrite: true,
+  });
+}
+
+/** The index entry for a report as it now stands. Recomputed on every write rather than patched,
+ * so "which steps are done" on the list page cannot drift from the report itself. */
+export function croIndexEntry(report: CroReport, archived?: boolean): CroIndexEntry {
+  return {
+    id: report.id,
+    storeSlug: report.storeSlug,
+    storeName: report.storeName,
+    storeUrl: report.storeUrl,
+    createdAt: report.createdAt,
+    stepsGenerated: (Object.keys(report.steps) as CroStepKey[]).filter((k) => report.steps[k]?.status === "generated"),
+    ...(archived ? { archived: true } : {}),
+  };
+}
+
+export interface CroStoreGroup {
+  storeSlug: string;
+  storeName: string;
+  storeUrl: string;
+  /** Newest first. */
+  reports: CroIndexEntry[];
+}
+
+/** Grouped by store, because a CRO audit repeats quarterly and the useful question on the list
+ * page is "what have we told this client, and when", not "what ran most recently". */
+export function groupCroByStore(entries: CroIndexEntry[]): CroStoreGroup[] {
+  const bySlug = new Map<string, CroIndexEntry[]>();
+  for (const entry of entries) {
+    if (entry.archived) continue;
+    const list = bySlug.get(entry.storeSlug) ?? [];
+    list.push(entry);
+    bySlug.set(entry.storeSlug, list);
+  }
+
+  return Array.from(bySlug.values())
+    .filter((reports) => reports.length > 0)
+    .map((reports) => {
+      const sorted = [...reports].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      return {
+        storeSlug: sorted[0].storeSlug,
+        storeName: sorted[0].storeName,
+        storeUrl: sorted[0].storeUrl,
+        reports: sorted,
+      };
+    })
+    .sort((a, b) => b.reports[0].createdAt.localeCompare(a.reports[0].createdAt));
+}

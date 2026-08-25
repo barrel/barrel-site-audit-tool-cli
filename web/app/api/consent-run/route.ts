@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { NextRequest } from "next/server";
 
+import { isLabsAdmin } from "@/lib/labs-session";
+
 export const dynamic = "force-dynamic";
 
 /** Same constraint as /api/run: this spawns the real CLI, which needs Chrome, pnpm and a checkout.
@@ -108,6 +110,10 @@ if (!process.env.VERCEL) {
 }
 
 export async function POST(req: NextRequest) {
+  // Middleware already refuses this route for a non-admin. Repeated here because a route handler
+  // that starts a fleet-wide privacy scan should not be one matcher edit away from being open.
+  if (!(await isLabsAdmin())) return new Response("Admins only.", { status: 403 });
+
   try {
     assertLocal();
   } catch (err: any) {

@@ -52,3 +52,50 @@ body {
     word-break: break-all;
   }
 }
+
+/* ── The CRO deck view ────────────────────────────────────────────────────────────────────────
+   One 16:9 page per slide. On screen the aspect ratio is enforced so what you scroll is what
+   prints; in print each slide is a landscape page of its own with no margin, because a deck page
+   is edge-to-edge and the padding lives inside the slide.
+
+   Scoped to .cro-deck rather than applied globally: every other page in this app prints as a
+   document, and a landscape @page would break all of them. */
+.cro-deck-slide {
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+@media print {
+  /* Landscape, full-bleed, one slide per sheet. Declared inside the deck's own named page so the
+     portrait @page above still governs every other printable view. */
+  @page deck {
+    size: landscape;
+    margin: 0;
+  }
+
+  .cro-deck {
+    page: deck;
+  }
+
+  .cro-deck-slide {
+    /* Height comes from the page, not from an aspect ratio: an aspect-ratio box inside a print
+       page overflows onto a second sheet on every engine that rounds differently. */
+    aspect-ratio: auto;
+    height: 100vh;
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .cro-deck-slide:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  /* A projected slide is not a document: printing the URL after every link would put a line of
+     grey text through the middle of one. */
+  .cro-deck a[href^="http"]::after {
+    content: none;
+  }
+}

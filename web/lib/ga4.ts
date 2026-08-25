@@ -11,6 +11,7 @@
 
 import { averageOrderValue, conversionRate } from "./data-analysis";
 import type { ConversionDataset, ConversionSegment, ConversionTotals } from "./shared";
+import type { CroConversionDataset, CroFunnelStep, CroItemRow } from "./cro-analytics";
 
 interface ServiceAccountCredentials {
   client_email: string;
@@ -82,6 +83,33 @@ function toSegments(rows: any[] | null | undefined): ConversionSegment[] {
  * finding. The caps are generous enough that the pages carrying real traffic are all present. */
 const MAX_CHANNELS = 12;
 const MAX_LANDING_PAGES = 20;
+
+/** Turns a thrown GA4 error into the named reason and the sentence shown to whoever pressed the
+ * button. Shared by every fetcher here: each of these failures needs a different human to fix it,
+ * and a second copy of the mapping is a second place for one of them to lose its wording. */
+function describeGa4Error(propertyId: string, err: unknown): Ga4Failure {
+  const message = String((err as Error)?.message ?? err);
+  if (/PERMISSION_DENIED|403/i.test(message)) {
+    return {
+      reason: "no-access",
+      message: `The service account is not a Viewer on GA4 property ${propertyId}. Add it in GA4 → Admin → Property access management, then generate again.`,
+    };
+  }
+  if (/NOT_FOUND|404/i.test(message)) {
+    return {
+      reason: "no-access",
+      message: `GA4 has no property ${propertyId}. Check Admin → Property Settings for the numeric Property ID.`,
+    };
+  }
+  return { reason: "api-error", message: `The GA4 API rejected the request: ${message.slice(0, 300)}` };
+}
+
+const NO_CREDENTIALS: Ga4Failure = {
+  reason: "no-credentials",
+  message:
+    "No GOOGLE_SERVICE_ACCOUNT_KEY is configured on this deployment, so GA4 cannot be read. " +
+    "Set it to the service-account JSON, then generate again.",
+};
 
 /** Pulls the conversion dataset for one GA4 property.
  *
@@ -159,22 +187,7 @@ export async function fetchConversionDataset(propertyId: string): Promise<Ga4Res
       }),
     ]);
   } catch (err: unknown) {
-    const message = String((err as Error)?.message ?? err);
-    if (/PERMISSION_DENIED|403/i.test(message)) {
-      return {
-        ok: false,
-        reason: "no-access",
-        message: `The service account is not a Viewer on GA4 property ${propertyId}. Add it in GA4 → Admin → Property access management, then generate again.`,
-      };
-    }
-    if (/NOT_FOUND|404/i.test(message)) {
-      return {
-        ok: false,
-        reason: "no-access",
-        message: `GA4 has no property ${propertyId}. Check Admin → Property Settings for the numeric Property ID.`,
-      };
-    }
-    return { ok: false, reason: "api-error", message: `The GA4 API rejected the request: ${message.slice(0, 300)}` };
+    return { ok: false, ...describeGa4Error(propertyId, err) };
   }
 
   const [totalsReport, dailyReport, deviceReport, channelReport, landingReport] = responses.map((r) => r[0]);
@@ -211,6 +224,214 @@ export async function fetchConversionDataset(propertyId: string): Promise<Ga4Res
       byDevice: toSegments(deviceReport.rows),
       byChannel: toSegments(channelReport.rows),
       byLandingPage: toSegments(landingReport.rows),
+    },
+  };
+}
+
+/* ── The CRO dataset ─────────────────────────────────────────────────────────────────────────
+ *
+ * A superset of the conversion dataset above, for the CRO audit's Step 1. Kept as its own fetcher
+ * rather than folded into that one because the Data Analysis feature is deliberately narrow — five
+ * queries, one question — and widening it would make every site-audit report pay for a funnel and
+ * an item-level report it never renders.
+ */
+
+export type CroGa4Result = { ok: true; dataset: CroConversionDataset } | ({ ok: false } & Ga4Failure);
+
+/** The shopping funnel, in order. GA4's own recommended ecommerce events, so a store with standard
+ * Shopify/GA4 tracking needs no configuration for this to work — and a store missing one of them
+ * shows a gap in the funnel, which is itself the finding. */
+const FUNNEL_EVENTS: Array<{ event: string; label: string }> = [
+  { event: "view_item", label: "viewed a product" },
+  { event: "add_to_cart", label: "added to cart" },
+  { event: "begin_checkout", label: "began checkout" },
+  { event: "purchase", label: "purchased" },
+];
+
+/** Enough products to see the shape of the catalogue's performance without handing a model a
+ * thousand rows of long tail. */
+const MAX_ITEMS = 50;
+
+export async function fetchCroDataset(propertyId: string): Promise<CroGa4Result> {
+  const credentials = getCredentials();
+  if (!credentials) return { ok: false, ...NO_CREDENTIALS };
+
+  let responses: any[];
+  try {
+    const { BetaAnalyticsDataClient } = await import("@google-analytics/data");
+    const client = new BetaAnalyticsDataClient({ credentials });
+    const property = `properties/${propertyId}`;
+    const dateRanges = [DATE_RANGE];
+
+    // Metric order inside each query is load-bearing — metric(row, n) reads by position — so
+    // sessions/transactions/revenue stay in that order in every segment query, exactly as above.
+    responses = await Promise.all([
+      // 1. Totals.
+      client.runReport({
+        property,
+        dateRanges,
+        metrics: [{ name: "sessions" }, { name: "transactions" }, { name: "purchaseRevenue" }, { name: "totalUsers" }],
+      }),
+      // 2. One row per day — the history gate. See fetchConversionDataset.
+      client.runReport({
+        property,
+        dateRanges,
+        dimensions: [{ name: "date" }],
+        metrics: [{ name: "sessions" }],
+        orderBys: [{ dimension: { dimensionName: "date" } }],
+        limit: 60,
+      }),
+      // 3. By device.
+      client.runReport({
+        property,
+        dateRanges,
+        dimensions: [{ name: "deviceCategory" }],
+        metrics: [{ name: "sessions" }, { name: "transactions" }, { name: "purchaseRevenue" }],
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+      }),
+      // 4. By channel.
+      client.runReport({
+        property,
+        dateRanges,
+        dimensions: [{ name: "sessionDefaultChannelGroup" }],
+        metrics: [{ name: "sessions" }, { name: "transactions" }, { name: "purchaseRevenue" }],
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+        limit: MAX_CHANNELS,
+      }),
+      // 5. By landing page. Rolled up into page types by cro-analytics.ts — the individual pages
+      //    are fetched because the roll-up has to be computed from real rows, not asked for.
+      client.runReport({
+        property,
+        dateRanges,
+        dimensions: [{ name: "landingPagePlusQueryString" }],
+        metrics: [{ name: "sessions" }, { name: "transactions" }, { name: "purchaseRevenue" }],
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+        limit: MAX_LANDING_PAGES,
+      }),
+      // 6. New against returning. A first-time visitor and a returning customer are two different
+      //    conversion problems, and a site-wide rate is a blend of both.
+      client.runReport({
+        property,
+        dateRanges,
+        dimensions: [{ name: "newVsReturning" }],
+        metrics: [{ name: "sessions" }, { name: "transactions" }, { name: "purchaseRevenue" }],
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+      }),
+      // 7. Engagement. Site-wide only: a per-segment engagement rate invites a bullet about a
+      //    number that moves for a dozen reasons that have nothing to do with the site.
+      client.runReport({
+        property,
+        dateRanges,
+        metrics: [{ name: "engagementRate" }, { name: "averageSessionDuration" }],
+      }),
+      // 8. The funnel. Sessions per event rather than a Funnel Exploration: runFunnelReport is a
+      //    separate alpha surface, and sessions-per-event is available here, cheap, and honest
+      //    about what it is — see funnelDrops() for what that costs in interpretation.
+      client.runReport({
+        property,
+        dateRanges,
+        dimensions: [{ name: "eventName" }],
+        metrics: [{ name: "sessions" }, { name: "eventCount" }],
+        dimensionFilter: {
+          filter: {
+            fieldName: "eventName",
+            inListFilter: { values: FUNNEL_EVENTS.map((e) => e.event) },
+          },
+        },
+        limit: 20,
+      }),
+      // 9. Item level. What sells, and what gets looked at and not bought.
+      client.runReport({
+        property,
+        dateRanges,
+        dimensions: [{ name: "itemName" }],
+        metrics: [
+          { name: "itemsViewed" },
+          { name: "itemsAddedToCart" },
+          { name: "itemsPurchased" },
+          { name: "itemRevenue" },
+        ],
+        orderBys: [{ metric: { metricName: "itemsViewed" }, desc: true }],
+        limit: MAX_ITEMS,
+      }),
+    ]);
+  } catch (err: unknown) {
+    return { ok: false, ...describeGa4Error(propertyId, err) };
+  }
+
+  const [totalsReport, dailyReport, deviceReport, channelReport, landingReport, visitorReport, engagementReport, funnelReport, itemsReport] =
+    responses.map((r) => r[0]);
+
+  const totalsRow = totalsReport.rows?.[0];
+  const sessions = metric(totalsRow, 0);
+  const transactions = metric(totalsRow, 1);
+  const revenue = metric(totalsRow, 2);
+
+  const dayRows = (dailyReport.rows ?? []).filter((row: any) => metric(row, 0) > 0);
+  const days = dayRows.map((row: any) => dimension(row)).sort();
+  const asIso = (compact: string | undefined) =>
+    compact && /^\d{8}$/.test(compact) ? `${compact.slice(0, 4)}-${compact.slice(4, 6)}-${compact.slice(6, 8)}` : "";
+
+  // Ordered by the funnel, not by whatever order GA4 returned — the sequence is the whole point,
+  // and an event the store never fires is dropped rather than shown as a zero step, because a zero
+  // step reads as "nobody got here" instead of "this is not being tracked".
+  const funnelRows = new Map<string, { sessions: number; count: number }>();
+  for (const row of funnelReport.rows ?? []) {
+    funnelRows.set(dimension(row), { sessions: metric(row, 0), count: metric(row, 1) });
+  }
+  const funnel: CroFunnelStep[] = FUNNEL_EVENTS.filter((e) => funnelRows.has(e.event)).map((e) => ({
+    event: e.event,
+    label: e.label,
+    sessions: funnelRows.get(e.event)?.sessions ?? 0,
+    count: funnelRows.get(e.event)?.count ?? 0,
+  }));
+
+  const items: CroItemRow[] = (itemsReport.rows ?? []).map((row: any) => {
+    const viewed = metric(row, 0);
+    const purchased = metric(row, 2);
+    return {
+      name: dimension(row),
+      viewed,
+      addedToCart: metric(row, 1),
+      purchased,
+      revenue: metric(row, 3),
+      viewToPurchaseRate: viewed > 0 ? Math.round((purchased / viewed) * 10000) / 100 : 0,
+    };
+  });
+
+  const engagementRow = engagementReport.rows?.[0];
+  const engagementRate = metric(engagementRow, 0);
+
+  return {
+    ok: true,
+    dataset: {
+      propertyId,
+      currencyCode: totalsReport.metadata?.currencyCode ?? "",
+      startDate: asIso(days[0]),
+      endDate: asIso(days[days.length - 1]),
+      daysWithSessions: days.length,
+      totals: {
+        sessions,
+        transactions,
+        revenue,
+        totalUsers: metric(totalsRow, 3),
+        conversionRate: conversionRate(transactions, sessions),
+        averageOrderValue: averageOrderValue(revenue, transactions),
+      },
+      // GA4 returns engagementRate as a 0–1 ratio; every other rate in this feature is a
+      // percentage, and mixing the two produces a slide saying "an engagement rate of 0.62%".
+      engagement: engagementRow
+        ? {
+            engagementRate: Math.round(engagementRate * 1000) / 10,
+            averageSessionDuration: metric(engagementRow, 1),
+          }
+        : undefined,
+      byDevice: toSegments(deviceReport.rows),
+      byChannel: toSegments(channelReport.rows),
+      byLandingPage: toSegments(landingReport.rows),
+      byNewReturning: toSegments(visitorReport.rows),
+      funnel,
+      items,
     },
   };
 }

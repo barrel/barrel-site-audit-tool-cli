@@ -1,5 +1,3 @@
-import { timingSafeEqualStr } from "@/lib/session";
-
 export const SHARE_SCOPE_COOKIE_NAME = "barrel_audit_share_scope";
 const SHARE_TOKEN_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
@@ -11,6 +9,16 @@ function getSecret(): string {
     );
   }
   return secret;
+}
+
+/** Constant-time string compare, so a token check cannot be narrowed by timing its failure. */
+function timingSafeEqualStr(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let result = 0;
+  for (let i = 0; i < a.length; i++) {
+    result |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return result === 0;
 }
 
 function toHex(buffer: ArrayBuffer): string {
@@ -35,8 +43,8 @@ function fromBase64Url(input: string): string {
   return new TextDecoder().decode(bytes);
 }
 
-// Signed with the same secret as login session tokens, but domain-separated with a fixed
-// prefix so a share token can never be replayed as (or confused with) a session token.
+// Domain-separated with a fixed `share:` prefix so a share token can never be replayed as (or
+// confused with) anything else signed with SESSION_SECRET.
 async function hmac(data: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -59,6 +67,10 @@ export interface ShareTokenPayload {
   /** "client" renders the shareable summary rather than the full audit. Absent means the full
    * report, which is what every existing link means. */
   kind?: "client";
+  /** Which kind of thing `slug`/`id` name. Absent means a site-audit report, which is what every
+   * link minted before CRO audits existed means — so old links keep verifying and keep resolving
+   * to the same page. */
+  resource?: "cro";
 }
 
 // Stateless, signed link scoped to exactly one report — no server-side revocation list to
@@ -67,7 +79,7 @@ export interface ShareTokenPayload {
 export async function createShareToken(
   slug: string,
   id: string,
-  options: { compareId?: string; kind?: "client" } = {},
+  options: { compareId?: string; kind?: "client"; resource?: "cro" } = {},
 ): Promise<string> {
   const expires = Date.now() + SHARE_TOKEN_MAX_AGE_SECONDS * 1000;
   const payload: ShareTokenPayload = { slug, id, expires };
@@ -75,16 +87,26 @@ export async function createShareToken(
   // carries "kind": null reads as deliberate to whoever debugs it next.
   if (options.compareId) payload.compareId = options.compareId;
   if (options.kind) payload.kind = options.kind;
+  if (options.resource) payload.resource = options.resource;
   const encoded = toBase64Url(JSON.stringify(payload));
   const signature = await hmac(encoded);
   return `${encoded}.${signature}`;
 }
 
-/** Every report a token authorises. A client report shows two, and the screenshot scope has to
- * cover both or the baseline image 404s inside an otherwise working page. */
+/** Every report a token authorises, in the form the screenshot proxy's path is checked against —
+ * `<store>/<report>`, matching how middleware splits `/api/screenshot/<store>/<report>/…`.
+ *
+ * A client report shows two, and the scope has to cover both or the baseline image 404s inside an
+ * otherwise working page.
+ *
+ * A CRO audit's screenshots live under `screenshots/cro-<slug>/<id>/…`, so its store segment is
+ * `cro-<slug>`. That prefix is deliberate rather than cosmetic: with `cro/<slug>` the pair would be
+ * `cro/<slug>` and one CRO share link would authorise the screenshots of every CRO audit that store
+ * has ever had. See croScreenshotBlobPath in shared/src/blob-paths.ts. */
 export function tokenScope(payload: ShareTokenPayload): string {
+  const store = payload.resource === "cro" ? `cro-${payload.slug}` : payload.slug;
   const ids = payload.compareId ? [payload.id, payload.compareId] : [payload.id];
-  return ids.map((id) => `${payload.slug}/${id}`).join(",");
+  return ids.map((id) => `${store}/${id}`).join(",");
 }
 
 export async function verifyShareToken(token: string | undefined | null): Promise<ShareTokenPayload | null> {

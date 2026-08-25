@@ -1,10 +1,16 @@
 import Link from "next/link";
+import { AdminsOnlyScreen } from "@/components/AdminsOnly";
+import { isLabsAdmin } from "@/lib/labs-session";
 import { PageTitle, TopNav } from "@/components/TopNav";
 import { BulkConsentForm } from "@/components/BulkConsentForm";
 
 export const dynamic = "force-dynamic";
 
-export default function BulkConsentRunPage() {
+export default async function BulkConsentRunPage() {
+  // Belt as well as braces: middleware already rewrites this route for a non-admin, but a
+  // Privacy Compliance page must not depend on the matcher staying correct to stay closed.
+  if (!(await isLabsAdmin())) return <AdminsOnlyScreen what="Privacy Compliance" />;
+
   // Bulk scanning drives a real headless Chrome, which only exists on the machine running
   // `pnpm dev`. Rather than render a button whose only possible outcome on the deployed site is
   // an error, the form becomes a command builder there — you still paste the list, you just get

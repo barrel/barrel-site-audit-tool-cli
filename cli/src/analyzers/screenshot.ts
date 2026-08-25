@@ -8,7 +8,10 @@ import type { Page } from "puppeteer-core";
 // eventual height) full of gray placeholder boxes where the never-triggered images would be.
 // Scrolling all the way down first — in steps, matching how a real visitor would encounter the
 // page — fires those loaders for every section before the shot is taken.
-async function autoScrollToBottom(page: Page): Promise<void> {
+// Exported because the CRO capture (analyzers/cro/capture.ts) takes a dozen full-page shots per
+// run and needs exactly this treatment. A second implementation there would have been the same
+// lazy-load bug rediscovered from scratch.
+export async function autoScrollToBottom(page: Page): Promise<void> {
   await page.evaluate(async () => {
     await new Promise<void>((resolve) => {
       const distance = 400;
@@ -26,7 +29,7 @@ async function autoScrollToBottom(page: Page): Promise<void> {
 
 /** Resolves once every currently-present <img> has finished loading (or errored) — bounded by
  * the caller's own timeout race, not this function, so one stuck image can't hang the capture. */
-async function waitForImages(page: Page): Promise<void> {
+export async function waitForImages(page: Page): Promise<void> {
   await page.evaluate(() =>
     Promise.all(
       Array.from(document.images)

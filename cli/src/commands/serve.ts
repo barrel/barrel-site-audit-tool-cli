@@ -5,7 +5,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import { cliInvocation, dataRoot, storeFixDir } from "../paths.js";
-import { buildRunArgs, buildRunEnv, type RunAuditBody } from "@barrel/site-audit-shared";
+import { buildCroArgs, buildRunArgs, buildRunEnv, type CroRunBody, type RunAuditBody } from "@barrel/site-audit-shared";
 import { resolveStore, resolveThemeDir } from "../store.js";
 import { suggestFix, type SuggestFixParams } from "../analyzers/ai-fix.js";
 import {
@@ -141,6 +141,69 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
     });
   }
 
+  /** Spawns one CLI subcommand and streams its output back to the dashboard.
+   *
+   * Shared by /run and /cro because everything hard about it is identical: the single-flight lock
+   * over headless Chrome, re-invoking this exact build rather than `pnpm barrel-audit`, the
+   * detached process group so a Stop can take the browsers down too, and the guarded writes that
+   * keep a dropped socket from stranding the lock. The only thing that differs is the argv and the
+   * done-marker the dashboard parses. */
+  async function streamCommand(
+    req: IncomingMessage,
+    res: ServerResponse,
+    options: { target: string; args: string[]; env: Record<string, string>; doneMarker: string },
+  ): Promise<void> {
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+
+    // Re-invoke this exact CLI build rather than `pnpm barrel-audit`, which only resolves
+    // inside the monorepo (and would pick the checkout's build over the global one).
+    // execArgv carries any loader flags (e.g. tsx's --import) so a TS-source dev run re-spawns
+    // itself the same way it was started. detached: true so the run is its own process group and
+    // killRunTree() can stop Chrome and friends along with it — see there for why.
+    const child = spawn(process.execPath, [...process.execArgv, selfScript, ...options.args], {
+      cwd: root,
+      env: { ...process.env, ...options.env },
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true,
+    });
+    activeRun = { target: options.target, startedAt: Date.now(), child };
+
+    // Guarded because a stopped run means the response socket is already gone, and writing to a
+    // destroyed response emits an error rather than returning quietly.
+    const send = (chunk: string | Buffer) => {
+      if (!res.writableEnded && !res.destroyed) res.write(chunk);
+    };
+    const forward = (chunk: Buffer) => send(chunk);
+    child.stdout.on("data", forward);
+    child.stderr.on("data", forward);
+
+    let settled = false;
+    const finish = (trailer: string) => {
+      if (settled) return;
+      settled = true;
+      // First, so a dead socket can't strand the single-flight lock and lock out every later run.
+      activeRun = null;
+      send(trailer);
+      if (!res.writableEnded) res.end();
+    };
+
+    child.on("error", (err) => finish(`\nFailed to start: ${err.message}\n`));
+    child.on("close", (code) => finish(`\n${options.doneMarker}${code ?? -1}__\n`));
+
+    // The dashboard's "Stop" button aborts its fetch, which lands here. Anything else that drops
+    // the connection (closed tab, lost network) means nobody is watching the output, so the run
+    // stops for that too rather than continuing invisibly to completion.
+    //
+    // On `res`, not `req`: readJsonBody() above consumes the request stream to its end, and Node
+    // closes a fully-consumed readable right away — so a listener added afterwards never hears
+    // req's "close" and the stop silently did nothing. res emits "close" when the response
+    // finishes *or* the connection is destroyed, and writableEnded tells the two apart.
+    res.on("close", () => {
+      if (!res.writableEnded) killRunTree(child);
+    });
+  }
+
+
   const server = createServer(async (req, res) => {
     cors(req, res);
 
@@ -154,81 +217,51 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
       return;
     }
 
-    if (req.method === "POST" && req.url === "/run") {
+    if (req.method === "POST" && (req.url === "/run" || req.url === "/cro")) {
       const auth = req.headers.authorization;
       if (auth !== `Bearer ${token}`) {
         res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
         return;
       }
 
+      // One lock across both, not one each: a CRO capture and a site audit on the same machine
+      // would fight over headless Chrome exactly as two audits would.
       if (activeRun) {
         res
           .writeHead(409, { "Content-Type": "text/plain" })
           .end(
-            `An audit is already running (${activeRun.target}, started ${new Date(activeRun.startedAt).toLocaleTimeString()}).`,
+            `A run is already in progress (${activeRun.target}, started ${new Date(activeRun.startedAt).toLocaleTimeString()}).`,
           );
         return;
       }
 
-      let body: RunAuditBody;
+      const isCro = req.url === "/cro";
+      let target: string;
       let args: string[];
       let runEnv: Record<string, string>;
       try {
-        body = await readJsonBody(req);
-        args = buildRunArgs(body);
-        runEnv = buildRunEnv(body);
+        const body = await readJsonBody(req);
+        if (isCro) {
+          const croBody = body as unknown as CroRunBody;
+          target = croBody.target;
+          args = buildCroArgs(croBody);
+          runEnv = {};
+        } else {
+          const runBody = body as RunAuditBody;
+          target = runBody.target;
+          args = buildRunArgs(runBody);
+          runEnv = buildRunEnv(runBody);
+        }
       } catch (err: any) {
         res.writeHead(400, { "Content-Type": "text/plain" }).end(err?.message ?? String(err));
         return;
       }
 
-      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-
-      // Re-invoke this exact CLI build rather than `pnpm barrel-audit`, which only resolves
-      // inside the monorepo (and would pick the checkout's build over the global one).
-      // execArgv carries any loader flags (e.g. tsx's --import) so a TS-source dev run re-spawns
-      // itself the same way it was started. detached: true so the run is its own process group and
-      // killRunTree() can stop Chrome and friends along with it — see there for why.
-      const child = spawn(process.execPath, [...process.execArgv, selfScript, ...args], {
-        cwd: root,
-        env: { ...process.env, ...runEnv },
-        stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-      });
-      activeRun = { target: body.target, startedAt: Date.now(), child };
-
-      // Guarded because a stopped run means the response socket is already gone, and writing to a
-      // destroyed response emits an error rather than returning quietly.
-      const send = (chunk: string | Buffer) => {
-        if (!res.writableEnded && !res.destroyed) res.write(chunk);
-      };
-      const forward = (chunk: Buffer) => send(chunk);
-      child.stdout.on("data", forward);
-      child.stderr.on("data", forward);
-
-      let settled = false;
-      const finish = (trailer: string) => {
-        if (settled) return;
-        settled = true;
-        // First, so a dead socket can't strand the single-flight lock and lock out every later run.
-        activeRun = null;
-        send(trailer);
-        if (!res.writableEnded) res.end();
-      };
-
-      child.on("error", (err) => finish(`\nFailed to start: ${err.message}\n`));
-      child.on("close", (code) => finish(`\n__BARREL_AUDIT_DONE__${code ?? -1}__\n`));
-
-      // The dashboard's "Stop audit" button aborts its fetch, which lands here. Anything else that
-      // drops the connection (closed tab, lost network) means nobody is watching the output, so the
-      // run stops for that too rather than continuing invisibly to completion.
-      //
-      // On `res`, not `req`: readJsonBody() above consumes the request stream to its end, and Node
-      // closes a fully-consumed readable right away — so a listener added afterwards never hears
-      // req's "close" and the stop silently did nothing. res emits "close" when the response
-      // finishes *or* the connection is destroyed, and writableEnded tells the two apart.
-      res.on("close", () => {
-        if (!res.writableEnded) killRunTree(child);
+      await streamCommand(req, res, {
+        target,
+        args,
+        env: runEnv,
+        doneMarker: isCro ? "__BARREL_CRO_DONE__" : "__BARREL_AUDIT_DONE__",
       });
       return;
     }

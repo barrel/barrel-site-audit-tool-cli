@@ -36,12 +36,32 @@ function flagLiterals(source: string): Set<string> {
   return new Set([...source.matchAll(/"(--[a-z0-9-]+)"/g)].map((m) => m[1]));
 }
 
+/** Every file under shared/src whose exported types the mirror is allowed to carry. A type in the
+ * mirror with no original in one of these is either a rename that happened on one side only or a
+ * type invented in the copy — both drift the web app silently away from the CLI. */
+const SHARED_SRC_FILES = [
+  "types.ts",
+  "cro-types.ts",
+  "scoring.ts",
+  "blob-paths.ts",
+  "ada-scope.ts",
+  "cro-slides.ts",
+  "cro-evidence.ts",
+  "run-args.ts",
+  "cro-run-args.ts",
+];
+
 function report(label: string, missing: string[]): string {
   return missing.length === 0 ? "" : `\n  ${label}: ${missing.sort().join(", ")}`;
 }
 
 describe("web/lib/shared.ts mirrors shared/src/types.ts", () => {
-  const sharedTypes = exportedTypeNames(read("shared/src/types.ts"));
+  const sharedTypes = new Set([
+    ...exportedTypeNames(read("shared/src/types.ts")),
+    // The CRO report shape is as much a part of what crosses this boundary as the audit report is:
+    // the dashboard renders CRO reports the CLI wrote, with nothing in the type system in between.
+    ...exportedTypeNames(read("shared/src/cro-types.ts")),
+  ]);
   const mirror = exportedTypeNames(read("web/lib/shared.ts"));
 
   // Types the mirror deliberately omits, each because nothing under web/ reads that shape. Adding
@@ -49,11 +69,10 @@ describe("web/lib/shared.ts mirrors shared/src/types.ts", () => {
   // Verified against the tree: no file in web/ mentions any of them.
   const INTENTIONALLY_UNMIRRORED = new Set([
     // Audit-run bookkeeping. The dashboard follows a run over its own /api routes, never by
-    // reading the run record blob the CLI writes.
-    "RunMode",
+    // reading the run record blob the CLI writes. RunMode and RunnerInfo left this list when the
+    // CRO report shape started carrying a RunnerInfo of its own.
     "RunRecord",
     "RunStatus",
-    "RunnerInfo",
     "RunsIndex",
   ]);
 
@@ -83,7 +102,7 @@ describe("web/lib/shared.ts mirrors shared/src/types.ts", () => {
     // A type invented in the mirror, or renamed on one side only, is the drift that is hardest to
     // spot by eye — the web app compiles perfectly and disagrees with the CLI at runtime.
     const sharedAll = new Set(
-      ["types.ts", "scoring.ts", "blob-paths.ts", "ada-scope.ts", "run-args.ts"].flatMap((f) => [
+      SHARED_SRC_FILES.flatMap((f) => [
         ...exportedTypeNames(read(`shared/src/${f}`)),
       ]),
     );
@@ -100,13 +119,16 @@ describe("web/lib/shared.ts mirrors shared/src/types.ts", () => {
     // The mirror carries gradeForScore/colorForScore/parseAdaScope; if one is copied and another
     // silently dropped, a report page starts colouring scores by a rule the CLI does not use.
     const sharedValues = new Set(
-      ["scoring.ts", "ada-scope.ts"].flatMap((f) => [...exportedValueNames(read(`shared/src/${f}`))]),
+      ["scoring.ts", "ada-scope.ts", "cro-slides.ts"].flatMap((f) => [...exportedValueNames(read(`shared/src/${f}`))]),
     );
     const mirrored = exportedValueNames(read("web/lib/shared.ts"));
     const present = [...mirrored].filter((n) => sharedValues.has(n));
     assert.ok(present.length > 0, "expected the mirror to carry at least the scoring helpers");
     const orphans = [...mirrored].filter(
-      (n) => !sharedValues.has(n) && !exportedValueNames(read("shared/src/types.ts")).has(n),
+      (n) =>
+        !sharedValues.has(n) &&
+        !exportedValueNames(read("shared/src/types.ts")).has(n) &&
+        !exportedValueNames(read("shared/src/cro-types.ts")).has(n),
     );
     assert.deepEqual(orphans, [], `web/lib/shared.ts exports values with no shared original.${report("web-only", orphans)}`);
   });
@@ -151,6 +173,65 @@ describe("web/app/api/run/route.ts mirrors shared/src/run-args.ts", () => {
   });
 });
 
+describe("web/app/api/cro-run/route.ts mirrors shared/src/cro-run-args.ts", () => {
+  const original = read("shared/src/cro-run-args.ts");
+  const copy = read("web/app/api/cro-run/route.ts");
+
+  it("passes the same set of CLI flags", () => {
+    // Same failure mode as the audit pair above: a flag added to one and not the other is a
+    // dashboard checkbox that silently does nothing. The local agent uses the shared builder and
+    // this route uses its own copy, and the same form can reach either.
+    const a = flagLiterals(original);
+    const b = flagLiterals(copy);
+    const onlyShared = [...a].filter((f) => !b.has(f));
+    const onlyWeb = [...b].filter((f) => !a.has(f));
+    assert.deepEqual(
+      [onlyShared, onlyWeb],
+      [[], []],
+      `The two CRO argv builders disagree.${report("only in shared/src/cro-run-args.ts", onlyShared)}${report("only in web/app/api/cro-run/route.ts", onlyWeb)}`,
+    );
+  });
+
+  it("accepts the same request body fields", () => {
+    const fields = (source: string) => {
+      const body = /interface CroRunBody \{([\s\S]*?)\n\}/.exec(source);
+      assert.ok(body, "could not find the CroRunBody declaration");
+      return new Set([...body[1].matchAll(/^\s{2}([a-zA-Z0-9_]+)\??:/gm)].map((m) => m[1]));
+    };
+    const a = fields(original);
+    const b = fields(copy);
+    const onlyShared = [...a].filter((f) => !b.has(f));
+    const onlyWeb = [...b].filter((f) => !a.has(f));
+    assert.deepEqual(
+      [onlyShared, onlyWeb],
+      [[], []],
+      `CroRunBody has drifted.${report("only in shared", onlyShared)}${report("only in web", onlyWeb)}`,
+    );
+  });
+
+  it("keeps the same competitor ceiling", () => {
+    const value = (source: string) => /MAX_CRO_COMPETITORS = ([0-9_]+)/.exec(source)?.[1];
+    assert.equal(value(copy), value(original), "MAX_CRO_COMPETITORS differs between the two copies");
+  });
+
+  it("validates page groups and devices against the same vocabularies", () => {
+    // The route cannot import CRO_PAGE_GROUPS, so it restates the list. A group added to the type
+    // and not here is a checkbox the API rejects with "not a page group" — confusing precisely
+    // because the UI offered it.
+    const types = read("shared/src/cro-types.ts");
+    const words = (source: string | undefined) => [...(source ?? "").matchAll(/"([a-z]+)"/g)].map((m) => m[1]);
+
+    assert.deepEqual(
+      words(/const CRO_PAGE_GROUPS = \[([^\]]+)\]/.exec(copy)?.[1]),
+      words(/CroPageGroup = ([^;]+);/.exec(types)?.[1]),
+    );
+    assert.deepEqual(
+      words(/const CRO_DEVICES = \[([^\]]+)\]/.exec(copy)?.[1]),
+      words(/CroDevice = ([^;]+);/.exec(types)?.[1]),
+    );
+  });
+});
+
 describe("web/lib/data.ts mirrors shared/src/blob-paths.ts", () => {
   const original = read("shared/src/blob-paths.ts");
   const copy = read("web/lib/data.ts");
@@ -160,9 +241,13 @@ describe("web/lib/data.ts mirrors shared/src/blob-paths.ts", () => {
     // difference produces an empty dashboard and no error anywhere.
     const literals = (source: string) =>
       new Set(
-        [...source.matchAll(/["`](reports\/[^"`$]*|stores\/[^"`$]*|runs\/[^"`$]*|consent\/[^"`$]*)["`]/g)].map((m) => m[1]),
+        [
+          ...source.matchAll(
+            /["`](reports\/[^"`$]*|stores\/[^"`$]*|runs\/[^"`$]*|consent\/[^"`$]*|cro\/[^"`$]*)["`]/g,
+          ),
+        ].map((m) => m[1]),
       );
-    for (const key of ["reports/manifest.json", "consent/index.json"]) {
+    for (const key of ["reports/manifest.json", "consent/index.json", "cro/index.json"]) {
       assert.ok(literals(original).has(key), `${key} vanished from shared/src/blob-paths.ts`);
       assert.ok(literals(copy).has(key), `${key} is no longer the key web/lib/data.ts reads`);
     }
@@ -171,7 +256,13 @@ describe("web/lib/data.ts mirrors shared/src/blob-paths.ts", () => {
   it("builds the same templated paths", () => {
     const template = (source: string, name: string) =>
       new RegExp(`${name}\\([^)]*\\)[^{]*\\{\\s*return \`([^\`]+)\``).exec(source)?.[1];
-    for (const fn of ["consentFleetBlobPath", "consentSiteBlobPath"]) {
+    for (const fn of [
+      "consentFleetBlobPath",
+      "consentSiteBlobPath",
+      "croReportBlobPath",
+      "croCaptureBlobPath",
+      "croEditsBlobPath",
+    ]) {
       const a = template(original, fn);
       const b = template(copy, fn);
       assert.ok(a, `${fn} not found in shared/src/blob-paths.ts`);

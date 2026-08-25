@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AdminsOnlyScreen } from "@/components/AdminsOnly";
+import { isLabsAdmin } from "@/lib/labs-session";
 import { notFound } from "next/navigation";
 import { getConsentSiteDetail, getConsentScan, getLatestConsentScan } from "@/lib/data";
 import { formatDate } from "@/lib/format";
@@ -187,6 +189,10 @@ export default async function ConsentSiteReport({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ scan?: string }>;
 }) {
+  // Belt as well as braces: middleware already rewrites this route for a non-admin, but a
+  // Privacy Compliance page must not depend on the matcher staying correct to stay closed.
+  if (!(await isLabsAdmin())) return <AdminsOnlyScreen what="Privacy Compliance" />;
+
   const { slug } = await params;
   const { scan: scanId } = await searchParams;
 

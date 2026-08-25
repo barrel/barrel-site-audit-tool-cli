@@ -1,8 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { SESSION_COOKIE_NAME } from "@/lib/session";
+import { NextResponse } from "next/server";
+import { LABS_URL } from "@/lib/labs-auth";
+import { endSession } from "@/lib/labs-session";
 
-export async function POST(req: NextRequest) {
-  const res = NextResponse.redirect(new URL("/login", req.url), { status: 303 });
-  res.cookies.delete(SESSION_COOKIE_NAME);
-  return res;
+/** Drops this app's session and returns the person to the Barrel Labs hub.
+ *
+ * It deliberately does not sign them out of Labs — that session belongs to every Barrel tool, not
+ * just this one. Landing on the hub rather than back here also avoids the confusing round trip
+ * where signing out redirects straight into a silent, successful re-authorization. */
+export async function POST() {
+  await endSession();
+  return NextResponse.redirect(LABS_URL, { status: 303 });
 }
