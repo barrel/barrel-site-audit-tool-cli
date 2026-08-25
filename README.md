@@ -313,10 +313,22 @@ barrel-audit run https://client-store.com --local-repo .
 barrel-audit serve                                        # or drive it from the dashboard
 ```
 
-Note there's no `pnpm` in front of these. `pnpm barrel-audit ...` resolves the `barrel-audit`
-script from this repo's root `package.json`, so in any other directory it fails with
-`ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND` — call the global `barrel-audit` binary directly instead.
-(There's also no `barrel-audit install` command; installing is the `npm install -g` step above.)
+Note there's no `pnpm` in front of these, and it matters more than it looks. `pnpm barrel-audit
+...` resolves the `barrel-audit` script from this repo's root `package.json`, so anywhere else it
+fails — and *how* it fails depends on where you are, which is what makes it confusing:
+
+- **In a folder with no `package.json`** you get `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`, which at
+  least points at the real problem.
+- **In a client theme repo that *does* have a `package.json`** — the normal case, since most themes
+  have a build — pnpm instead adopts *that repo* as the workspace, runs its own
+  verify-deps-before-run check, and tries to `pnpm install` the theme's dependencies. The CLI is
+  never reached at all. If the theme's install is broken for any unrelated reason you get a
+  `pnpm install` failure ending in `runDepsStatusCheck`, which looks like a bug in this tool and
+  isn't one.
+
+Either way the fix is the same: call the global `barrel-audit` binary directly, with no `pnpm` in
+front. (There's also no `barrel-audit install` command; installing is the `npm install -g` step
+above.)
 
 With no `barrel-site-audit` checkout on disk, config/store data lives in `~/.barrel-audit/`
 instead of `stores/` (created automatically), and env vars (`BLOB_READ_WRITE_TOKEN`,

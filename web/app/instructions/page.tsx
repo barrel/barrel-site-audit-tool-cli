@@ -334,18 +334,28 @@ export default function InstructionsPage() {
             "Run audit" works from the hosted dashboard too, not just your own machine's copy of
             the site.
           </p>
-          <p className="text-sm text-[#6B6B6B]">
-            That exact command only works from inside a copy of the audit tool's own repo. If you
-            installed the CLI globally instead, drop the{" "}
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            That exact command only works from inside a copy of the audit tool&apos;s own repo. If
+            you installed the CLI globally instead, drop the{" "}
             <span className="font-mono text-[#1A1A1A]">pnpm</span> and run{" "}
             <span className="font-mono text-[#1A1A1A]">barrel-audit serve</span> from any folder —
-            including a client theme repo. Running{" "}
-            <span className="font-mono text-[#1A1A1A]">pnpm barrel-audit serve</span> somewhere
-            without a <span className="font-mono text-[#1A1A1A]">package.json</span> is what
-            produces the <span className="font-mono text-[#1A1A1A]">
-              ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND
-            </span>{" "}
-            error.
+            including a client theme repo. That&apos;s the intended setup: the agent runs in the
+            theme repo on your machine, and the dashboard in your browser drives it from there.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            Leaving the <span className="font-mono text-[#1A1A1A]">pnpm</span> on matters more than
+            it looks, because how it fails depends on where you are. In a folder with no{" "}
+            <span className="font-mono text-[#1A1A1A]">package.json</span> you get{" "}
+            <span className="font-mono text-[#1A1A1A]">ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND</span>,
+            which at least points at the problem. But in a client theme repo that{" "}
+            <i>does</i> have one — the normal case, since most themes have a build — pnpm adopts{" "}
+            <i>that</i> repo as the workspace and tries to install the theme&apos;s own
+            dependencies instead, so the CLI is never reached. If the theme&apos;s install happens
+            to be broken for some unrelated reason, what you see is a{" "}
+            <span className="font-mono text-[#1A1A1A]">pnpm install</span> failure ending in{" "}
+            <span className="font-mono text-[#1A1A1A]">runDepsStatusCheck</span> — which looks like
+            a bug in this tool and isn&apos;t one. Either way: no{" "}
+            <span className="font-mono text-[#1A1A1A]">pnpm</span> in front.
           </p>
         </section>
 
