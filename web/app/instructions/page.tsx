@@ -405,6 +405,28 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Privacy Compliance now says what the site gets right
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            The Privacy Compliance section used to read as a list of problems, because the checks
+            that passed were mixed in with the ones that failed under headings named after test
+            suites. It now opens a <span className="font-medium text-[#1A1A1A]">What&apos;s working</span>{" "}
+            list: every check confirmed to be behaving correctly, grouped by what it means for a
+            visitor — before they choose, when they reject, when they accept, after the choice is
+            made — in the scanner&apos;s own words, each with its test ID beside it.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            It ends with the tags proven to obey the visitor: the ones that fired once consent was
+            given and stayed silent when it was refused. The count reads{" "}
+            <em>&ldquo;12 of 15 confirmed checks passed&rdquo;</em> rather than out of all 32 — a
+            check that couldn&apos;t be tested is never counted as one the site passed. It appears
+            on both the store&apos;s report and the standalone privacy report, including reports
+            already run, and needs no re-scan.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Theme Check tells you what theme the store runs
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-3">

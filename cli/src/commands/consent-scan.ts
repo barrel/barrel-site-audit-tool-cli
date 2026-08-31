@@ -8,7 +8,7 @@ import type {
   ConsentSection,
   ConsentSiteEntry,
 } from "@barrel/site-audit-shared";
-import { CONSENT_INDEX_BLOB_PATH, consentFleetBlobPath, consentScreenshotBlobPath, consentSiteBlobPath } from "@barrel/site-audit-shared";
+import { CONSENT_INDEX_BLOB_PATH, buildConsentPassList, consentFleetBlobPath, consentScreenshotBlobPath, consentSiteBlobPath } from "@barrel/site-audit-shared";
 import { analyzeConsent } from "../analyzers/consent/index.js";
 import { runCmpInventory } from "../analyzers/consent/engine.js";
 import { activeSites, loadRegistryWithProblems, registryPath, seedRegistry } from "../analyzers/consent/registry.js";
@@ -69,6 +69,10 @@ export async function consentScanCommand(options: ConsentScanOptions): Promise<v
             : (state, image) => writeBlobBinary(consentScreenshotBlobPath(site.slug, scanId, state), image, "image/jpeg"),
       });
       printSiteLine(site, section);
+      // Only for a single-site scan. Across a fleet the per-site detail would bury the table that
+      // is the point of a fleet run; scanning one site is the case where "what is this site doing
+      // right?" is the question being asked at the terminal.
+      if (sites.length === 1) printPassList(section);
       // The comprehensive per-site report reads this. Written per site rather than folded into
       // the fleet blob so the fleet table doesn't pay for detail it never renders. Never fatal:
       // losing the detail blob must not lose the scan.
@@ -281,6 +285,34 @@ function printSiteLine(site: ConsentSiteEntry, section: ConsentSection): void {
     .join(chalk.gray(" · "));
   const mark = t.blockers > 0 ? chalk.red("✗") : t.fail > 0 ? chalk.yellow("!") : chalk.green("✓");
   console.log(`  ${mark} ${chalk.bold(site.slug.padEnd(26))} ${chalk.gray(section.cmp.padEnd(15))} ${parts}`);
+}
+
+/** The same "what's working" list the report renders, for the operator who just scanned one site.
+ * Built from the shared helper rather than restated here, so the terminal and the report cannot
+ * come to different conclusions about what passed. */
+function printPassList(section: ConsentSection): void {
+  const list = buildConsentPassList(section);
+  if (list.groups.length === 0) return;
+
+  console.log(
+    chalk.bold(`\n  What's working`) +
+      chalk.gray(` — ${list.passed} of ${list.verdicts} checks that reached a verdict passed`),
+  );
+  for (const group of list.groups) {
+    console.log(`\n    ${chalk.bold(group.title)}`);
+    for (const item of group.passes) {
+      console.log(`      ${chalk.green("✓")} ${item.statement} ${chalk.gray(item.id)}`);
+    }
+  }
+  if (list.heldBack.length > 0) {
+    console.log(
+      chalk.gray(
+        `\n    Tags that obey the choice: ${list.heldBack.join(", ")} fired once the visitor accepted and ` +
+          `stayed silent when they rejected.`,
+      ),
+    );
+  }
+  console.log("");
 }
 
 function printSummary(report: ConsentFleetReport): void {

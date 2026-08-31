@@ -61,9 +61,19 @@ Meta stop?* — as an explicit verdict per tag per state rather than a colour:
 | `n/a` | Essential, not gated by consent |
 | `—` | That state could not be tested |
 
-Then every test with its status, detail, fix and evidence; then each state's cookies, Consent Mode
-signals, Shopify Customer Privacy state and banner screenshot. Print-styled, so the browser's own
-Print → Save as PDF produces the PDF with selectable text and live links.
+Then **What's working** — the pass list, which is the section a client asks for first. Every
+confirmed pass, grouped by what it means for a visitor ("Before the visitor chooses", "When the
+visitor rejects") rather than by suite letter, with each check's own confirmation sentence and its
+ID for traceability. It closes with the tags proven to obey the choice: fired after Accept, silent
+after Reject. Then every test with its status, detail, fix and evidence; then each state's cookies,
+Consent Mode signals, Shopify Customer Privacy state and banner screenshot. Print-styled, so the
+browser's own Print → Save as PDF produces the PDF with selectable text and live links.
+
+The pass list is derived at render time from the stored scan, not written into it, so an archived
+report shows it without being re-scanned. Its ratio is counted against checks that reached a
+verdict, never against all 32: a site whose states were mostly unreachable must not present as a
+clean sweep. Nothing in it is a new assertion — it regroups verdicts the scanner already reached,
+which is why a `blocked` check can never surface here as a pass.
 
 **`/consent/run`** — paste any number of URLs or slugs and scan them, independently of the
 per-store audit. Streams the CLI's output live.
@@ -74,7 +84,10 @@ it locally. Results publish to Blob either way, so the deployed dashboard shows 
 scan finishes — only the *running* is local.
 
 Privacy Compliance also runs inside every normal `barrel-audit run`, so a per-store audit carries
-its own section without anyone asking for it.
+its own section without anyone asking for it — pass list included.
+
+Scanning a **single** site at the terminal prints the same pass list after the result line. Across
+a fleet it is suppressed, because the table is the point of a fleet run.
 
 ---
 

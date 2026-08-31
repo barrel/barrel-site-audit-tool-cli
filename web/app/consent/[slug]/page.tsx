@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { getConsentSiteDetail, getConsentScan, getLatestConsentScan } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import { screenshotUrl } from "@/lib/screenshot";
+import { ConsentPassList } from "@/components/ConsentPassList";
 import { PrintButton } from "@/components/PrintButton";
 import { PageTitle, TopNav } from "@/components/TopNav";
 import { COMPLIANCE_BAND_LABEL, colorForComplianceScore, complianceBand } from "@/lib/shared";
@@ -416,6 +417,12 @@ export default async function ConsentSiteReport({
             })}
           </ul>
         </Card>
+
+        {/* ── What's already right ───────────────────────────────────────────────────────── */}
+        {/* Deliberately after the exposure summary and before the per-suite detail: the reader
+            should meet the findings first, then what holds, then the full record. Leading with the
+            passes would read as a defence of the site. */}
+        <ConsentPassList section={{ tests, states, trackers }} />
 
         {/* ── Every test ─────────────────────────────────────────────────────────────────── */}
         {[...bySuite.entries()]

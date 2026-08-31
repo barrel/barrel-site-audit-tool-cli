@@ -12,6 +12,19 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.34",
+    date: "2026-08-31",
+    title: "Privacy Compliance says what the site gets right",
+    notes: [
+      "**Privacy Compliance now leads with a pass list.** The section used to read as a list of problems: the checks that passed were interleaved with the ones that failed, under headings named after lettered test suites, so \"what is this site already doing right?\" — the first question asked in the room — had to be reconstructed from a green pill and a wall of rows. Both report views now carry a **What's working** card that answers it directly.",
+      "**Grouped by what it means for a visitor, not by test number.** Before the visitor chooses; when the visitor rejects; when they accept; after the choice is made; analytics-only consent; the controls a visitor can reach; closing the banner. Each group says in one line what its passes prove together, and each pass is the scanner's own confirmation sentence — \"No marketing cookies were set before a consent choice\", \"All 4 pre-choice non-essential cookies were cleared on reject\" — with its test ID kept beside it so anything can be traced back to the detailed record below.",
+      "**It closes with the tags proven to obey the choice**: the ones that fired once the visitor accepted and stayed silent when they rejected. The tag × state grid always showed this; nothing ever said it. A tag that fired before any choice was made is never credited, and neither is a tag that fired nowhere at all — that means it isn't installed, which is not a compliance win.",
+      "**The count is honest about what was testable.** It reads \"12 of 15 confirmed checks passed\", counted against checks that reached a verdict rather than against all 32. A site whose browser states were mostly unreachable cannot present as a clean sweep, and a check that could not be tested is never quietly converted into one the site passed.",
+      "**Reports already run get it without being re-scanned.** The list is derived from the stored scan at the moment the page renders, not written into the scan output, so every archived Privacy Compliance report in the dashboard has it now.",
+      "Scanning a single site at the terminal prints the same list after the result line. Across a fleet it stays out of the way, because the table is the point of a fleet run.",
+    ],
+  },
+  {
     version: "1.33",
     date: "2026-08-25",
     title: "A Recommendations tab for the client, and a Theme Check that names the theme",

@@ -6,6 +6,7 @@ import type {
   ConsentTrackerHit,
   TrackerCategory,
 } from "@/lib/shared";
+import { ConsentPassList } from "@/components/ConsentPassList";
 import { screenshotUrl } from "@/lib/screenshot";
 
 const STATE_ORDER: ConsentStateId[] = ["clean", "dismiss", "reject", "accept", "granular", "returning"];
@@ -257,6 +258,8 @@ export function ConsentAudit({ section }: { section: ConsentSection }) {
           </div>
         </div>
       )}
+
+      <ConsentPassList section={section} />
 
       {section.trackers.length > 0 && (
         <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden">

@@ -7,3 +7,4 @@ export * from "./cro-slides.js";
 export * from "./cro-evidence.js";
 export * from "./run-args.js";
 export * from "./cro-run-args.js";
+export * from "./consent-pass-list.js";

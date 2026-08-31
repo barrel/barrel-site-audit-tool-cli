@@ -831,6 +831,13 @@ probe. Results land on **/consent** in the dashboard (worst sites first) and, fo
 as a **Privacy Compliance** section in its normal report. The command exits non-zero on any
 blocker-severity failure, so it can gate CI unchanged.
 
+Both report views carry a **What's working** pass list alongside the findings: every confirmed
+pass, grouped by what it means for a visitor rather than by suite letter, plus the tags proven to
+fire after Accept and stay silent after Reject. Scanning a single site prints the same list at the
+terminal. It is derived from the stored scan, so archived reports show it without re-scanning, and
+its ratio counts only checks that reached a verdict — a site whose states were unreachable cannot
+present as a clean sweep.
+
 The list of sites to scan lives in `sites.yml` at the repo root — a reviewed file, seeded from
 `stores/` and hand-completed once. A theme repo almost never contains its own production domain,
 so that one pass is unavoidable; `--seed --from-repos` at least lists the repos it couldn't place.
