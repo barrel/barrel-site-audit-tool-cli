@@ -29,7 +29,9 @@ export interface ConsentPassGroup {
   suite: ConsentSuiteId;
   /** Client-facing heading. Suite letters mean nothing to the reader this section is for. */
   title: string;
-  /** What the passes in this group prove taken together. */
+  /** What this group is about. Deliberately a topic and not a verdict: a group can hold one
+   * pass beside three failures listed elsewhere in the report, and an affirmative line here would
+   * read as a claim about the site that its own passes do not support. */
   meaning: string;
   passes: ConsentPassItem[];
 }
@@ -48,35 +50,35 @@ export interface ConsentPassList {
 const GROUPS: Record<ConsentSuiteId, { title: string; meaning: string }> = {
   A: {
     title: "The banner and the choice it offers",
-    meaning: "The consent platform is live, the banner reaches visitors, and rejecting is as easy as accepting.",
+    meaning: "The consent platform, the banner a visitor actually sees, and whether refusing is as easy as agreeing.",
   },
   B: {
     title: "Before the visitor chooses",
-    meaning: "Nothing that requires consent runs until the visitor has made a choice.",
+    meaning: "What does and does not run before a choice has been made.",
   },
   C: {
     title: "When the visitor rejects",
-    meaning: "A rejection is honoured — tags stay off, and anything already set is cleaned up.",
+    meaning: "Whether a refusal is honoured — tags kept off, and anything already set cleaned up.",
   },
   D: {
     title: "When the visitor accepts",
-    meaning: "Acceptance reaches the tags, so the marketing data this site does have consent for still arrives.",
+    meaning: "Whether acceptance reaches the tags, so the marketing data this site does have consent for still arrives.",
   },
   E: {
     title: "After the choice is made",
-    meaning: "The decision is remembered instead of the visitor being asked again.",
+    meaning: "Whether the decision is remembered rather than the visitor being asked again.",
   },
   F: {
     title: "Analytics-only consent",
-    meaning: "A visitor who allows measurement but not advertising gets exactly that.",
+    meaning: "How a visitor who allows measurement but not advertising is treated.",
   },
   G: {
     title: "Controls the visitor can reach",
-    meaning: "The disclosures and opt-out controls a visitor is entitled to find are present and working.",
+    meaning: "The disclosures and opt-out controls a visitor is entitled to find anywhere on the site.",
   },
   H: {
     title: "Closing the banner",
-    meaning: "Walking away from the banner is treated as “no”, not as “yes”.",
+    meaning: "How walking away from the banner without answering it is treated.",
   },
 };
 

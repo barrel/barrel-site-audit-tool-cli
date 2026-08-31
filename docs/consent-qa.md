@@ -64,7 +64,9 @@ Meta stop?* — as an explicit verdict per tag per state rather than a colour:
 Then **What's working** — the pass list, which is the section a client asks for first. Every
 confirmed pass, grouped by what it means for a visitor ("Before the visitor chooses", "When the
 visitor rejects") rather than by suite letter, with each check's own confirmation sentence and its
-ID for traceability. It closes with the tags proven to obey the choice: fired after Accept, silent
+ID for traceability. Each group line names the topic rather than asserting the site clears it — a
+group can hold one pass beside three failures listed above it, and an affirmative line there would
+claim more than its own passes support. It closes with the tags proven to obey the choice: fired after Accept, silent
 after Reject. Then every test with its status, detail, fix and evidence; then each state's cookies,
 Consent Mode signals, Shopify Customer Privacy state and banner screenshot. Print-styled, so the
 browser's own Print → Save as PDF produces the PDF with selectable text and live links.
