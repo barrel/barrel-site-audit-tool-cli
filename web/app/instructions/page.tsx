@@ -574,6 +574,20 @@ export default function InstructionsPage() {
             </div>
             <div>
               <div className="font-semibold text-[#1A1A1A] mb-1">
+                How do I sign out, or get to another Barrel tool?
+              </div>
+              <div className="text-[#6B6B6B]">
+                Both live in the black-on-white Barrel Labs bar across the top of every page — the
+                same bar every Barrel tool has.{" "}
+                <span className="font-mono text-[#1A1A1A]">◆ TOOLS</span> lists the other tools
+                your Barrel account can open, and{" "}
+                <span className="font-mono text-[#1A1A1A]">EJECT</span> signs you out of this tool
+                and returns you to Barrel Labs. The row underneath it is this tool&rsquo;s own
+                navigation.
+              </div>
+            </div>
+            <div>
+              <div className="font-semibold text-[#1A1A1A] mb-1">
                 Where did Privacy Compliance go?
               </div>
               <div className="text-[#6B6B6B]">

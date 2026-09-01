@@ -25,6 +25,19 @@ export const LABS_COOKIE_NAME = "labs_session";
  */
 export const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
+/**
+ * One entry in the Labs utility nav's tool switcher.
+ *
+ * This app cannot *ask* Labs what else someone may open — it holds no credential it could
+ * authenticate such a call with, which is the point of the design — so Labs puts the list in the
+ * handoff token and it rides along in this app's own session cookie.
+ *
+ * It is a MENU, NOT A GRANT. Every entry links to `${LABS_URL}/go/<slug>`, which re-checks access
+ * at Labs. A list gone stale inside the 8-hour session window can show a tool that then refuses
+ * the person; it can never open one. Nothing here is ever an authorization answer.
+ */
+export type LabsTool = { slug: string; name: string };
+
 export type LabsSession = {
   sub: string;
   email: string;
@@ -33,6 +46,8 @@ export type LabsSession = {
   /** `admin` means a Barrel Labs admin — the gate on this app's admin-only surfaces. */
   role: "admin" | "member";
   clearance: number;
+  /** Stable Labs tools this person may reach. Drives the utility nav's switcher, nothing else. */
+  tools: LabsTool[];
 };
 
 export const LABS_URL = (process.env.LABS_URL ?? "https://barrel-labs.vercel.app").replace(/\/$/, "");
@@ -131,7 +146,20 @@ function toSession(payload: Record<string, unknown>): LabsSession {
     picture: (payload.picture as string | null) ?? null,
     role: payload.role === "admin" ? "admin" : "member",
     clearance: typeof payload.clearance === "number" ? payload.clearance : 1,
+    tools: readTools(payload.tools),
   };
+}
+
+/** Coerces an untrusted `tools` claim into the shape the nav renders. Anything odd is dropped. */
+function readTools(claim: unknown): LabsTool[] {
+  if (!Array.isArray(claim)) return [];
+  return claim.flatMap((t) =>
+    t && typeof t === "object" &&
+    typeof (t as LabsTool).slug === "string" &&
+    typeof (t as LabsTool).name === "string"
+      ? [{ slug: (t as LabsTool).slug, name: (t as LabsTool).name }]
+      : [],
+  );
 }
 
 /**

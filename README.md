@@ -149,6 +149,16 @@ app verifies it against Labs' public JWKS and swaps it for its own 8-hour cookie
 key capable of *minting* a token — only of verifying one — so a compromise here cannot forge
 access to any other Barrel tool.
 
+Signed-in pages carry the **Barrel Labs utility bar** at the top — `web/components/labs-nav.tsx`,
+the same file every Labs app runs, deliberately unforked. It does three things and only three:
+says who you are (avatar, address, `ADMIN · CLEARANCE L5`, read off the verified session), offers
+the **◆ TOOLS** switcher to the other Barrel tools you are cleared for, and signs you out. This
+app's own destinations live in a second row underneath (`web/components/TopNavBar.tsx`); app links
+never go in the Labs bar. The switcher is driven by a `tools` claim that rides in the handoff token
+and then in this app's own cookie — it is a *menu, not a grant*: every entry goes to Labs'
+`/go/<slug>`, which re-checks access, so a stale list can show a tool that then refuses you and can
+never open one. Nothing is ever gated on `session.tools`.
+
 Two consequences worth knowing:
 
 - **Revocation takes up to 8 hours.** When the cookie expires the app silently re-authorizes

@@ -12,6 +12,17 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.35",
+    date: "2026-09-01",
+    title: "The Barrel Labs utility bar sits on top of every page",
+    notes: [
+      "**Every page now carries the standard Barrel Labs bar**, the same one Commerce Care and the other Labs tools have: the BARREL LABS lockup with SITE AUDIT under it, who you are signed in as with your role and clearance, a **◆ TOOLS** switcher listing the other Barrel tools you are cleared for, and **EJECT** to sign out. The point of it being identical everywhere is that moving between four Barrel tools never means hunting for your own account or the way out.",
+      "**The switcher goes through Labs, not straight to the tool.** Each entry links to Labs' `/go/<slug>`, which re-checks your access and records it, so the menu is a shortcut rather than a decision — a tool listed there can still say access denied. The list rides in the sign-in handoff and is refreshed whenever your session is, because this app deliberately holds no credential it could ask Labs with.",
+      "**This app's own nav moved to a second row underneath** and now carries only destinations and actions. The avatar, the role badge and Sign out came out of it — they were sitting 15px from the same three things in the new bar — and so did the \"Barrel Site Audit\" wordmark, which linked to Reports, the destination already first in the row. The row is shorter for it.",
+      "Neither bar prints. A report saved as a PDF is a document, not a screenshot of the tool that made it — and a shared client report still renders with no Barrel chrome and no staff name at all, as before.",
+    ],
+  },
+  {
     version: "1.34",
     date: "2026-08-31",
     title: "Privacy Compliance says what the site gets right",
