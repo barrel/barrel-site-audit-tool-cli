@@ -76,7 +76,7 @@ export default async function HomePage({
                 <>
                   No reports yet. Run{" "}
                   <code className="bg-[#fafafa] px-1.5 py-0.5 rounded text-[#1A1A1A]">
-                    pnpm barrel-audit run &lt;store-slug-or-url&gt;
+                    barrel-audit run &lt;store-slug-or-url&gt;
                   </code>{" "}
                   from the CLI — new reports appear here immediately, no redeploy needed.
                 </>

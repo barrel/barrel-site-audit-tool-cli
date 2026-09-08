@@ -66,8 +66,8 @@ function Empty() {
     <div className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-10 text-center">
       <div className="text-sm font-medium text-[#1A1A1A]">No privacy scans yet</div>
       <p className="mt-2 text-sm text-[#6B6B6B] max-w-[52ch] mx-auto">
-        Run <code className="font-mono text-xs bg-[#f4f4f4] px-1.5 py-0.5 rounded">pnpm barrel-audit consent-scan</code> from
-        the repo to scan every active site in <code className="font-mono text-xs">sites.yml</code>. Results appear here the
+        Run <code className="font-mono text-xs bg-[#f4f4f4] px-1.5 py-0.5 rounded">barrel-audit consent-scan</code> in a
+        terminal to scan every active site in <code className="font-mono text-xs">sites.yml</code>. Results appear here the
         moment it finishes.
       </p>
     </div>

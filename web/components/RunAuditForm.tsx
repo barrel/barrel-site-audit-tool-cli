@@ -245,7 +245,10 @@ function commandFor(
 ): string {
   const quote = (value: string) =>
     /^[a-z0-9][a-z0-9.:/_-]*$/i.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
-  const parts = ["pnpm", "barrel-audit", "run", quote(target.trim())];
+  // No `pnpm` prefix: this command is meant to be pasted wherever you are, and prefixing it makes
+  // pnpm adopt that folder as its workspace and install the folder's own dependencies first — the
+  // failure /instructions has a whole section about.
+  const parts = ["barrel-audit", "run", quote(target.trim())];
   // camelCase skip key → CLI flag: skipGeoSeo becomes --skip-geo-seo. Derived rather than listed
   // so a check added to CHECKS cannot appear in the form and be missing from the command.
   for (const check of CHECKS) {
@@ -530,8 +533,10 @@ export function RunAuditForm({ stores = [], local = true }: { stores?: StoreGa4[
             Without this, "Run audit" below only works if this dashboard itself is running locally via{" "}
             <code className="bg-[#fafafa] px-1 rounded">pnpm dev</code>. To run it from anywhere — including the
             deployed site — start the agent on your machine:{" "}
-            <code className="bg-[#fafafa] px-1 rounded">pnpm barrel-audit serve</code>, then paste the token it
-            prints.
+            <code className="bg-[#fafafa] px-1 rounded">barrel-audit serve</code>, then paste the token it
+            prints. Run it in whichever folder you&apos;re working in, a client theme repo included — and with no{" "}
+            <code className="bg-[#fafafa] px-1 rounded">pnpm</code> in front of it, which would make the command
+            depend on that folder&apos;s own dependencies and fail before it reached the CLI.
           </p>
         )}
 
@@ -548,7 +553,7 @@ export function RunAuditForm({ stores = [], local = true }: { stores?: StoreGa4[
             </div>
             <div>
               <label className="block text-xs font-medium text-[#6B6B6B] mb-1">
-                Token (printed by <code>pnpm barrel-audit serve</code>)
+                Token (printed by <code>barrel-audit serve</code>)
               </label>
               <input
                 type="text"
@@ -788,7 +793,7 @@ export function RunAuditForm({ stores = [], local = true }: { stores?: StoreGa4[
           </p>
           <div className="mt-3 flex items-start gap-2">
             <code className="flex-1 min-w-0 block bg-[#fafafa] border border-[#E5E5E5] rounded-lg px-3 py-2.5 text-xs font-mono text-[#1A1A1A] break-all leading-relaxed">
-              {target.trim() ? command : "pnpm barrel-audit run <store slug or https:// URL>"}
+              {target.trim() ? command : "barrel-audit run <store slug or https:// URL>"}
             </code>
             <button
               type="button"

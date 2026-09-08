@@ -328,19 +328,21 @@ export default function InstructionsPage() {
           <p className="text-sm text-[#6B6B6B] mb-3">
             To use this from the hosted version of the site (not just when running it on your
             own computer), run{" "}
-            <span className="font-mono text-[#1A1A1A]">pnpm barrel-audit serve</span> in Terminal
-            first — it prints a one-time code. Paste that code into the "Local agent" box at the
-            top of the Run Audit form (only needs to be done once per computer), and from then on
-            "Run audit" works from the hosted dashboard too, not just your own machine's copy of
-            the site.
+            <span className="font-mono text-[#1A1A1A]">barrel-audit serve</span> in Terminal first
+            — it prints a one-time code. Paste that code into the &ldquo;Local agent&rdquo; box at
+            the top of the Run Audit form (only needs to be done once per computer), and from then
+            on &ldquo;Run audit&rdquo; works from the hosted dashboard too, not just your own
+            machine&apos;s copy of the site.
           </p>
           <p className="text-sm text-[#6B6B6B] mb-3">
-            That exact command only works from inside a copy of the audit tool&apos;s own repo. If
-            you installed the CLI globally instead, drop the{" "}
-            <span className="font-mono text-[#1A1A1A]">pnpm</span> and run{" "}
-            <span className="font-mono text-[#1A1A1A]">barrel-audit serve</span> from any folder —
-            including a client theme repo. That&apos;s the intended setup: the agent runs in the
-            theme repo on your machine, and the dashboard in your browser drives it from there.
+            <b className="text-[#1A1A1A]">No <span className="font-mono">pnpm</span> in front of
+            it.</b> Written that way, the command runs from any folder — including a client theme
+            repo, which is the intended setup: the agent runs in the theme repo on your machine and
+            the dashboard in your browser drives it from there. Adding{" "}
+            <span className="font-mono text-[#1A1A1A]">pnpm</span> makes it work only from inside a
+            copy of the audit tool&apos;s own repo, and fail confusingly anywhere else — what
+            follows is the whole story, because the failure it produces looks like a bug in this
+            tool and isn&apos;t one.
           </p>
           <p className="text-sm text-[#6B6B6B] mb-3">
             Leaving the <span className="font-mono text-[#1A1A1A]">pnpm</span> on is worth avoiding,
@@ -365,9 +367,13 @@ export default function InstructionsPage() {
             (literally <span className="font-mono text-[#1A1A1A]">esbuild: set this to true or
             false</span>) and then fails every install with{" "}
             <span className="font-mono text-[#1A1A1A]">ERR_PNPM_IGNORED_BUILDS</span> until those
-            are real booleans. Fix them in the theme repo, or just call{" "}
+            are real booleans. The same error arrives a second way — a theme with unapproved build
+            scripts of its own (<span className="font-mono text-[#1A1A1A]">Ignored build scripts:
+            esbuild, protobufjs, swiper</span>), fixed with{" "}
+            <span className="font-mono text-[#1A1A1A]">pnpm approve-builds</span> in that repo.
+            Either way, the shortcut is to call{" "}
             <span className="font-mono text-[#1A1A1A]">barrel-audit</span> directly — it doesn&apos;t
-            use the theme&apos;s dependencies, so it works either way.
+            use the theme&apos;s dependencies at all, so it works whatever state that install is in.
           </p>
         </section>
 

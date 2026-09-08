@@ -230,7 +230,7 @@ export function CroRunForm({
             <>
               {" "}
               Without it, nothing can be captured from here:{" "}
-              <code className="text-[12px]">pnpm barrel-audit cro &lt;url&gt;</code> in a checkout does the same job.
+              <code className="text-[12px]">barrel-audit cro &lt;url&gt;</code> from any folder does the same job.
             </>
           )}
         </p>

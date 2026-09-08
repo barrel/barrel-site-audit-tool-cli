@@ -63,7 +63,7 @@ export default async function CroIndexPage() {
               <Link href="/cro/run" className="text-[#2563EB] hover:underline">
                 New CRO audit
               </Link>
-              , or run <code className="text-[12px]">pnpm barrel-audit cro &lt;url&gt;</code> in a checkout.
+              , or run <code className="text-[12px]">barrel-audit cro &lt;url&gt;</code> in a terminal.
               {stores.length > 0 && ` ${stores.length} store${stores.length === 1 ? "" : "s"} are already set up.`}
             </p>
           </div>
