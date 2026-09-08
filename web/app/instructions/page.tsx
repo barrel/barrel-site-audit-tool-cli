@@ -402,6 +402,35 @@ export default function InstructionsPage() {
             <span className="font-mono text-[#1A1A1A]">--skip-recommendations</span>).
           </p>
         </section>
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Every report has a Deck view
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            <span className="font-medium text-[#1A1A1A]">Deck view</span>, in the report header,
+            turns the finished report into slides — the same 16:9 pages a CRO audit produces, one
+            point each: the overall score, where the storefront stands, what it already gets right,
+            the key findings, the speed and traffic numbers, the consent and security exposure, the
+            recommendations with the reason each one matters, the quick wins, how the work splits by
+            effort, and the top eight fixes for the build team. Print or Save as PDF gives one
+            landscape slide per page.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            It is composed from the report, not generated: no model call, no API key, nothing new to
+            run. Every figure on a slide is one the audit measured, so a deck can&apos;t say
+            something the run didn&apos;t find — and every report already in the dashboard has a deck,
+            including ones from long before this existed. A slide whose section was skipped is
+            simply absent rather than padded, so a thin run makes a short deck instead of a
+            confident-looking empty one.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            <span className="font-medium text-[#1A1A1A]">Copy key points</span> puts the whole deck
+            on your clipboard as markdown, one heading per slide and one line per point, for pasting
+            into Slides or Keynote — the same words the printed pages carry. The deck is best with a
+            run that produced the executive summary and the client recommendations; without them it
+            falls back to the scores, the measurements and the fix list.
+          </p>
+        </section>
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">

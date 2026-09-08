@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { getReport } from "@/lib/data";
-import { ReportNav } from "@/components/ReportNav";
 import { EmptyCategoryState } from "@/components/EmptyCategoryState";
 import { buildReportSections } from "@/lib/build-report-sections";
 

@@ -12,6 +12,20 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.37",
+    date: "2026-09-08",
+    title: "Every report has a deck view",
+    notes: [
+      "**Every site diagnostic now has a Deck view**, from the button in the report header — the same 16:9 slides a CRO audit produces, one point per page. The cover and overall score, where the storefront stands, the scorecard as gauges, what the site already gets right, the key findings, the speed and GA4 numbers as grids, the consent and security exposure, the recommendations with the commercial reason for each, the quick wins, how the work splits by effort, and the top eight fixes for the build team. Print / Save as PDF gives one landscape slide per sheet.",
+      "**It is composed from the report, not generated.** No model call, no API key, nothing new to run — which means every figure on a slide is one the audit measured (a deck literally cannot say something the run didn't find), and **every report already in the dashboard has a deck**, including runs archived long before this existed.",
+      "**A slide with nothing true to put on it doesn't appear.** A run made with `--skip-summary --skip-recommendations` gets a deck of scores, measurements and fixes rather than a padded one; the \"what's already working\" slide falls back to the areas that actually scored an A, stated as the score they earned, and is dropped entirely when there is no such area. A short deck that is true beats a complete-looking one that isn't.",
+      "**Copy key points** puts the whole deck on the clipboard as markdown — one heading per slide, one line per point — because the deck a client sees gets built in Slides or Keynote, and what that needs is the words. It is composed from the built slides rather than from the report a second time, so the paste and the printed page cannot say different things.",
+      "**Pagination is budgeted against the real page.** A deck slide is `overflow: hidden`, so too much content clips in silence rather than erroring: bullets are packed by length as well as count (five is the ceiling, but five long recommendations aren't), and a long executive summary splits onto a second page at a sentence boundary — never mid-sentence, and never trimmed. Continuation pages are numbered (\"2 of 4\"), because eight consecutive slides reading \"(cont.)\" tell a reader nothing.",
+      "**Consent failures are quoted as the scanner's own sentence, with no bolded lead.** A consent test's title states the behaviour the site was *supposed* to have, so \"No marketing cookies before any interaction: seven were set\" is a line that contradicts itself. Security checks keep their lead — a control's name is a topic, not a verdict.",
+      "Fixing a real annoyance while in there: **Run Audit on the deployed dashboard no longer offers a button whose only outcome is an error.** With no local agent connected, the deployed site can't spawn the CLI — it has no Chrome, no pnpm and no theme checkout — and pressing Run returned a server refusal that arrived looking like an audit that had failed. The form now hands over the exact `pnpm barrel-audit run …` command instead, with every option from the page already in it. The CRO capture button is off in the same state for the same reason.",
+    ],
+  },
+  {
     version: "1.35",
     date: "2026-09-01",
     title: "The Barrel Labs utility bar sits on top of every page",

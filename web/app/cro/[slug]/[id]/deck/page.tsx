@@ -64,7 +64,7 @@ export default async function CroDeckPage({ params }: { params: Promise<{ slug: 
             </p>
           </div>
         ) : (
-          <div className="cro-deck space-y-6 print:space-y-0">
+          <div className="deck space-y-6 print:space-y-0">
             <CroDeckSlide
               title={`CRO Audit — ${report.storeName}`}
               subtitle={`${report.storeUrl} · ${formatDate(report.createdAt)}`}

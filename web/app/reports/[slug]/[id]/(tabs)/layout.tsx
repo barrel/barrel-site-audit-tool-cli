@@ -32,6 +32,12 @@ export default async function ReportLayout({
           </Link>
           <div className="flex items-center gap-2">
             <Link
+              href={`/reports/${slug}/${id}/deck`}
+              className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"
+            >
+              Deck view
+            </Link>
+            <Link
               href={`/progress/${slug}`}
               className="text-sm font-medium text-[#1A1A1A] bg-[#f0efed] hover:bg-[#EDECE8] px-3.5 py-2 rounded-lg transition-colors"
             >

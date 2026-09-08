@@ -46,14 +46,16 @@ export default async function RunAuditPage() {
           </p>
           {!local && (
             <p className="mt-2.5 text-sm text-[#D97706] leading-relaxed max-w-[80ch]">
-              This deployed instance cannot start a run of either kind yet — the audit spawns the CLI as a local
-              process, so it only works against a local <code className="font-mono text-xs">pnpm dev</code>. The
-              markings above describe which checks <em>could</em> run online once that path is wired up.
+              This deployed instance cannot spawn the CLI itself — no Chrome, no pnpm, no theme checkout. Runs
+              started from here go through the local agent on your own machine (
+              <code className="font-mono text-xs">barrel-audit serve</code>, then paste its token below); without
+              it the form hands you the command to run in your checkout instead. The markings above describe which
+              checks <em>could</em> run online once that path is wired up.
             </p>
           )}
         </div>
 
-        <RunAuditForm stores={withGa4} />
+        <RunAuditForm stores={withGa4} local={local} />
       </main>
     </div>
   );

@@ -403,11 +403,20 @@ export function CroRunForm({
         <button
           type="button"
           onClick={run}
-          disabled={running || !target.trim() || selectedCount === 0 || deviceCount === 0}
+          disabled={
+            running || !target.trim() || selectedCount === 0 || deviceCount === 0 || (deployed && !canRunViaAgent)
+          }
           className="text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-4 py-2.5 rounded-lg disabled:opacity-40 transition-colors"
         >
           {running ? `Capturing… ${formatElapsed(elapsed)}` : "Start capture"}
         </button>
+        {/* Off rather than clickable-and-refused: with no agent, this backend can only answer a
+            capture request with a 501, which arrives looking like a capture that failed. */}
+        {deployed && !canRunViaAgent && !running && (
+          <span className="text-[12.5px] text-[#9A9A9A]">
+            Connect the local agent above to capture from here, or run the command in your checkout.
+          </span>
+        )}
         {running && (
           <button
             type="button"

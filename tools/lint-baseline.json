@@ -10,9 +10,6 @@
     "cli/src/commands/run.ts": {
       "@typescript-eslint/no-unused-vars": 2
     },
-    "web/app/reports/[slug]/[id]/ux/page.tsx": {
-      "@typescript-eslint/no-unused-vars": 1
-    },
     "web/lib/ada-scope-report.ts": {
       "@typescript-eslint/no-unused-vars": 1
     },

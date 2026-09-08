@@ -987,6 +987,27 @@ Data Analysis / All / Dev To-Do) at `/reports/<slug>/<id>[/<page>]`:
   low-signal noise — it still shows in the raw Theme Code section, just not as a
   developer to-do.
 
+**Deck view** (`/deck`) sits beside those tabs rather than among them, reached from the button in
+the report header. It turns the finished report into 16:9 slides — the same shape a CRO audit
+produces, one point per page: the cover and overall score, where the storefront stands (the
+recommendation headline, or the executive summary), the scorecard as gauges, what the site already
+gets right, the key findings, the speed and GA4 numbers as grids, the consent/security exposure,
+the recommendations with the commercial reason for each, the quick wins, how the work splits by
+effort, and the top eight fixes for the build team. **Print / Save as PDF** gives one landscape
+slide per page; **Copy key points** puts the whole deck on the clipboard as markdown, one heading
+per slide, for pasting into Slides or Keynote.
+
+It is *composed* from the report (`web/lib/report-deck.ts`), not generated — no model call, no API
+key, and every report already in the dashboard has one, including runs archived long before the
+deck existed. Nothing on a slide can say something the run didn't find, which is the failure mode
+the CRO deck needs a whole validator to defend against. Slides whose section was skipped are
+absent rather than padded, and both the bullet and prose pagination are budgeted against the real
+16:9 page, because a deck slide is `overflow: hidden` and clips in silence. The scored areas come
+from `reportScorecard()` in that file — the same list the Overview's stat tiles read, so the two
+can't disagree about which sections count. Because the deck needs none of the report chrome (tab
+strip, scroll-spy nav, methodology footnote), the tab pages live in a `(tabs)` route group and the
+deck is its sibling; the group is a Next.js route group, so no URL changed.
+
 All of these are generated from a single source of truth
 (`web/lib/build-report-sections.tsx`), so a section only ever needs to be written
 once — it's tagged with the category page it belongs on, and the All page just renders

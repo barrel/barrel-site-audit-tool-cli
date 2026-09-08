@@ -21,6 +21,7 @@ import { ClientRecommendations } from "@/components/ClientRecommendations";
 import { BestPracticesTable } from "@/components/BestPracticesTable";
 import { AnalyticsSection } from "@/components/AnalyticsSection";
 import { CompetitorComparison } from "@/components/CompetitorComparison";
+import { reportScorecard } from "@/lib/report-deck";
 import { screenshotUrl } from "@/lib/screenshot";
 import { formatDate } from "@/lib/format";
 import type { Report } from "@/lib/shared";
@@ -112,16 +113,10 @@ export function buildReportSections(report: Report): SectionDef[] {
   const allFindings = collectAllFindings(report);
   const roadmap = buildRoadmap(allFindings);
 
-  const stats: { label: string; score: number }[] = [{ label: "Overall Score", score: report.overallScore }];
-  if (sections.performance) stats.push({ label: "Performance", score: sections.performance.performance.score });
-  if (sections.health) stats.push({ label: "Site Health", score: sections.health.score });
-  if (sections.geoSeo) stats.push({ label: "SEO & GEO Health", score: sections.geoSeo.healthRating });
-  if (sections.pixels) stats.push({ label: "Trust & Privacy", score: sections.pixels.score });
-  // Only when there is a real number: a null score means too little was confirmed to rank, and a
-  // stat tile has nowhere to say that.
-  if (sections.security && sections.security.score !== null) stats.push({ label: "Security", score: sections.security.score });
-  if (sections.themeStructure) stats.push({ label: "Theme Structure", score: sections.themeStructure.score });
-  if (sections.code) stats.push({ label: "Theme Code", score: sections.code.score });
+  // The scored areas, from lib/report-deck.ts — the deck's scorecard slide and these stat tiles
+  // are the same claim about the same run, and two copies of the list would eventually disagree
+  // about which sections count.
+  const stats = reportScorecard(report);
 
   const sectionDefs: SectionDef[] = [
     {

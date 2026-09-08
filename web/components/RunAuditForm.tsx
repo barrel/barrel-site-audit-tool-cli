@@ -228,7 +228,37 @@ export interface StoreGa4 {
   ga4PropertyId?: string;
 }
 
-export function RunAuditForm({ stores = [] }: { stores?: StoreGa4[] }) {
+/** The command that does exactly what "Run audit" would have done.
+ *
+ * Shown instead of the button when neither backend can run one — a deployed dashboard with no
+ * local agent connected. Every flag is derived from the same state the request body is built
+ * from, so the command and the button can never drift into doing different things.
+ *
+ * Quoted when the target isn't a bare slug/URL, for the reason commandFor() in BulkConsentForm
+ * gives: a command that looks right and audits the wrong thing is worse than no command. */
+function commandFor(
+  target: string,
+  included: Record<string, boolean>,
+  sitespeed: boolean,
+  competitors: string[],
+  localRepo: string,
+): string {
+  const quote = (value: string) =>
+    /^[a-z0-9][a-z0-9.:/_-]*$/i.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+  const parts = ["pnpm", "barrel-audit", "run", quote(target.trim())];
+  // camelCase skip key → CLI flag: skipGeoSeo becomes --skip-geo-seo. Derived rather than listed
+  // so a check added to CHECKS cannot appear in the form and be missing from the command.
+  for (const check of CHECKS) {
+    if (!included[check.key]) parts.push(`--${check.key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}`);
+  }
+  if (sitespeed) parts.push("--sitespeed");
+  // `included.skipCode` true means the code check is IN — the map is inverted, same as the body.
+  if (included.skipCode && localRepo.trim()) parts.push("--local-repo", quote(localRepo.trim()));
+  for (const c of competitors.map((v) => v.trim()).filter(Boolean)) parts.push("--competitor", quote(c));
+  return parts.join(" ");
+}
+
+export function RunAuditForm({ stores = [], local = true }: { stores?: StoreGa4[]; local?: boolean }) {
   const agent = useLocalAgent();
   const [showAgentSettings, setShowAgentSettings] = useState(false);
   const [portInput, setPortInput] = useState("");
@@ -268,6 +298,7 @@ export function RunAuditForm({ stores = [] }: { stores?: StoreGa4[] }) {
   const [usedBackend, setUsedBackend] = useState<"agent" | "server" | null>(null);
   const [elapsed, setElapsed] = useState(0);
   const [showRawOutput, setShowRawOutput] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(false);
   // The run takes minutes and the page behind it is a form you shouldn't be editing mid-run, so
   // progress takes over the screen. It stays up after the run finishes — that's when it carries
   // the outcome and the link to the report — until it's explicitly dismissed.
@@ -367,6 +398,11 @@ export function RunAuditForm({ stores = [] }: { stores?: StoreGa4[] }) {
 
   async function runAudit() {
     setStatus("running");
+    // Neither backend can run one: no agent, and this dashboard is the deployed instance, which
+    // has no Chrome, no pnpm and no theme checkout. The button is disabled in that state — this is
+    // the belt to that braces, so a stray call can't produce a 501 dressed up as a failed audit.
+    if (!canRunViaAgent && !local) return;
+
     setShowModal(true);
     setLog("");
     setExitCode(null);
@@ -414,7 +450,12 @@ export function RunAuditForm({ stores = [] }: { stores?: StoreGa4[] }) {
       }
 
       if (!res.ok || !res.body) {
-        setLog(await res.text());
+        const text = await res.text();
+        setLog(text);
+        // 501 is the "this backend cannot run an audit at all" refusal, not a run that failed.
+        // Headlining it means the answer is the first thing read rather than a line of server
+        // prose sitting in a black terminal pane.
+        if (res.status === 501) setFailureReason(text);
         setStatus("error");
         return;
       }
@@ -443,7 +484,12 @@ export function RunAuditForm({ stores = [] }: { stores?: StoreGa4[] }) {
 
   const reportLink = status === "done" ? extractReportLink(log) : null;
   const running = status === "running";
-  const canRunViaAgent = agent.detected && agent.token;
+  const canRunViaAgent = Boolean(agent.detected && agent.token);
+  // Either backend will do. `local` is this app's own process (pnpm dev), the agent is the user's
+  // machine reached from wherever the dashboard is served — see /api/run for why the deployed
+  // instance is neither.
+  const canRun = canRunViaAgent || local;
+  const command = commandFor(target, included, sitespeed, competitors, localRepo);
   const currentStage = extractCurrentStage(log);
   const adaScopeItems = adaScope.trim() ? parseAdaScope(adaScope) : [];
 
@@ -711,21 +757,54 @@ export function RunAuditForm({ stores = [] }: { stores?: StoreGa4[] }) {
         </div>
       </div>
 
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={runAudit}
-          disabled={running || !target.trim()}
-          className="text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50"
-        >
-          {running ? "Running…" : "Run audit"}
-        </button>
-        <p className="text-xs text-[#9A9A9A]">
-          {canRunViaAgent
-            ? "Will run via your local agent — works from this dashboard anywhere, including the deployed site."
-            : "Will run via this server process — only works if this dashboard is itself running locally (pnpm dev)."}
-        </p>
-      </div>
+      {canRun ? (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={runAudit}
+            disabled={running || !target.trim()}
+            className="text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-4 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+          >
+            {running ? "Running…" : "Run audit"}
+          </button>
+          <p className="text-xs text-[#9A9A9A]">
+            {canRunViaAgent
+              ? "Will run via your local agent — works from this dashboard anywhere, including the deployed site."
+              : "Will run via this server process — this dashboard is running locally (pnpm dev)."}
+          </p>
+        </div>
+      ) : (
+        /* Nothing here can start a run: the deployed dashboard has no Chrome, no pnpm and no theme
+           checkout, and no local agent is connected. A Run button in that state has exactly one
+           possible outcome, so the form hands over the command that does the same thing instead —
+           the same trade the bulk privacy scan makes. */
+        <div className="bg-white border border-[#E5E5E5] rounded-lg p-5">
+          <h3 className="text-sm font-semibold text-[#1A1A1A]">Run this from your machine</h3>
+          <p className="mt-1.5 text-sm text-[#6B6B6B] leading-relaxed max-w-[80ch]">
+            An audit drives a real Chrome and reads theme code from disk, so the deployed dashboard cannot start
+            one. Either connect the local agent above — then this button runs it from here — or paste the command
+            below into your checkout. Every option chosen on this page is already in it, and the report publishes
+            to this dashboard the moment the run finishes.
+          </p>
+          <div className="mt-3 flex items-start gap-2">
+            <code className="flex-1 min-w-0 block bg-[#fafafa] border border-[#E5E5E5] rounded-lg px-3 py-2.5 text-xs font-mono text-[#1A1A1A] break-all leading-relaxed">
+              {target.trim() ? command : "pnpm barrel-audit run <store slug or https:// URL>"}
+            </code>
+            <button
+              type="button"
+              disabled={!target.trim()}
+              onClick={async () => {
+                await navigator.clipboard.writeText(command);
+                setCopiedCommand(true);
+                setTimeout(() => setCopiedCommand(false), 2000);
+              }}
+              className="shrink-0 text-sm font-semibold text-white bg-[#1A1A1A] hover:bg-black px-3.5 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {copiedCommand ? "Copied!" : "Copy"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
