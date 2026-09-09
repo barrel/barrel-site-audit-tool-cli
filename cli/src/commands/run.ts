@@ -40,7 +40,7 @@ function preflightEnv(args: RunCommandArgs): void {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     throw new Error(
       `BLOB_READ_WRITE_TOKEN is not set, so the finished report could not be uploaded.\n` +
-        `Add it to ${dataRoot()}/.env before running an audit (see README).\n\n` +
+        `Run \`barrel-audit setup\` first — it writes the token to ${dataRoot()}/.env and checks it.\n\n` +
         `Stopping now rather than after several minutes of Lighthouse and browser passes.`,
     );
   }
@@ -53,7 +53,7 @@ function preflightEnv(args: RunCommandArgs): void {
     console.log(
       chalk.yellow(`ANTHROPIC_API_KEY is not set — the executive summary, client-ready recommendations,`) +
         chalk.yellow(` AI suggestions and theme architecture assessment will be skipped.`) +
-        chalk.gray(`\n  Add it to ${dataRoot()}/.env to include them. Continuing without.\n`),
+        chalk.gray(`\n  Run \`barrel-audit setup\` to add it. Continuing without.\n`),
     );
   }
 }

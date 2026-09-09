@@ -54,14 +54,14 @@ client after this is just Part B.
    "Measurement ID" that starts with `G-`).
 3. **Add it to the store's config** — either when creating the store:
    ```
-   pnpm barrel-audit init-store <slug> --url https://client-store.com --ga4-property-id 123456789
+   barrel-audit init-store <slug> --url https://client-store.com --ga4-property-id 123456789
    ```
    or by editing `stores/<slug>/config.json` afterward and adding:
    ```json
    "ga4PropertyId": "123456789"
    ```
 
-Once both are done, `pnpm barrel-audit run <slug>` automatically includes a **Traffic &
+Once both are done, `barrel-audit run <slug>` automatically includes a **Traffic &
 Revenue** section with real sessions, conversion rate, AOV, and channel breakdown. If
 either piece is missing, that section is just skipped — nothing else in the report is
 affected.

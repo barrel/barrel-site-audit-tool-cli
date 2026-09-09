@@ -64,40 +64,81 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-4">
-            Before you start (one-time setup)
+            Install it once (about five minutes)
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-4">
-            Someone technical (an engineer, or whoever set this tool up) needs to do this part
-            once per computer. After that, running reports is just steps 1–4 below, every time.
+            You install one command, called{" "}
+            <span className="font-mono text-[#1A1A1A]">barrel-audit</span>. There is no project
+            folder to download, nothing to drag into Terminal, and nothing to keep up to date by
+            hand — once it&apos;s installed it runs from whatever folder you happen to be in. If
+            someone already did this on your computer, skip straight to{" "}
+            <b className="text-[#1A1A1A]">Running a report</b> below.
           </p>
-          <ul className="space-y-2.5 text-sm text-[#6B6B6B]">
-            <li className="flex items-start gap-2">
-              <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#1A1A1A]/40 shrink-0" />
-              <span>Node.js and pnpm installed (free developer tools — a 5-minute install)</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#1A1A1A]/40 shrink-0" />
-              <span>
-                The <span className="font-mono text-[#1A1A1A]">barrel-site-audit</span> project
-                downloaded from Barrel&apos;s GitHub onto your computer
-              </span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[#1A1A1A]/40 shrink-0" />
-              <span>
-                A secret &quot;key&quot; file ({" "}
-                <span className="font-mono text-[#1A1A1A]">.env</span>) that lets the tool save
-                reports — ask in Slack{" "}
-                <span className="font-mono text-[#1A1A1A]">#barrel</span> if you don&apos;t have
-                this yet
-              </span>
-            </li>
-          </ul>
+
+          <p className="text-sm font-semibold text-[#1A1A1A] mb-1.5">1. Node.js 22 or newer</p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Type <span className="font-mono text-[#1A1A1A]">node --version</span> in Terminal. If
+            it prints <span className="font-mono text-[#1A1A1A]">v22</span> or higher you&apos;re
+            done. If it errors, or shows something lower, install the{" "}
+            <b className="text-[#1A1A1A]">LTS</b> version from{" "}
+            <a
+              href="https://nodejs.org"
+              target="_blank"
+              rel="noreferrer"
+              className="text-[#2563EB] hover:underline"
+            >
+              nodejs.org
+            </a>{" "}
+            and try again.
+          </p>
+
+          <p className="text-sm font-semibold text-[#1A1A1A] mb-1.5">2. The tool</p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Paste these four lines into Terminal, one at a time. They point npm at Barrel&apos;s
+            private package registry, prove who you are using your GitHub account, and install the
+            command:
+          </p>
+          <Code>
+            gh auth refresh -h github.com -s read:packages
+            <br />
+            npm config set @barrel:registry https://npm.pkg.github.com
+            <br />
+            npm config set //npm.pkg.github.com/:_authToken &quot;$(gh auth token)&quot;
+            <br />
+            npm install -g @barrel/site-audit-cli
+          </Code>
+          <p className="text-sm text-[#6B6B6B] mt-3">
+            If the first line says <span className="font-mono text-[#1A1A1A]">gh</span> isn&apos;t
+            found, install the GitHub command-line tool first with{" "}
+            <span className="font-mono text-[#1A1A1A]">brew install gh</span> then{" "}
+            <span className="font-mono text-[#1A1A1A]">gh auth login</span>, and start again. Both
+            steps open your browser to approve — that&apos;s expected.
+          </p>
+
+          <p className="text-sm font-semibold text-[#1A1A1A] mt-5 mb-1.5">3. Its credentials</p>
+          <Code>barrel-audit setup</Code>
+          <p className="text-sm text-[#6B6B6B] mt-3">
+            It asks for one required token — the key that lets your finished reports appear on this
+            site. Ask in Slack <span className="font-mono text-[#1A1A1A]">#barrel</span> for it, or
+            copy it from the Vercel dashboard (the{" "}
+            <span className="font-mono text-[#1A1A1A]">barrel-site-audit</span> project → Storage →
+            the Blob store → <span className="font-mono text-[#1A1A1A]">.env.local</span> tab). It
+            tests the token before saving anything, so a bad paste fails right there instead of ten
+            minutes into an audit. Two optional keys follow — one turns on the AI-written summary
+            and recommendations, one turns on pulling theme code from GitHub — and pressing Enter
+            skips either.
+          </p>
+
           <div className="mt-4">
             <Callout>
-              If any of this sounds unfamiliar, that&apos;s completely fine — ask an engineer to
-              sit with you for 10 minutes the first time. Once it&apos;s set up, you won&apos;t
-              need to think about it again.
+              That&apos;s the whole install. Later on:{" "}
+              <span className="font-mono text-[#1A1A1A]">barrel-audit setup --check</span> re-tests
+              your keys without changing them, and{" "}
+              <span className="font-mono text-[#1A1A1A]">
+                npm install -g @barrel/site-audit-cli@latest
+              </span>{" "}
+              upgrades to the newest version — worth running if a report is missing a section you
+              can see on this site.
             </Callout>
           </div>
         </section>
@@ -111,46 +152,38 @@ export default function InstructionsPage() {
             <p>
               On a Mac: press <span className="font-mono text-[#1A1A1A]">Cmd + Space</span>, type{" "}
               <span className="font-mono text-[#1A1A1A]">Terminal</span>, and press Enter. A plain
-              black-and-white window will open — that&apos;s where you&apos;ll type commands.
+              black-and-white window will open — that&apos;s where you&apos;ll type commands. It
+              does not matter which folder it opens in.
             </p>
           </Step>
 
-          <Step n={2} title="Go to the project folder">
-            <p>
-              Type <span className="font-mono text-[#1A1A1A]">cd</span> (with a space after it),
-              then drag the <span className="font-mono text-[#1A1A1A]">barrel-site-audit</span>{" "}
-              folder from Finder directly into the Terminal window — it'll fill in the folder's
-              path for you. Press Enter.
-            </p>
-          </Step>
-
-          <Step n={3} title="Run the audit — paste the client's website address">
+          <Step n={2} title="Run the audit — paste the client's website address">
             <p>
               Type the following, replacing the example web address with the real client
               storefront, then press Enter:
             </p>
-            <Code>pnpm barrel-audit run https://client-store.com</Code>
+            <Code>barrel-audit run https://client-store.com</Code>
             <p>
-              That&apos;s the whole command. You&apos;ll see progress messages scroll by — this is
-              normal. A full check (including testing the homepage, a collection page, a product
-              page, and the cart, on both phone and computer) can take several minutes. Just let it
-              run.
+              That&apos;s the whole command, and it works from any folder — there&apos;s nothing to{" "}
+              <span className="font-mono text-[#1A1A1A]">cd</span> into first. You&apos;ll see
+              progress messages scroll by — this is normal. A full check (the homepage, a
+              collection page, a product page and the cart, on both phone and computer) can take
+              several minutes. Just let it run.
             </p>
             <Callout>
-              If this is a brand-new store and GitHub access is set up on the project, it may
-              pause here to ask: &quot;Connect a GitHub repo now?&quot; Type{" "}
+              If this is a brand-new store and GitHub access is set up, it may pause here to ask:
+              &quot;Connect a GitHub repo now?&quot; Type{" "}
               <span className="font-mono text-[#1A1A1A]">y</span> and Enter if the theme&apos;s
               code lives in a GitHub repo and you want the deeper code checks in this same run.
               The very first time, it&apos;ll show a short code and a github.com link — open the
-              link in your browser, type in the code, and click Approve; after that it
-              remembers you on this computer and won&apos;t ask again. Then you&apos;ll get to
-              search and pick the repo. Otherwise type{" "}
-              <span className="font-mono text-[#1A1A1A]">n</span> and Enter to skip it; nothing
-              breaks either way.
+              link, type in the code, and click Approve; after that it remembers you on this
+              computer and won&apos;t ask again. Then you&apos;ll get to search and pick the repo.
+              Otherwise type <span className="font-mono text-[#1A1A1A]">n</span> and Enter to skip
+              it; nothing breaks either way.
             </Callout>
           </Step>
 
-          <Step n={4} title="View the finished report">
+          <Step n={3} title="View the finished report">
             <p>
               Open{" "}
               <a
@@ -172,6 +205,23 @@ export default function InstructionsPage() {
               required and stops working after 30 days.
             </p>
           </Step>
+
+          <Step n={4} title="Or drive it from this site instead of typing">
+            <p>
+              Prefer a form to a command line? Leave the local helper running in Terminal:
+            </p>
+            <Code>barrel-audit serve</Code>
+            <p>
+              It prints a one-time code. Paste that into the{" "}
+              <b className="text-[#1A1A1A]">Local agent</b> box on the{" "}
+              <a href="/run" className="text-[#2563EB] hover:underline">
+                Run Audit
+              </a>{" "}
+              page (once per computer), then fill in the store, tick what to include, and press
+              Run. The audit still happens on your machine — that&apos;s where Chrome and the theme
+              code are — while this site drives it and streams the log back to you.
+            </p>
+          </Step>
         </div>
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
@@ -181,16 +231,25 @@ export default function InstructionsPage() {
           <p className="text-sm text-[#6B6B6B] mb-3">
             The steps above already cover performance, SEO, accessibility, and tracking-pixel
             checks — no extra work needed. For an even deeper report that also reviews the
-            store's underlying code for messy or leftover files, get the theme's files into the
-            store's folder first:
+            store&apos;s underlying code for messy or leftover files, the tool needs the
+            theme&apos;s files. If you already have the theme repo on your computer, that&apos;s
+            one flag — run this from inside that folder:
           </p>
-          <Code>pnpm barrel-audit pull-theme &lt;slug&gt; --store &lt;slug&gt;.myshopify.com</Code>
+          <Code>barrel-audit run https://client-store.com --local-repo .</Code>
+          <p className="text-sm text-[#6B6B6B] mt-3">
+            Otherwise let the tool fetch its own copy from Shopify:
+          </p>
+          <div className="mt-3">
+            <Code>barrel-audit pull-theme &lt;slug&gt; --store &lt;slug&gt;.myshopify.com</Code>
+          </div>
           <p className="text-sm text-[#6B6B6B] mt-3">
             (This opens a browser window to log in to Shopify — normal, just approve it.)
-            Or, if you already have the theme's files some other way — downloaded from Shopify,
-            unzipped, whatever — you can just drag and drop those files into the store's{" "}
-            <span className="font-mono text-[#1A1A1A]">theme</span> folder yourself, no command
-            needed. Then run step 3 again.
+            Or, if you already have the theme&apos;s files some other way — downloaded from
+            Shopify, unzipped, whatever — drop them into{" "}
+            <span className="font-mono text-[#1A1A1A]">
+              ~/.barrel-audit/stores/&lt;slug&gt;/theme
+            </span>{" "}
+            yourself, no command needed. Then run step 2 again.
           </p>
         </section>
 
@@ -201,18 +260,18 @@ export default function InstructionsPage() {
           <p className="text-sm text-[#6B6B6B] mb-3">
             If the client's theme code lives in a GitHub repo rather than a live Shopify store,
             this pulls it in the same way — no Shopify login needed. Works with a store slug
-            from an earlier step, or you can paste the storefront URL directly, same as step 3:
+            from an earlier step, or you can paste the storefront URL directly, same as step 2:
           </p>
-          <Code>pnpm barrel-audit link-repo &lt;slug-or-url&gt;</Code>
+          <Code>barrel-audit link-repo &lt;slug-or-url&gt;</Code>
           <p className="text-sm text-[#6B6B6B] mt-3">
             The first time you run this, it shows a short code and a github.com link — open the
             link, type in the code, and click Approve. After that, you won&apos;t be asked
             again on this computer. Then you&apos;ll be asked to pick from your GitHub repos
-            (type a few letters to search). This needs a one-time project setup too — an
-            engineer adds a GitHub app ID to the{" "}
-            <span className="font-mono text-[#1A1A1A]">.env</span> file once, shared by
-            everyone — ask in Slack <span className="font-mono text-[#1A1A1A]">#barrel</span> if
-            that hasn&apos;t been done yet. Then run step 3 again.
+            (type a few letters to search). This needs one shared GitHub app ID, which{" "}
+            <span className="font-mono text-[#1A1A1A]">barrel-audit setup</span> asks for as its
+            last (optional) question — ask in Slack{" "}
+            <span className="font-mono text-[#1A1A1A]">#barrel</span> for it if you skipped that,
+            then re-run setup. Then run step 2 again.
           </p>
         </section>
 
@@ -277,7 +336,7 @@ export default function InstructionsPage() {
             usually spans several lines:
           </p>
           <div className="mt-3">
-            <Code>pnpm barrel-audit run &lt;slug-or-url&gt; --ada-scope-file ./ada-scope.txt</Code>
+            <Code>barrel-audit run &lt;slug-or-url&gt; --ada-scope-file ./ada-scope.txt</Code>
           </div>
           <p className="text-sm text-[#6B6B6B] mt-3">
             Either way the scope is saved against that store, so re-running the audit later
@@ -295,7 +354,7 @@ export default function InstructionsPage() {
             site:
           </p>
           <Code>
-            pnpm barrel-audit run &lt;slug-or-url&gt; --competitor https://competitor-site.com
+            barrel-audit run &lt;slug-or-url&gt; --competitor https://competitor-site.com
           </Code>
           <p className="text-sm text-[#6B6B6B] mt-3">
             Add <span className="font-mono text-[#1A1A1A]">--competitor</span> again to compare
@@ -408,6 +467,7 @@ export default function InstructionsPage() {
             <span className="font-mono text-[#1A1A1A]">--skip-recommendations</span>).
           </p>
         </section>
+
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Every report has a Deck view
@@ -435,6 +495,47 @@ export default function InstructionsPage() {
             into Slides or Keynote — the same words the printed pages carry. The deck is best with a
             run that produced the executive summary and the client recommendations; without them it
             falls back to the scores, the measurements and the fix list.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Privacy Compliance takes inventory of every cookie and script
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            The behavioural suites answer <em>&ldquo;is consent working?&rdquo;</em>. They never
+            answered the question a client opens with —{" "}
+            <em>&ldquo;what is running on my site, and is each thing classified and firing
+            correctly?&rdquo;</em> Privacy Compliance now carries a{" "}
+            <span className="font-medium text-[#1A1A1A]">Cookie &amp; script inventory</span>: one
+            row per vendor, with its purpose, how it gets onto the page, the cookies and browser
+            storage it writes, what the CMP declares it to be, whether that&apos;s right, whether it
+            fires before or despite a choice, a severity and a specific fix.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Vendors are discovered from live traffic rather than matched against our tracker list,
+            so the uncatalogued ones — usually the majority, and the ones nobody has accounted for —
+            show up too. <span className="font-medium text-[#1A1A1A]">How it loads</span> names
+            whoever owns the fix: a theme edit, a change in a named GTM container, or a Shopify web
+            pixel, which a cookie banner cannot gate at all. Those get their own table, because{" "}
+            <span className="font-mono text-[#1A1A1A]">privacyPurposes</span> is the only place
+            Shopify records whether a pixel respects consent — and an empty list means it runs
+            whatever the visitor chose.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Purposes for unknown vendors, the fixes and the plan are written by AI and marked as
+            such; the verdicts are not. Whether something is classified correctly, and whether it
+            fired before consent, are computed from what the scan observed — those are the claims
+            you forward to a vendor. Where no CMP classification could be read, the report says so
+            once and states plainly that the column reports nothing about the site&apos;s setup
+            either way.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            It closes with an ordered fix plan and, kept separate, compliant ways to collect more
+            data — those are not compliance fixes and it says so. Grab the whole thing as{" "}
+            <span className="font-medium text-[#1A1A1A]">Inventory CSV</span> from the per-site
+            report when you need it in a Google Sheet. Skip it with{" "}
+            <span className="font-mono text-[#1A1A1A]">--no-tag-inventory</span>.
           </p>
         </section>
 
@@ -525,7 +626,7 @@ export default function InstructionsPage() {
             It runs in two passes, split by what each one physically needs. The first drives a real
             browser, so it runs from your machine:
           </p>
-          <Code>pnpm barrel-audit cro &lt;url-or-slug&gt;</Code>
+          <Code>barrel-audit cro &lt;url-or-slug&gt;</Code>
           <p className="text-sm text-[#6B6B6B] mt-3 mb-3">
             That captures each page type, records what it measured, and writes the UX and
             competitor slides. You can also start it from{" "}
@@ -566,7 +667,7 @@ export default function InstructionsPage() {
           </h3>
           <p className="text-sm text-[#6B6B6B]">
             Running the same store more than once — e.g. before/during/after a build — just
-            works: re-run <span className="font-mono text-[#1A1A1A]">pnpm barrel-audit run</span>{" "}
+            works: re-run <span className="font-mono text-[#1A1A1A]">barrel-audit run</span>{" "}
             against the same slug or URL any time. The "Baseline & Reporting" link on the landing
             page and on every report shows every store's score trend over time, and any run can be marked the
             baseline (a "Set baseline" button on its row) so later runs show a clear improved/
@@ -585,7 +686,7 @@ export default function InstructionsPage() {
                 Do I need to "publish" or "deploy" anything after running a report?
               </div>
               <div className="text-[#6B6B6B]">
-                No. The moment the command in step 3 finishes, the report is already live on the
+                No. The moment the command in step 2 finishes, the report is already live on the
                 website. There's nothing else to do.
               </div>
             </div>
@@ -642,9 +743,17 @@ export default function InstructionsPage() {
             <div>
               <div className="font-semibold text-[#1A1A1A] mb-1">Where does this tool actually live?</div>
               <div className="text-[#6B6B6B]">
-                It's a project in Barrel's GitHub, named{" "}
-                <span className="font-mono text-[#1A1A1A]">barrel-site-audit</span>. If you don't
-                have access or aren't sure how to download it, ask an engineer.
+                On your computer it&apos;s just the{" "}
+                <span className="font-mono text-[#1A1A1A]">barrel-audit</span> command, installed
+                from Barrel&apos;s private package registry, plus a{" "}
+                <span className="font-mono text-[#1A1A1A]">~/.barrel-audit</span> folder holding
+                your key and each store&apos;s working files. Everything a report needs is
+                published straight to this site, so nothing is stored in the folder you run from.
+                The source lives in Barrel&apos;s GitHub as{" "}
+                <span className="font-mono text-[#1A1A1A]">barrel-site-audit-tool-cli</span> — you
+                only need that to change the tool, not to use it. Ask in{" "}
+                <span className="font-mono text-[#1A1A1A]">#barrel</span> if the install commands
+                fail on your machine.
               </div>
             </div>
           </div>

@@ -24,7 +24,10 @@ export interface ConsentScanOptions {
   targets?: string[];
   seed?: boolean;
   fromRepos?: boolean;
+  /** Presence-only CMP census — not the per-vendor inventory. See `tagInventory`. */
   inventory?: boolean;
+  /** Build the per-vendor cookie & script inventory. Default on; `--no-tag-inventory` turns it off. */
+  tagInventory?: boolean;
   region?: string;
   concurrency?: number;
   retry?: boolean;
@@ -62,6 +65,7 @@ export async function consentScanCommand(options: ConsentScanOptions): Promise<v
         expect: site.expect,
         region,
         retryOnBlocker: options.retry !== false,
+        inventory: options.tagInventory !== false,
         budgetMs: options.budgetMinutes ? options.budgetMinutes * 60_000 : undefined,
         uploadScreenshot:
           options.upload === false
@@ -72,7 +76,10 @@ export async function consentScanCommand(options: ConsentScanOptions): Promise<v
       // Only for a single-site scan. Across a fleet the per-site detail would bury the table that
       // is the point of a fleet run; scanning one site is the case where "what is this site doing
       // right?" is the question being asked at the terminal.
-      if (sites.length === 1) printPassList(section);
+      if (sites.length === 1) {
+        printPassList(section);
+        printInventory(section);
+      }
       // The comprehensive per-site report reads this. Written per site rather than folded into
       // the fleet blob so the fleet table doesn't pay for detail it never renders. Never fatal:
       // losing the detail blob must not lose the scan.
@@ -312,6 +319,71 @@ function printPassList(section: ConsentSection): void {
       ),
     );
   }
+  console.log("");
+}
+
+/** The inventory's headline at the terminal, for the operator who just scanned one site.
+ *
+ * Deliberately the worst rows and the counts rather than all forty-five: the full table is a
+ * wide grid that a terminal cannot render honestly, and a truncated table looks like a complete
+ * one. This prints what needs attention and points at the report for the rest. */
+function printInventory(section: ConsentSection): void {
+  const inv = section.inventory;
+  if (!inv || inv.vendors.length === 0) return;
+
+  const actionable = inv.vendors.filter((v) => v.severity !== "none");
+  const ungated = inv.shopifyPixels.filter((p) => p.privacyPurposes.length === 0);
+
+  console.log(
+    chalk.bold(`  Cookie & script inventory`) +
+      chalk.gray(` — ${inv.vendors.length} vendors, ${actionable.length} needing attention`),
+  );
+
+  if (inv.classificationSource) {
+    console.log(chalk.gray(`    Declared classifications read from ${inv.classificationSource}`));
+  } else if (inv.classificationUnavailable) {
+    // Said once, and said as a gap in what we could read rather than as a finding about the site.
+    console.log(chalk.gray(`    No CMP classification readable — "classified correctly?" is unanswered, not failed`));
+  }
+
+  // The "(Reject state could not be reached…)" caveat is identical on every row when the banner
+  // never appeared — which is most of the time — so it is lifted out and said once. Left in place
+  // it consumed the end of all forty lines and pushed each verdict into a mid-word truncation.
+  const CAVEAT = /\s*\([^)]*could not be reached[^)]*\)\s*/;
+  const anyCaveat = actionable.some((v) => CAVEAT.test(v.consentBehaviour));
+
+  const RANK = { critical: chalk.red, high: chalk.yellow, medium: chalk.yellow, low: chalk.gray, none: chalk.gray };
+  for (const v of actionable.slice(0, 10)) {
+    const tint = RANK[v.severity];
+    console.log(
+      `    ${tint(v.severity.toUpperCase().padEnd(8))} ${chalk.bold(v.name.padEnd(24))} ${chalk.gray(v.consentBehaviour.replace(CAVEAT, ""))}`,
+    );
+  }
+  if (actionable.length > 10) {
+    console.log(chalk.gray(`    …and ${actionable.length - 10} more — see the report for the full table`));
+  }
+  if (anyCaveat) {
+    console.log(
+      chalk.gray(`    No reject state was reachable, so post-rejection behaviour above is unproven, not clean.`),
+    );
+  }
+
+  if (ungated.length > 0) {
+    console.log(
+      chalk.yellow(
+        `    ${ungated.length} of ${inv.shopifyPixels.length} Shopify web pixels declare no privacyPurposes, ` +
+          `so Shopify runs them whatever the visitor chose (${ungated.map((p) => p.id).join(", ")})`,
+      ),
+    );
+  }
+
+  if (inv.fixPlan.length > 0) {
+    console.log(chalk.bold(`\n  Plan to complete the fixes`));
+    for (const step of inv.fixPlan) {
+      console.log(`    ${chalk.gray(`${step.order}.`)} ${step.title}${step.owner ? chalk.gray(` — ${step.owner}`) : ""}`);
+    }
+  }
+  if (inv.aiError) console.log(chalk.gray(`\n    ${inv.aiError}`));
   console.log("");
 }
 

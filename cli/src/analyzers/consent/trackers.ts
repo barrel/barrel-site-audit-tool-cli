@@ -10,6 +10,13 @@ export interface TrackerSignature {
   id: string;
   name: string;
   category: TrackerCategory;
+  /** What this vendor does, in the terms a client asks the question in.
+   *
+   * Carried in the catalogue rather than written by the model at report time so the answer is
+   * identical across sites and across runs: "what is Criteo for" does not depend on which
+   * storefront it turned up on, and a per-run inference would drift. The model only supplies
+   * purposes for vendors that are *not* in here. */
+  purpose: string;
   pattern: RegExp;
   /** Paths that are this vendor's plumbing rather than measurement — fetching a web font, or
    * asking for the geo-IP that decides which signup form to render.
@@ -22,60 +29,71 @@ export interface TrackerSignature {
 
 export const TRACKERS: TrackerSignature[] = [
   // ── Marketing ────────────────────────────────────────────────────────────────────────────
-  { id: "meta", name: "Meta Pixel", category: "marketing", pattern: /connect\.facebook\.net|facebook\.com\/tr/i },
-  { id: "google-ads", name: "Google Ads", category: "marketing", pattern: /googleadservices\.com|googlesyndication\.com|google\.com\/pagead|doubleclick\.net/i },
-  { id: "tiktok", name: "TikTok Pixel", category: "marketing", pattern: /analytics\.tiktok\.com/i },
-  { id: "pinterest", name: "Pinterest Tag", category: "marketing", pattern: /ct\.pinterest\.com|s\.pinimg\.com\/ct/i },
-  { id: "snapchat", name: "Snap Pixel", category: "marketing", pattern: /sc-static\.net\/scevent|tr\.snapchat\.com/i },
-  { id: "bing", name: "Microsoft/Bing UET", category: "marketing", pattern: /bat\.bing\.com/i },
-  { id: "linkedin", name: "LinkedIn Insight", category: "marketing", pattern: /snap\.licdn\.com|px\.ads\.linkedin\.com/i },
-  { id: "reddit", name: "Reddit Pixel", category: "marketing", pattern: /redditstatic\.com\/ads|alb\.reddit\.com/i },
-  { id: "criteo", name: "Criteo", category: "marketing", pattern: /criteo\.(com|net)/i },
-  { id: "amazon-ads", name: "Amazon Ads", category: "marketing", pattern: /amazon-adsystem\.com/i },
-  { id: "rakuten", name: "Rakuten", category: "marketing", pattern: /linksynergy\.com|rakutenmarketing\.com/i },
-  { id: "impact", name: "Impact", category: "marketing", pattern: /impactradius-event\.com|impact\.com/i },
-  { id: "attentive", name: "Attentive", category: "marketing", pattern: /attentivemobile\.com|attn\.tv/i },
+  { id: "meta", name: "Meta Pixel", category: "marketing", purpose: "Facebook/Instagram ad conversion tracking & audience building", pattern: /connect\.facebook\.net|facebook\.com\/tr/i },
+  { id: "google-ads", name: "Google Ads", category: "marketing", purpose: "Search & display conversion tracking and remarketing", pattern: /googleadservices\.com|googlesyndication\.com|google\.com\/pagead|doubleclick\.net/i },
+  { id: "tiktok", name: "TikTok Pixel", category: "marketing", purpose: "TikTok ad conversion tracking & audience building", pattern: /analytics\.tiktok\.com/i },
+  { id: "pinterest", name: "Pinterest Tag", category: "marketing", purpose: "Pinterest ad conversion tracking & remarketing", pattern: /ct\.pinterest\.com|s\.pinimg\.com\/ct/i },
+  { id: "snapchat", name: "Snap Pixel", category: "marketing", purpose: "Snapchat ad conversion tracking & audience building", pattern: /sc-static\.net\/scevent|tr\.snapchat\.com/i },
+  { id: "bing", name: "Microsoft/Bing UET", category: "marketing", purpose: "Microsoft Advertising conversion tracking & remarketing", pattern: /bat\.bing\.com/i },
+  { id: "linkedin", name: "LinkedIn Insight", category: "marketing", purpose: "LinkedIn ad conversion tracking & audience building", pattern: /snap\.licdn\.com|px\.ads\.linkedin\.com/i },
+  { id: "reddit", name: "Reddit Pixel", category: "marketing", purpose: "Reddit ad conversion tracking", pattern: /redditstatic\.com\/ads|alb\.reddit\.com/i },
+  { id: "criteo", name: "Criteo", category: "marketing", purpose: "Retargeting & personalised display advertising", pattern: /criteo\.(com|net)/i },
+  { id: "amazon-ads", name: "Amazon Ads", category: "marketing", purpose: "Amazon DSP ad measurement & audience sync", pattern: /amazon-adsystem\.com/i },
+  { id: "rakuten", name: "Rakuten", category: "marketing", purpose: "Affiliate order attribution", pattern: /linksynergy\.com|rakutenmarketing\.com/i },
+  { id: "impact", name: "Impact", category: "marketing", purpose: "Affiliate & partner order attribution", pattern: /impactradius-event\.com|impact\.com/i },
+  { id: "attentive", name: "Attentive", category: "marketing", purpose: "SMS marketing capture & subscriber identification", pattern: /attentivemobile\.com|attn\.tv/i },
+  { id: "stackadapt", name: "StackAdapt", category: "marketing", purpose: "Programmatic display DSP — retargeting & audience segments", pattern: /stackadapt\.com/i },
+  { id: "spotify-ads", name: "Spotify Ad Pixel", category: "marketing", purpose: "Spotify ad conversion tracking", pattern: /pixel\.byspotify\.com|pixels\.spotify\.com/i },
+  { id: "woobox", name: "Woobox", category: "marketing", purpose: "Promotions, giveaways & sweepstakes capture", pattern: /woobox\.com/i },
   {
     id: "klaviyo",
     name: "Klaviyo",
     category: "marketing",
+    purpose: "Email/SMS marketing — onsite behaviour tracking, profile identification & signup forms",
     pattern: /klaviyo\.com|static\.klaviyo\.com/i,
     // Fonts, form definitions and the geo-IP lookup that picks one. Klaviyo's actual measurement
     // lives at /onsite/track-analytics, /client/events and /api/track, none of which match here.
+    //
+    // `/onsite/js/` is the library directory and is listed for the extensionless case only —
+    // every real file under it ends in `.js` and is already ruled a script by ASSET_PATH. It does
+    // not and must not cover `static-tracking.klaviyo.com`'s measurement calls or the XHRs to
+    // `a.klaviyo.com`, which carry no extension and so remain transmissions.
     infrastructure: /\/custom-fonts\/|\/forms\/api\/|\/onsite\/js\/|\/media\/js\//i,
   },
 
   // ── Analytics ────────────────────────────────────────────────────────────────────────────
-  { id: "ga4", name: "Google Analytics 4", category: "analytics", pattern: /google-analytics\.com\/(g|j)\/collect|googletagmanager\.com\/gtag\/js/i },
-  { id: "gtm", name: "Google Tag Manager", category: "analytics", pattern: /googletagmanager\.com\/gtm\.js/i },
-  { id: "clarity", name: "Microsoft Clarity", category: "analytics", pattern: /clarity\.ms/i },
-  { id: "hotjar", name: "Hotjar", category: "analytics", pattern: /hotjar\.(com|io)/i },
-  { id: "northbeam", name: "Northbeam", category: "analytics", pattern: /northbeam\.io/i },
-  { id: "triplewhale", name: "Triple Whale", category: "analytics", pattern: /triplewhale\.com|triplepixel/i },
-  { id: "elevar", name: "Elevar", category: "analytics", pattern: /elevar\.(com|dev)|getelevar\.com/i },
+  { id: "ga4", name: "Google Analytics 4", category: "analytics", purpose: "Site analytics — sessions, traffic sources & ecommerce events", pattern: /google-analytics\.com\/(g|j)\/collect|googletagmanager\.com\/gtag\/js/i },
+  { id: "gtm", name: "Google Tag Manager", category: "analytics", purpose: "Tag container — loads and governs other vendors' tags", pattern: /googletagmanager\.com\/gtm\.js/i },
+  { id: "clarity", name: "Microsoft Clarity", category: "analytics", purpose: "Session recording & heatmaps", pattern: /clarity\.ms/i },
+  { id: "hotjar", name: "Hotjar", category: "analytics", purpose: "Session recording, heatmaps & on-site surveys", pattern: /hotjar\.(com|io)/i },
+  { id: "northbeam", name: "Northbeam", category: "analytics", purpose: "Multi-touch marketing attribution", pattern: /northbeam\.io/i },
+  { id: "triplewhale", name: "Triple Whale", category: "analytics", purpose: "Marketing attribution & ecommerce analytics", pattern: /triplewhale\.com|triplepixel/i },
+  { id: "elevar", name: "Elevar", category: "analytics", purpose: "Server-side data layer & conversion tracking pipeline", pattern: /elevar\.(com|dev)|getelevar\.com/i },
+  { id: "amplitude", name: "Amplitude", category: "analytics", purpose: "Product analytics & experimentation", pattern: /amplitude\.com/i },
+  { id: "sailthru", name: "Sailthru", category: "analytics", purpose: "Marketing personalisation — visitor identity & onsite behaviour", pattern: /sail-horizon\.com|sailthru\.com/i },
 
   // ── Session replay & chat ────────────────────────────────────────────────────────────────
   // Categorised analytics, but the sharpest exposure in the catalogue: unlike a page-view pixel
   // these capture what a visitor typed and clicked. That is the "contents of a communication"
   // language CIPA §631 turns on, which is why gating them matters more than their category
   // suggests — and why "strictly necessary" is the wrong bucket for a chat widget.
-  { id: "fullstory", name: "FullStory", category: "analytics", pattern: /fullstory\.com/i },
-  { id: "logrocket", name: "LogRocket", category: "analytics", pattern: /logrocket\.(com|io)|lr-in\.com/i },
-  { id: "smartlook", name: "Smartlook", category: "analytics", pattern: /smartlook\.(com|cloud)/i },
-  { id: "mouseflow", name: "Mouseflow", category: "analytics", pattern: /mouseflow\.com/i },
-  { id: "luckyorange", name: "Lucky Orange", category: "analytics", pattern: /luckyorange\.(com|net)/i },
-  { id: "intercom", name: "Intercom", category: "analytics", pattern: /intercom\.(io|com)|intercomcdn\.com/i },
-  { id: "drift", name: "Drift", category: "analytics", pattern: /drift\.com|driftt\.com/i },
-  { id: "gorgias", name: "Gorgias", category: "analytics", pattern: /gorgias\.(com|chat)/i },
-  { id: "zendesk-chat", name: "Zendesk Chat", category: "analytics", pattern: /zopim\.com|zdassets\.com/i },
-  { id: "tidio", name: "Tidio", category: "analytics", pattern: /tidio(chat)?\.(com|co)/i },
-  { id: "tawk", name: "Tawk.to", category: "analytics", pattern: /tawk\.to/i },
+  { id: "fullstory", name: "FullStory", category: "analytics", purpose: "Session replay — captures clicks, typing & page content", pattern: /fullstory\.com/i },
+  { id: "logrocket", name: "LogRocket", category: "analytics", purpose: "Session replay & front-end error monitoring", pattern: /logrocket\.(com|io)|lr-in\.com/i },
+  { id: "smartlook", name: "Smartlook", category: "analytics", purpose: "Session replay & heatmaps", pattern: /smartlook\.(com|cloud)/i },
+  { id: "mouseflow", name: "Mouseflow", category: "analytics", purpose: "Session replay & heatmaps", pattern: /mouseflow\.com/i },
+  { id: "luckyorange", name: "Lucky Orange", category: "analytics", purpose: "Session replay, heatmaps & live chat", pattern: /luckyorange\.(com|net)/i },
+  { id: "intercom", name: "Intercom", category: "analytics", purpose: "Customer messaging — chat widget with visitor identification", pattern: /intercom\.(io|com)|intercomcdn\.com/i },
+  { id: "drift", name: "Drift", category: "analytics", purpose: "Conversational marketing chat with visitor identification", pattern: /drift\.com|driftt\.com/i },
+  { id: "gorgias", name: "Gorgias", category: "analytics", purpose: "Customer support helpdesk & chat widget", pattern: /gorgias\.(com|chat)/i },
+  { id: "zendesk-chat", name: "Zendesk Chat", category: "analytics", purpose: "Customer support chat widget", pattern: /zopim\.com|zdassets\.com/i },
+  { id: "tidio", name: "Tidio", category: "analytics", purpose: "Live chat & chatbot widget", pattern: /tidio(chat)?\.(com|co)/i },
+  { id: "tawk", name: "Tawk.to", category: "analytics", purpose: "Live chat widget", pattern: /tawk\.to/i },
 
   // ── Essential ────────────────────────────────────────────────────────────────────────────
   // Shopify's own first-party analytics. Listed so it's visibly accounted for rather than
   // silently uncategorised — but never asserted against, because Shopify gates it through the
   // Customer Privacy API on its own and blocking it is not ours to demand.
-  { id: "trekkie", name: "Shopify Trekkie", category: "essential", pattern: /shopify\.com\/.*\/trekkie|monorail-edge\.shopifysvc\.com/i },
+  { id: "trekkie", name: "Shopify Trekkie", category: "essential", purpose: "Shopify's own first-party storefront analytics", pattern: /shopify\.com\/.*\/trekkie|monorail-edge\.shopifysvc\.com/i },
 ];
 
 /** Cookie-name → category. Prefix match, longest first, so `_shopify_marketing` beats `_shopify_`. */

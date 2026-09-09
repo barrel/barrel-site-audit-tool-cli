@@ -536,7 +536,13 @@ export function RunAuditForm({ stores = [], local = true }: { stores?: StoreGa4[
             <code className="bg-[#fafafa] px-1 rounded">barrel-audit serve</code>, then paste the token it
             prints. Run it in whichever folder you&apos;re working in, a client theme repo included — and with no{" "}
             <code className="bg-[#fafafa] px-1 rounded">pnpm</code> in front of it, which would make the command
-            depend on that folder&apos;s own dependencies and fail before it reached the CLI.
+            depend on that folder&apos;s own dependencies and fail before it reached the CLI. No{" "}
+            <code className="bg-[#fafafa] px-1 rounded">barrel-audit</code> on your machine yet? Installing it is
+            three commands —{" "}
+            <a href="/instructions" className="text-[#2563EB] hover:underline">
+              see the instructions
+            </a>
+            .
           </p>
         )}
 

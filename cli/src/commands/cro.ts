@@ -32,7 +32,7 @@ function preflight(args: CroCommandArgs): void {
   if (args.upload !== false && !process.env.BLOB_READ_WRITE_TOKEN) {
     throw new Error(
       `BLOB_READ_WRITE_TOKEN is not set, so the finished CRO audit could not be uploaded.\n` +
-        `Add it to ${dataRoot()}/.env before running (see README).\n\n` +
+        `Run \`barrel-audit setup\` first — it writes the token to ${dataRoot()}/.env and checks it.\n\n` +
         `Stopping now rather than after several minutes of browser passes.`,
     );
   }

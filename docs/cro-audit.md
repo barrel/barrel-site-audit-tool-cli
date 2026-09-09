@@ -16,7 +16,7 @@ Two passes, split by what each physically needs.
 **Pass 1 — the capture.** Needs a real browser, so it runs on your machine:
 
 ```
-pnpm barrel-audit cro <url-or-slug>
+barrel-audit cro <url-or-slug>
 ```
 
 It picks a page for each page group, walks them at a phone width and a laptop width, screenshots

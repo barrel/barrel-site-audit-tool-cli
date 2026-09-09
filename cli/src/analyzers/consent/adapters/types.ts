@@ -22,6 +22,40 @@ export interface CmpPosture {
   jurisdiction?: string;
 }
 
+/** The CMP's own classification ruleset, as the vendor stores it.
+ *
+ * This is what makes "is it classified correctly?" an audit of the client's configuration rather
+ * than an assertion of our own opinion. Without it the inventory could only say what category we
+ * think a vendor belongs in — true, but not the question that was asked, and not something the
+ * client can act on in their CMP dashboard.
+ *
+ * Every rule is reported verbatim. The vendor's vocabulary is not translated into ours because
+ * the translation *is* the judgement the reader is being asked to check: mapping Osano's `HIDDEN`
+ * onto our `marketing` would quietly answer the question the column exists to ask. */
+export interface CmpClassificationRule {
+  /** The host, cookie name or script pattern the rule matches on, as written in the dashboard. */
+  match: string;
+  /** The vendor's own category label, verbatim: "MARKETING", "ESSENTIAL", "HIDDEN", "ANALYTICS". */
+  category: string;
+  /** What the rule matches against, when the CMP distinguishes: a cookie name, a script host. */
+  kind?: "cookie" | "script" | "host" | "unknown";
+  /** A version, ruleset or environment the rule is pinned to. A rule pinned to a script version
+   * that is no longer live never matches anything, which looks identical to correct configuration
+   * from the dashboard and is why this is worth carrying. */
+  pinnedTo?: string;
+}
+
+export interface CmpClassification {
+  rules: CmpClassificationRule[];
+  /** Which ruleset variant these came from — a jurisdiction label like `us-fl`. Named in the
+   * report's column header so the reader knows which of several rulesets was audited. */
+  variant?: string;
+  /** Why the ruleset could not be read. Set instead of `rules`, and reported as "not readable"
+   * rather than "not classified": those mean different things to a client and only the second is
+   * a finding about their setup. */
+  unavailable?: string;
+}
+
 /** One consent-management platform, reduced to the handful of things a test needs to do to it.
  *
  * Every method returns a boolean rather than throwing: a CMP that can't be driven yields
@@ -48,6 +82,13 @@ export interface CmpAdapter {
   /** The configured consent model, when the vendor exposes it. Absent adapters fall back to a
    * conservative inference in the engine. */
   readPosture?(page: Page): Promise<CmpPosture | null>;
+  /** The CMP's own vendor/cookie classification ruleset, for the inventory's "is it classified
+   * correctly?" column.
+   *
+   * Optional, and its absence is reported honestly: the column reads "not readable from <CMP>"
+   * rather than "unclassified", because a CMP we cannot introspect is our gap, not the client's
+   * misconfiguration. */
+  readClassification?(page: Page): Promise<CmpClassification | null>;
   openPreferences?(page: Page): Promise<boolean>;
 }
 
@@ -198,6 +239,49 @@ export async function safeEval<T>(page: Page, fn: () => T, fallback: T): Promise
   } catch {
     return fallback;
   }
+}
+
+/** Reads the classification an auto-blocking CMP has stamped onto the script tags it governs.
+ *
+ * This is the CMP's declared classification, taken from the one place it is both documented and
+ * observable. The alternative — reaching into the vendor's internal rule store — was tried and
+ * abandoned: Osano exposes `Osano.cm` and a command queue and nothing resembling its ruleset, and
+ * a column built by pattern-matching a minified bundle would empty itself silently at the vendor's
+ * next release, which reads exactly like a site with nothing to report.
+ *
+ * How the marker works is uniform across vendors even though the attribute is not: to hold a tag
+ * back the CMP must neutralise its `type` (so the browser won't execute it) and record which
+ * category would release it. Both halves are therefore always present on a gated tag, and a tag
+ * carrying no marker at all is one the CMP is not gating — which is itself the finding, and the
+ * reason an empty result is reported as "nothing gated" rather than as "unreadable".
+ *
+ * `selector` picks the gated tags; `category` pulls the vendor's own label off one. */
+export async function readGatedScripts(
+  page: Page,
+  selector: string,
+  category: (el: Element) => string,
+): Promise<Array<{ src: string; category: string }>> {
+  return page
+    .evaluate(
+      (sel: string, fnSource: string) => {
+        const read = new Function("el", fnSource) as (el: Element) => string;
+        const out: Array<{ src: string; category: string }> = [];
+        for (const el of Array.from(document.querySelectorAll(sel))) {
+          const src = (el as HTMLScriptElement).src || "(inline script)";
+          let cat = "";
+          try {
+            cat = read(el);
+          } catch {
+            cat = "";
+          }
+          if (cat) out.push({ src, category: cat });
+        }
+        return out;
+      },
+      selector,
+      `return (${category.toString()})(el);`,
+    )
+    .catch(() => []);
 }
 
 /** Polls `fn` in the page until it returns true. Used instead of waitForSelector so adapters can

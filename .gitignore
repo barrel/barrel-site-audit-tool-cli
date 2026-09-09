@@ -11,16 +11,26 @@ out/
 # vercel
 .vercel/
 
-# env
+# env — every credential the CLI or the web app needs lives in one of these, and none of them
+# belong in the repo. A global install keeps its own copy at ~/.barrel-audit/.env instead.
 .env
 .env.local
 .env*.local
 
-# per-store theme code (pulled fresh per run, not versioned in this repo)
-stores/*/theme/
+# Everything a local run produces stays local. `stores/<slug>/` is created by `barrel-audit run`
+# and holds that store's config.json, the pulled theme code, and any in-progress AI-fix clone —
+# all of it either regenerated on the next run or specific to one person's machine. The reports
+# themselves never touch the filesystem: they go straight to Blob storage, which is what the
+# dashboard reads. Only the folder's README is versioned.
+stores/*
+!stores/README.md
 
-# in-progress local AI-fix branches (disposable clones, recreated per fix)
-stores/*/fixes/
+# local test-harness output (rewritten on every `pnpm test`)
+test-results/
+
+# agent worktrees — disposable clones, and gigabytes of them
+.claude/worktrees/
+.claude/settings.local.json
 
 # logs / os
 *.log

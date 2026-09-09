@@ -7,7 +7,7 @@ Run the consent scanner and turn its output into something an account lead can a
 ## Steps
 
 1. Work out the scope from the user's request:
-   - No target named → `pnpm barrel-audit consent-scan --json /tmp/consent-scan.json`
+   - No target named → `barrel-audit consent-scan --json /tmp/consent-scan.json`
    - One client named → resolve it to a slug in `sites.yml`, then pass the slug as the argument
    - A URL given → pass the URL directly
    - They only want to know what's installed → add `--inventory` (much faster, no behavioural tests)

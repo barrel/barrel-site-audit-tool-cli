@@ -69,7 +69,10 @@ export async function ensureLocalStoreConfig(slugOrUrl: string): Promise<boolean
  * path mirrors on its own. */
 export async function syncAllStores(): Promise<{ synced: string[]; skipped: string[] }> {
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    throw new Error(`BLOB_READ_WRITE_TOKEN is not set. Add it to ${dataRoot()}/.env (see README).`);
+    throw new Error(
+      `BLOB_READ_WRITE_TOKEN is not set, so the store list can't be synced.\n` +
+        `Run \`barrel-audit setup\` to add it (it goes in ${dataRoot()}/.env).`,
+    );
   }
   const dir = storesDir();
   const synced: string[] = [];

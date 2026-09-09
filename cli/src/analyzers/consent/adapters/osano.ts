@@ -1,5 +1,5 @@
 import type { TrackerCategory } from "@barrel/site-audit-shared";
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, readGatedScripts, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** Osano. Renders its banner into a shadow root, which is why the text-matching fallback in
  * types.ts walks shadow roots rather than using page.$(). */
@@ -111,6 +111,31 @@ export const osanoAdapter: CmpAdapter = {
       },
       null,
     );
+  },
+
+  async readClassification(page) {
+    // Osano neutralises a gated tag by rewriting its type to `osano/blocked`. The marker records
+    // that the tag is held back but *not* which category would release it, so the category is
+    // reported as the fact actually established — gated as non-essential — rather than guessing
+    // between MARKETING, ANALYTICS and PERSONALIZATION.
+    const blocked = await readGatedScripts(
+      page,
+      'script[type="osano/blocked"]',
+      () => "BLOCKED (non-essential)",
+    );
+    // Tags a vendor has marked for Osano to skip. Not a category either, and the more important
+    // of the two: a tag opted out of the CMP by the vendor who wrote it will never be gated
+    // however the dashboard is configured.
+    const ignored = await readGatedScripts(page, "script[data-os-ignore], script[data-ot-ignore]", () => "IGNORED by vendor markup");
+    const variant = await safeEval<string | undefined>(
+      page,
+      () => (window as any).Osano?.cm?.jurisdiction,
+      undefined,
+    );
+    return {
+      rules: [...blocked, ...ignored].map((s) => ({ match: s.src, category: s.category, kind: "script" as const })),
+      variant: variant ? `live ${variant} ruleset` : undefined,
+    };
   },
 
   async openPreferences(page) {

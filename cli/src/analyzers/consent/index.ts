@@ -1,5 +1,7 @@
 import type {
+  AiUsage,
   CmpVendor,
+  ConsentInventory,
   ConsentSection,
   ConsentSiteExpectations,
   ConsentStateCapture,
@@ -10,6 +12,8 @@ import type {
   ConsentTrackerHit,
 } from "@barrel/site-audit-shared";
 import { type EngineResult, type RawStateCapture, runConsentEngine } from "./engine.js";
+import { buildInventory } from "./inventory.js";
+import { enrichInventory } from "./inventory-ai.js";
 import { runTests } from "./testcases.js";
 import { trackerById } from "./trackers.js";
 
@@ -36,6 +40,14 @@ export interface AnalyzeConsentOptions {
    * used its whole allowance on the first pass can still be re-checked rather than silently
    * skipping the confirmation. */
   budgetMs?: number;
+  /** Build the vendor inventory. Default on.
+   *
+   * Off skips both the assembly and the AI pass, for a run that only needs the pass/fail suites —
+   * a CI gate, or a fleet scan where the per-site table is not what anyone reads. */
+  inventory?: boolean;
+  /** Reports the inventory's AI token spend, so it lands in the same place as every other
+   * analyzer's rather than being invisible because it happens inside consent. */
+  onAiUsage?: (usage: AiUsage) => void;
 }
 
 /** Relative weight of each severity when scoring. A blocker is worth ten warnings because the
@@ -82,6 +94,29 @@ export async function analyzeConsent(url: string, options: AnalyzeConsentOptions
   attachScreenshots(tests, states);
 
   const totals = tally(tests);
+
+  // The inventory is built from the *first* pass's captures, the same ones the evidence and
+  // screenshots come from. Building it from the confirmation pass would describe a different page
+  // load than the one every test result and screenshot in the report refers to.
+  let inventory: ConsentInventory | undefined;
+  if (options.inventory !== false && !engine.fatalError) {
+    stage?.("Consent: building vendor inventory");
+    const deterministic = buildInventory({
+      states: engine.states,
+      classification: engine.classification ?? null,
+      cmpLabel: engine.cmpLabel,
+      url,
+    });
+    const enriched = await enrichInventory(deterministic, {
+      url,
+      cmpLabel: engine.cmpLabel,
+      cmpDetail: engine.fatalError ?? engine.cmpLabel,
+      impliedConsent: engine.optOutModel ? engine.optOutReason : undefined,
+    });
+    inventory = enriched.inventory;
+    if (enriched.usage) options.onAiUsage?.(enriched.usage);
+  }
+
   return {
     score: scoreOf(tests, engine),
     cmp: engine.cmp,
@@ -92,6 +127,7 @@ export async function analyzeConsent(url: string, options: AnalyzeConsentOptions
     tests,
     totals,
     impliedConsent: engine.optOutModel ? engine.optOutReason : undefined,
+    inventory,
   };
 }
 

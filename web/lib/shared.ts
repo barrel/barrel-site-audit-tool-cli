@@ -889,6 +889,184 @@ export interface ConsentTotals {
   blockers: number;
 }
 
+/* ── Vendor inventory ───────────────────────────────────────────────────────────────────────
+ * The "take inventory of the cookies & scripts that fire" deliverable: one row per vendor,
+ * answering what it is, how it got on the page, what the CMP says it is, and whether it fires
+ * in a way that respects that.
+ *
+ * Deliberately open-ended where the test suites are closed. The suites assert against a
+ * catalogue of known trackers, which is right for a pass/fail claim; an inventory that only
+ * listed catalogued vendors would silently omit the uncatalogued ones, and on a real storefront
+ * those are the majority. A vendor nobody has catalogued is exactly the vendor a client has not
+ * accounted for, so it has to appear — as an identified unknown rather than not at all.
+ */
+
+/** How a vendor's code got onto the page.
+ *
+ * The distinction the fix depends on: a tag hardcoded in the theme `<head>` is removed by editing
+ * the theme, one injected by a tag manager is removed in the tag manager, and a Shopify web pixel
+ * is governed by its own `privacyPurposes` and cannot be gated by a CMP at all. Reporting all
+ * three as "the pixel fired" hands the client a finding no one owns. */
+export type VendorLoadMechanism =
+  | "theme-head"
+  | "theme-body"
+  | "shopify-web-pixel"
+  | "tag-manager"
+  | "vendor-chain"
+  | "shopify-platform"
+  | "unknown";
+
+/** A Shopify web pixel as the platform's own registry describes it.
+ *
+ * Read from the storefront's `webPixelsConfigList` rather than inferred from traffic, because the
+ * fields that decide whether consent is honoured — `privacyPurposes` and `runtimeContext` — are
+ * not observable in the network log at all. An empty `privacyPurposes` is the finding: Shopify
+ * runs that pixel whatever the visitor chose, and no CMP configuration can change it. */
+export interface ShopifyWebPixel {
+  id: string;
+  /** "APP" or "CUSTOM". A custom pixel is the merchant's own code and is edited in the admin. */
+  type: string;
+  /** "STRICT" (sandboxed), "LAX", or "OPEN". OPEN means it runs in the page with full DOM access. */
+  runtimeContext: string;
+  /** The consent purposes this pixel is gated on. **Empty means gated on nothing.** */
+  privacyPurposes: string[];
+  apiClientId?: number;
+  dataSharingState?: string;
+  /** The pixel's own settings blob, which is usually what identifies the vendor behind it. */
+  configuration?: string;
+  /** Vendor key this pixel was attributed to, when it could be identified. */
+  vendorKey?: string;
+}
+
+export interface VendorLoadEvidence {
+  mechanism: VendorLoadMechanism;
+  /** The sentence the report prints, e.g. "Hardcoded in theme <head>" or
+   * "Injected by GTM-NLL9MG2". Built from the observed facts, never guessed. */
+  description: string;
+  /** Script URLs observed causing this vendor's requests, from the CDP initiator chain. */
+  injectedBy?: string[];
+  shopifyPixel?: ShopifyWebPixel;
+}
+
+/** What the CMP itself declares this vendor to be — the thing "is it classified correctly?"
+ * is a question *about*.
+ *
+ * Without this the column would be us asserting a classification rather than auditing theirs,
+ * which is a different and much weaker claim. Every field is optional because most CMPs expose
+ * some of this and none expose all of it, and a missing field must read as "not readable" rather
+ * than as "not classified". */
+export interface DeclaredClassification {
+  /** The CMP's own category label, verbatim and uppercased as the vendor writes it —
+   * "MARKETING", "ESSENTIAL", "HIDDEN". Not mapped onto our own categories: the mapping is the
+   * judgement the reader is being asked to check. */
+  category?: string;
+  /** The rule that matched, so the reader can find it in the CMP dashboard and change it. */
+  rule?: string;
+  /** Why there is no classification — "no rule covers this host". Distinct from an unreadable
+   * ruleset, which leaves the whole `declared` field undefined. */
+  absent?: string;
+  /** A second rule that contradicts or supersedes the matched one, or a rule pinned to a script
+   * version that is no longer live. Either makes the declared category misleading rather than
+   * merely wrong, which is a different fix. */
+  conflict?: string;
+}
+
+/** `unclassified` (the CMP has no rule for this vendor) and `unknown` (we could not read the
+ * CMP's ruleset) are deliberately separate. Both leave the client without an answer, but only
+ * the first is a finding about their configuration. */
+export type ClassificationVerdict = "correct" | "incorrect" | "partly" | "unclassified" | "unknown";
+
+/** Inventory severity, which is coarser and more client-facing than ConsentSeverity.
+ *
+ * Separate from the test suites' blocker/error/warning because it grades a *vendor*, not an
+ * assertion: "Snap Pixel transmits under full opt-out" is critical whether or not the test that
+ * caught it was a blocker. */
+export type InventorySeverity = "critical" | "high" | "medium" | "low" | "none";
+
+export interface InventoryVendor {
+  /** Registrable-domain group, e.g. "klaviyo.com" — the unit a client thinks in and a CMP rule
+   * is written against, rather than one row per host. */
+  key: string;
+  name: string;
+  purpose: string;
+  /** Whether `purpose` came from the catalogue or was written by the model. Inferred purposes are
+   * labelled as such in the report: a client must never read a guess about what a vendor does as
+   * an established fact about their own stack. */
+  purposeSource: "catalogue" | "inferred";
+  /** Our category for it, from the catalogue or inferred alongside the purpose. */
+  observedCategory: TrackerCategory;
+  hosts: string[];
+  load: VendorLoadEvidence;
+  cookies: string[];
+  /** localStorage and sessionStorage keys, which a cookie banner does not govern and a
+   * cookie-only inventory misses entirely. */
+  storageKeys: string[];
+  declared?: DeclaredClassification;
+  classifiedCorrectly: ClassificationVerdict;
+  classificationNote?: string;
+  /** States in which this vendor sent data about the visitor. */
+  transmittedIn: ConsentStateId[];
+  /** States in which only its library was fetched. */
+  scriptLoadedIn: ConsentStateId[];
+  firesBeforeConsent: boolean;
+  firesDespiteRejection: boolean;
+  /** The sentence printed in the "fires before / despite consent?" column, naming the state it
+   * was observed in so the claim carries its own evidence. */
+  consentBehaviour: string;
+  severity: InventorySeverity;
+  /** Caveats and open questions — including anything the scan could not settle. Never a
+   * substitute for a verdict field; a note saying "probably fine" alongside a `correct` verdict
+   * is the shape that misleads. */
+  notes?: string[];
+  recommendedFix?: string;
+}
+
+/** One step of the remediation plan. Ordered because the client asked for a *plan*, and because
+ * the order matters: reclassifying a tag that is about to be removed is wasted work. */
+export interface InventoryFixStep {
+  order: number;
+  title: string;
+  detail: string;
+  /** Who does it — "Theme developer", "Whoever owns the GTM container", "Shopify admin". */
+  owner?: string;
+  effort?: "quick" | "moderate" | "involved";
+  /** Vendor keys this step resolves, so the table and the plan cross-reference. */
+  vendors: string[];
+}
+
+/** A way to collect more data *without* weakening the consent posture — the client's secondary
+ * ask. Kept structurally separate from the fix plan so closing a tracking gap can never be
+ * presented as a compliance remedy. */
+export interface InventoryOpportunity {
+  title: string;
+  detail: string;
+  /** What has to be true first — usually a fix step that must land before this is legitimate. */
+  requires?: string;
+}
+
+export interface ConsentInventory {
+  vendors: InventoryVendor[];
+  /** Every pixel in the registry, including any whose vendor could not be identified — an
+   * unattributed pixel is still a pixel the client is running. */
+  shopifyPixels: ShopifyWebPixel[];
+  /** Which CMP's ruleset the `declared` fields were read from, and which variant, e.g.
+   * "Osano (live us-fl ruleset)". Names the source so the column header can be honest about
+   * whose classification is being audited. */
+  classificationSource?: string;
+  /** Why no declared classification is present — an inert CMP, or an adapter that cannot read
+   * one. Set instead of `classificationSource`, never alongside it. */
+  classificationUnavailable?: string;
+  fixPlan: InventoryFixStep[];
+  opportunities: InventoryOpportunity[];
+  /** Whether the model was reached for purposes, severities and wording. False means the table
+   * is present with catalogue purposes only — the deterministic columns stand on their own, so a
+   * missing API key degrades the inventory rather than removing it. */
+  aiGenerated: boolean;
+  /** Set when the AI pass was attempted and failed, so a thinner table is explained rather than
+   * silently thinner. */
+  aiError?: string;
+}
+
 export interface ConsentSection {
   /** Null when too little was confirmed to score honestly — a number would read as a verdict on
    * the site rather than on how little could be tested. */
@@ -906,6 +1084,9 @@ export interface ConsentSection {
    * vendor's own wording so the report can say why the choice-driven suites are not applicable
    * rather than leaving a wall of untested results with no explanation. */
   impliedConsent?: string;
+  /** The vendor inventory. Optional because scans archived before it existed still have to
+   * render, and because it can be skipped with --no-inventory. */
+  inventory?: ConsentInventory;
 }
 
 export interface StoreConfig {

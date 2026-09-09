@@ -54,6 +54,13 @@ export function dataRoot(): string {
   return findRepoRootOrNull() ?? globalDataDir();
 }
 
+/** True when dataRoot() is the global ~/.barrel-audit directory rather than a checkout — i.e. the
+ * CLI was installed with npm and is being run from someone else's repo. Only for wording messages;
+ * nothing should branch its behaviour on this. */
+export function usingGlobalDataRoot(): boolean {
+  return findRepoRootOrNull() === null;
+}
+
 /** How to spell "run this CLI again" in a message to the user. Inside a checkout that's the
  * `pnpm barrel-audit` script; from a global install there's no package.json to resolve it, so
  * suggesting `pnpm barrel-audit ...` there just earns an ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND. */

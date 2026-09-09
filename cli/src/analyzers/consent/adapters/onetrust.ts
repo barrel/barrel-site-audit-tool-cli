@@ -1,5 +1,5 @@
 import type { TrackerCategory } from "@barrel/site-audit-shared";
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, readGatedScripts, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** OneTrust. Category membership is read from the OptanonActiveGroups string (",C0001,C0002,"),
  * whose group IDs are OneTrust's own fixed taxonomy and stable across tenants. */
@@ -105,6 +105,33 @@ export const onetrustAdapter: CmpAdapter = {
       },
       null,
     );
+  },
+
+  async readClassification(page) {
+    // OneTrust carries the category in a class — `optanon-category-C0004` — rather than an
+    // attribute, and neutralises the tag with `type="text/plain"`. The numeric codes are its
+    // stock taxonomy and are expanded so the column reads as words; an unrecognised code is
+    // passed through verbatim rather than mapped to a guess, because a customer can define
+    // categories of their own and inventing a name for one would be worse than showing the code.
+    const CATEGORIES: Record<string, string> = {
+      C0001: "C0001 (Strictly Necessary)",
+      C0002: "C0002 (Performance)",
+      C0003: "C0003 (Functional)",
+      C0004: "C0004 (Targeting)",
+      C0005: "C0005 (Social Media)",
+    };
+    const gated = await readGatedScripts(page, "script[class*='optanon-category-'], script[data-ot-ignore]", (el) => {
+      if (el.hasAttribute("data-ot-ignore")) return "IGNORED by vendor markup";
+      const m = /optanon-category-([A-Za-z0-9]+)/.exec(el.className || "");
+      return m ? m[1] : "";
+    });
+    return {
+      rules: gated.map((s) => ({
+        match: s.src,
+        category: CATEGORIES[s.category] ?? s.category,
+        kind: "script" as const,
+      })),
+    };
   },
 
   async openPreferences(page) {

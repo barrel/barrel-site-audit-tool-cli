@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import { getConsentSiteDetail, getConsentScan, getLatestConsentScan } from "@/lib/data";
 import { formatDate } from "@/lib/format";
 import { screenshotUrl } from "@/lib/screenshot";
+import { ConsentInventory } from "@/components/ConsentInventory";
 import { ConsentPassList } from "@/components/ConsentPassList";
 import { PrintButton } from "@/components/PrintButton";
 import { PageTitle, TopNav } from "@/components/TopNav";
@@ -223,6 +224,17 @@ export default async function ConsentSiteReport({
     <div className="min-h-screen bg-[#f9f8f6] print:bg-white">
       <TopNav />
       <PageTitle title={row.client}>
+        {/* The inventory is the half of this report a client asks for as a spreadsheet, so the
+            download sits in the header beside Print rather than buried under the table. Hidden
+            when the scan carries no inventory — a link that 404s is worse than no link. */}
+        {detail?.inventory && (
+          <a
+            href={`/api/consent-inventory?scan=${encodeURIComponent(report.id)}&slug=${encodeURIComponent(slug)}&label=${encodeURIComponent(row.client || slug)}`}
+            className="text-sm font-medium text-[#2563EB] hover:underline print:hidden"
+          >
+            Inventory CSV
+          </a>
+        )}
         <PrintButton />
         <Link href="/consent" className="text-sm font-medium text-[#1A1A1A] hover:text-[#6B6B6B]">
           All sites
@@ -423,6 +435,15 @@ export default async function ConsentSiteReport({
             should meet the findings first, then what holds, then the full record. Leading with the
             passes would read as a defence of the site. */}
         <ConsentPassList section={{ tests, states, trackers }} />
+
+        {/* ── The vendor inventory ───────────────────────────────────────────────────────── */}
+        {/* Placed after the pass list and before the per-suite detail. The suites are organised by
+            assertion, which is the right shape for proving a finding and the wrong one for taking
+            stock: a client asking "what is running on my site?" cannot answer it from a list of
+            test IDs. This is the answer to that question, and it belongs above the raw record. */}
+        {detail?.inventory && (
+          <ConsentInventory inventory={detail.inventory} siteLabel={row.client || slug} />
+        )}
 
         {/* ── Every test ─────────────────────────────────────────────────────────────────── */}
         {[...bySuite.entries()]

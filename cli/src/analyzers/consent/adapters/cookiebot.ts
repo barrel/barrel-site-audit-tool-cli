@@ -1,6 +1,6 @@
 import type { Page } from "puppeteer-core";
 import type { TrackerCategory } from "@barrel/site-audit-shared";
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, readGatedScripts, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** Cookiebot. Exposes the richest JS API of any CMP we run into, including true granular consent
  * via submitCustomConsent(preferences, statistics, marketing) — note Cookiebot calls the
@@ -110,6 +110,20 @@ export const cookiebotAdapter: CmpAdapter = {
       },
       null,
     );
+  },
+
+  async readClassification(page) {
+    // Cookiebot names the releasing category in `data-cookieconsent` and neutralises the tag by
+    // setting `type="text/plain"`. Both attributes are read, and a tag carrying the attribute
+    // *without* the neutralised type is reported too: `data-cookieconsent="ignore"` is the value a
+    // vendor uses to opt its own tag out of blocking entirely, which is a live tag with a
+    // declared classification of "don't gate me" — the single most useful row in this column.
+    const gated = await readGatedScripts(page, "script[data-cookieconsent]", (el) =>
+      (el.getAttribute("data-cookieconsent") ?? "").toUpperCase(),
+    );
+    return {
+      rules: gated.map((s) => ({ match: s.src, category: s.category, kind: "script" as const })),
+    };
   },
 
   async openPreferences(page) {

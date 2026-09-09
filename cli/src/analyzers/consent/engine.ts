@@ -10,13 +10,15 @@ import type {
 import {
   type CmpAdapter,
   type CmpCategoryState,
+  type CmpClassification,
   type CmpPosture,
   ACCEPT_PATTERNS,
   PREFS_PATTERNS,
   REJECT_PATTERNS,
   detectCmp,
 } from "./adapters/index.js";
-import { categorizeCookie, matchScriptLoads, matchTrackers, matchTransmissions } from "./trackers.js";
+import { categorizeCookie, classifyRequest, matchScriptLoads, matchTrackers, matchTransmissions } from "./trackers.js";
+import { type VendorObservation, observeVendors, trackerForUrl } from "./vendors.js";
 
 /** How long to wait for a consent banner to appear before calling the state unreachable. */
 const BANNER_TIMEOUT_MS = 12_000;
@@ -35,12 +37,175 @@ export interface ObservedRequest {
   url: string;
   completed: boolean;
   status?: number;
+  /** Script URLs that caused this request, nearest cause first, from the CDP initiator stack.
+   *
+   * This is what turns "Snap Pixel fired" into "Snap Pixel was injected by GTM-NLL9MG2", which is
+   * the difference between a finding nobody owns and one with an address. Empty for a request the
+   * parser started from the document itself — that absence is itself the signal that the tag is
+   * hardcoded in the theme rather than injected by anything. */
+  initiator?: string[];
 }
 
 /** URLs of requests that completed. A 4xx/5xx still counts: the vendor received it and answered,
  * which is precisely the disclosure at issue — only a request that never arrived is discounted. */
 export function deliveredUrls(requests: ObservedRequest[]): string[] {
   return requests.filter((r) => r.completed).map((r) => r.url);
+}
+
+/** The script URLs that caused a request, read from the CDP initiator record.
+ *
+ * Both halves matter and neither alone is enough. `initiator.url` is set for a request a parser
+ * or preloader started and names the document or stylesheet responsible; `initiator.stack` is set
+ * for one started by running JavaScript and names the scripts on the call stack. A tag injected
+ * by a tag manager shows up only in the stack, which is exactly the case worth reporting.
+ *
+ * Capped at four frames: the nearest causes answer "who injected this", and a full stack from a
+ * bundled vendor library is noise that would dominate the stored scan. */
+function readInitiator(req: { initiator?: () => unknown }): string[] | undefined {
+  let raw: unknown;
+  try {
+    raw = req.initiator?.();
+  } catch {
+    return undefined;
+  }
+  if (!raw || typeof raw !== "object") return undefined;
+  const init = raw as { url?: string; stack?: { callFrames?: Array<{ url?: string }> } };
+  const urls: string[] = [];
+  if (init.url) urls.push(init.url);
+  for (const frame of init.stack?.callFrames ?? []) {
+    if (frame.url && !urls.includes(frame.url)) urls.push(frame.url);
+    if (urls.length >= 4) break;
+  }
+  return urls.length > 0 ? urls : undefined;
+}
+
+/** Facts about how the page is *built*, which no amount of network watching can establish.
+ *
+ * Three things the report needs and traffic cannot tell you: whether a script tag is written into
+ * the theme (so a developer edits the theme) or injected at runtime (so someone edits a tag
+ * manager); which browser-storage keys are set, none of which a cookie banner governs; and what
+ * Shopify's own pixel registry says about consent gating, which is not observable in a request at
+ * all. */
+export interface InventoryFacts {
+  /** localStorage and sessionStorage keys, prefixed so the report can say which is which. */
+  storageKeys: string[];
+  /** `src` of every script tag present in the document, which is what "hardcoded in the theme"
+   * means operationally: it was in the HTML the server sent, not added by another script. */
+  headScripts: string[];
+  bodyScripts: string[];
+  /** Shopify's `webPixelsConfigList`, verbatim. The `privacyPurposes` field on each entry is the
+   * only place the platform records whether that pixel is gated on consent. */
+  shopifyPixels: RawShopifyPixel[];
+}
+
+export interface RawShopifyPixel {
+  id?: string;
+  type?: string;
+  runtimeContext?: string;
+  privacyPurposes?: string[];
+  apiClientId?: number;
+  dataSharingState?: string;
+  configuration?: string;
+}
+
+/** Reads the build-time facts out of a settled page. Returns empty collections rather than
+ * throwing: an inventory missing its storage keys is worth having, and a state that failed to
+ * report them must not take the whole scan down. */
+export async function readInventoryFacts(page: Page): Promise<InventoryFacts> {
+  const empty: InventoryFacts = { storageKeys: [], headScripts: [], bodyScripts: [], shopifyPixels: [] };
+  return page
+    .evaluate(() => {
+      const out: {
+        storageKeys: string[];
+        headScripts: string[];
+        bodyScripts: string[];
+        shopifyPixels: unknown[];
+      } = { storageKeys: [], headScripts: [], bodyScripts: [], shopifyPixels: [] };
+
+      // Storage access throws outright in some privacy configurations, so each read is its own try.
+      try {
+        for (const k of Object.keys(localStorage)) out.storageKeys.push(`localStorage:${k}`);
+      } catch {
+        /* storage unavailable */
+      }
+      try {
+        for (const k of Object.keys(sessionStorage)) out.storageKeys.push(`sessionStorage:${k}`);
+      } catch {
+        /* storage unavailable */
+      }
+
+      try {
+        for (const s of Array.from(document.head.querySelectorAll("script[src]"))) {
+          out.headScripts.push((s as HTMLScriptElement).src);
+        }
+        for (const s of Array.from(document.body?.querySelectorAll("script[src]") ?? [])) {
+          out.bodyScripts.push((s as HTMLScriptElement).src);
+        }
+      } catch {
+        /* DOM unavailable */
+      }
+
+      // Shopify inlines the registry as an argument to the web-pixels-manager bootstrap, so it is
+      // read out of the script text rather than off a global — `window.webPixelsManager` exposes
+      // only `init` and never the config it was called with.
+      try {
+        const inline = Array.from(document.querySelectorAll("script:not([src])"));
+        for (const node of inline) {
+          const text = node.textContent ?? "";
+          const at = text.indexOf("webPixelsConfigList");
+          if (at === -1) continue;
+          // Brace-match from the opening bracket rather than regex to the first `]`: a pixel's
+          // `configuration` is a JSON *string* that routinely contains brackets of its own, and a
+          // non-greedy match truncates the list at the first one.
+          const open = text.indexOf("[", at);
+          if (open === -1) continue;
+          let depth = 0;
+          let end = -1;
+          let inStr = false;
+          let esc = false;
+          for (let i = open; i < text.length; i++) {
+            const ch = text[i];
+            if (esc) {
+              esc = false;
+              continue;
+            }
+            if (ch === "\\") {
+              esc = true;
+              continue;
+            }
+            if (ch === '"') inStr = !inStr;
+            if (inStr) continue;
+            if (ch === "[") depth++;
+            else if (ch === "]") {
+              depth--;
+              if (depth === 0) {
+                end = i;
+                break;
+              }
+            }
+          }
+          if (end === -1) continue;
+          try {
+            const parsed = JSON.parse(text.slice(open, end + 1));
+            if (Array.isArray(parsed)) out.shopifyPixels = parsed;
+          } catch {
+            /* not parseable as JSON — leave the list empty rather than guess */
+          }
+          break;
+        }
+      } catch {
+        /* registry unreadable */
+      }
+
+      return out;
+    })
+    .then((r) => ({
+      storageKeys: r.storageKeys,
+      headScripts: r.headScripts,
+      bodyScripts: r.bodyScripts,
+      shopifyPixels: (r.shopifyPixels as RawShopifyPixel[]).filter((p) => p && typeof p === "object"),
+    }))
+    .catch(() => empty);
 }
 
 export interface ButtonProbe {
@@ -106,6 +271,14 @@ export interface RawStateCapture {
   secondPageUrl?: string;
   /** accept state only — whether the preference centre could be reopened. */
   preferencesReopenable?: boolean;
+  /** Every third party this state saw, rolled up per vendor — the raw material for the inventory.
+   *
+   * Distinct from `trackersPre`/`trackersPost`, which are catalogued trackers only. That is the
+   * right basis for an assertion but the wrong one for an inventory: on a real storefront most
+   * third parties are uncatalogued, and those are exactly the ones a client has not accounted for. */
+  vendorObservations?: VendorObservation[];
+  /** How the page is built, which no amount of network watching establishes. */
+  inventoryFacts?: InventoryFacts;
 }
 
 export interface GpcProbe {
@@ -135,6 +308,12 @@ export interface EngineResult {
    * broken, and a report that renders them identically makes the reader do that triage. */
   optOutModel?: boolean;
   optOutReason?: string;
+  /** The CMP's own vendor classification, for the inventory's "classified correctly?" column.
+   *
+   * Read from the clean state, because that is the only state in which a gated tag is still
+   * gated: after an accept the CMP releases everything and its markers are gone, so reading it
+   * later would report a correctly-configured site as classifying nothing. */
+  classification?: CmpClassification | null;
 }
 
 export interface EngineOptions {
@@ -440,7 +619,7 @@ async function openState(browser: Browser, url: string, opts: OpenOptions = {}):
   if (opts.initScript) await page.evaluateOnNewDocument(opts.initScript);
 
   page.on("request", (req) => {
-    const record: ObservedRequest = { url: req.url(), completed: false };
+    const record: ObservedRequest = { url: req.url(), completed: false, initiator: readInitiator(req) };
     requests.push(record);
     byRequest.set(req, record);
   });
@@ -517,6 +696,17 @@ function evidenceUrls(urls: string[]): string[] {
   return Array.from(new Set(matched)).slice(0, 60);
 }
 
+/** The hostname of a URL, or an empty string. Used to tell the inventory which host is the site's
+ * own, and an empty string is the safe failure: it matches no vendor, so nothing is wrongly
+ * dropped as first-party. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "";
+  }
+}
+
 async function finishCapture(
   state: ConsentStateId,
   sc: StateContext,
@@ -549,6 +739,13 @@ async function finishCapture(
     marketingInterstitial: (await detectInterstitial(sc.page)) ?? undefined,
     cmpBeforeTagManager: loadOrder(sc.requests.map((r) => r.url)),
     consoleErrors: Array.from(new Set(sc.consoleErrors)).slice(0, 10),
+    // Read from the full request log, not from `requestsPre`/`requestsPost`: those are capped and
+    // filtered to catalogued trackers for evidence purposes, and an inventory built from them
+    // could only ever rediscover the vendors we already knew about.
+    vendorObservations: observeVendors(sc.requests, hostOf(sc.page.url()), (url) =>
+      classifyRequest(url, trackerForUrl(url)),
+    ),
+    inventoryFacts: await readInventoryFacts(sc.page),
   };
 
   if (opts.screenshots) {
@@ -612,6 +809,7 @@ export async function runConsentEngine(url: string, options: EngineOptions = {})
   let optOutModel = false;
   let optOutReason: string | undefined;
   let cleanPosture: CmpPosture | null = null;
+  let classification: CmpClassification | null = null;
 
   try {
     /* — S0 clean — the only state that runs even when there is no CMP at all, because "pixels
@@ -624,6 +822,7 @@ export async function runConsentEngine(url: string, options: EngineOptions = {})
       adapter = await detectCmp(state.page, options.expectedCmp);
       const clean = await finishCapture("clean", state, adapter, { screenshots });
       cleanPosture = adapter?.readPosture ? await adapter.readPosture(state.page).catch(() => null) : null;
+      classification = adapter?.readClassification ? await adapter.readClassification(state.page).catch(() => null) : null;
       clean.buttons = await probeButtons(state.page);
       clean.links = await probeLinks(state.page);
       // Detection runs after load, so re-check visibility with the full timeout — on a slow CMP
@@ -636,12 +835,12 @@ export async function runConsentEngine(url: string, options: EngineOptions = {})
       await cleanCtx?.close().catch(() => undefined);
     }
 
-    if (fatalError) return { cmp: adapter?.id ?? "none", cmpLabel: adapter?.label ?? "None detected", states, gpc, fatalError };
+    if (fatalError) return { cmp: adapter?.id ?? "none", cmpLabel: adapter?.label ?? "None detected", states, gpc, fatalError, classification };
 
     if (!adapter) {
       const reason = "No consent-management platform detected on the page.";
       for (const s of ["reject", "accept", "granular", "returning"] as ConsentStateId[]) states.push(unreachable(s, reason));
-      return { cmp: "none", cmpLabel: "None detected", states, gpc };
+      return { cmp: "none", cmpLabel: "None detected", states, gpc, classification };
     }
 
     const cleanState = states.find((s) => s.state === "clean");
@@ -736,6 +935,7 @@ export async function runConsentEngine(url: string, options: EngineOptions = {})
     gpc,
     optOutModel,
     optOutReason,
+    classification,
   };
 }
 

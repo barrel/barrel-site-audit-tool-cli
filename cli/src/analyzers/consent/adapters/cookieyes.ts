@@ -1,4 +1,4 @@
-import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, safeEval, waitFor, dismissBanner} from "./types.js";
+import { type CmpAdapter, type CmpCategoryState, ACCEPT_PATTERNS, REJECT_PATTERNS, clickByAccessibleName, readGatedScripts, safeEval, waitFor, dismissBanner} from "./types.js";
 
 /** CookieYes. Exposes getCkyConsent() for reading but no supported setter, so the choice has to
  * be made through the DOM. Its button classes are stable enough to try first, with the generic
@@ -58,6 +58,18 @@ export const cookieyesAdapter: CmpAdapter = {
       },
       null,
     );
+  },
+
+  async readClassification(page) {
+    // CookieYes stamps `data-cookieyes="cookieyes-advertisement"` and neutralises the tag with
+    // `type="text/plain"`. The `cookieyes-` prefix is stripped so the column shows the category
+    // rather than the vendor's namespacing.
+    const gated = await readGatedScripts(page, "script[data-cookieyes]", (el) =>
+      (el.getAttribute("data-cookieyes") ?? "").replace(/^cookieyes-/i, "").toUpperCase(),
+    );
+    return {
+      rules: gated.map((s) => ({ match: s.src, category: s.category, kind: "script" as const })),
+    };
   },
 
   async openPreferences(page) {

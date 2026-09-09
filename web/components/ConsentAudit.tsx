@@ -6,6 +6,7 @@ import type {
   ConsentTrackerHit,
   TrackerCategory,
 } from "@/lib/shared";
+import { ConsentInventory } from "@/components/ConsentInventory";
 import { ConsentPassList } from "@/components/ConsentPassList";
 import { screenshotUrl } from "@/lib/screenshot";
 
@@ -260,6 +261,11 @@ export function ConsentAudit({ section }: { section: ConsentSection }) {
       )}
 
       <ConsentPassList section={section} />
+
+      {/* Rendered here as well as on the standalone per-site report, for the same reason the pass
+          list is: a client reading a full audit and a client reading the Privacy Compliance report
+          on its own should be reading the same inventory. */}
+      {section.inventory && <ConsentInventory inventory={section.inventory} />}
 
       {section.trackers.length > 0 && (
         <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden">

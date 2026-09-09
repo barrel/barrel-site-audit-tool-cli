@@ -9,6 +9,7 @@ import { deployCommand } from "./commands/deploy.js";
 import { pullThemeCommand } from "./commands/pull-theme.js";
 import { linkRepoCommand } from "./commands/link-repo.js";
 import { serveCommand } from "./commands/serve.js";
+import { setupCommand } from "./commands/setup.js";
 import { consentScanCommand } from "./commands/consent-scan.js";
 import { croCommand } from "./commands/cro.js";
 import { dataRoot } from "./paths.js";
@@ -44,6 +45,25 @@ program
   // Read from package.json rather than hardcoded, so it can't drift from what was published.
   // Also what a cloud run stamps onto its report as `runner.cliVersion`.
   .version(cliVersion(), "-v, --version", "Print the installed CLI version");
+
+program
+  .command("setup")
+  .description(
+    "One-time setup on this machine: write the credentials the CLI needs to ~/.barrel-audit/.env " +
+      "(or the repo root, inside a checkout) and check that Blob storage accepts them.",
+  )
+  .option("--blob-token <token>", "BLOB_READ_WRITE_TOKEN, instead of being prompted for it")
+  .option("--anthropic-key <key>", "ANTHROPIC_API_KEY (optional — enables the AI-written sections)")
+  .option("--github-client-id <id>", "GITHUB_OAUTH_CLIENT_ID (optional — enables link-repo)")
+  .option("--check", "Report what's configured and test the Blob token; write nothing")
+  .action(async (opts: { blobToken?: string; anthropicKey?: string; githubClientId?: string; check?: boolean }) => {
+    try {
+      await setupCommand(opts);
+    } catch (err: any) {
+      console.error(chalk.red(`\n${err?.message ?? err}`));
+      process.exitCode = 1;
+    }
+  });
 
 program
   .command("init-store <slug>")
@@ -310,6 +330,10 @@ program
   .option("--seed", "Draft sites.yml from the local stores/ folder instead of scanning (never overwrites existing entries)")
   .option("--from-repos", "With --seed, also list GitHub repos that have no production URL on record")
   .option("--inventory", "Presence only: report which CMP is installed where, skipping the behavioural suites")
+  // Named `--no-tag-inventory` rather than `--no-inventory` because `--inventory` above already
+  // means something else entirely — a presence-only CMP census. Two flags one negation apart
+  // meaning unrelated things is how someone disables the wrong half of the scan.
+  .option("--no-tag-inventory", "Skip the per-vendor cookie & script inventory (and its AI pass)")
   .option("--region <region>", "Region the scan represents (us | eu | ca-us). v1 always runs from your real location.", "us")
   .option("--concurrency <n>", "How many sites to scan at once", "4")
   .option("--no-retry", "Don't re-run a site to confirm blocker-severity failures")
@@ -324,6 +348,7 @@ program
         seed?: boolean;
         fromRepos?: boolean;
         inventory?: boolean;
+        tagInventory: boolean;
         region: string;
         concurrency: string;
         retry: boolean;
@@ -339,6 +364,7 @@ program
           seed: opts.seed,
           fromRepos: opts.fromRepos,
           inventory: opts.inventory,
+          tagInventory: opts.tagInventory,
           region: opts.region,
           concurrency: Number(opts.concurrency),
           retry: opts.retry,

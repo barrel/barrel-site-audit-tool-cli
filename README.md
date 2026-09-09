@@ -15,83 +15,150 @@ than a scored report. See [CRO audits](#cro-audits).
 account via [Barrel Labs](https://barrel-labs.vercel.app/go/site-audit). No password to share
 around; if it says access is denied, a Labs admin needs to grant you the `site-audit` app.
 
-## Quick start: running a report
+## Install it — once per machine
 
-**0. One-time setup** (skip if you've already done this once on your machine):
+`barrel-audit` is a normal global command. **You do not need a copy of this repo to run audits**:
+install the published package once and run it from whatever folder you happen to be in — a client
+theme checkout, your home directory, anywhere.
 
-```
-pnpm install
-pnpm --filter @barrel/site-audit-shared build
-pnpm --filter @barrel/site-audit-cli build
-cp .env.example .env
-```
-
-Open `.env` and paste in a Blob read/write token — Vercel dashboard → your project →
-Storage → the Blob store → `.env.local` tab → copy `BLOB_READ_WRITE_TOKEN`. That's the
-only credential the CLI needs. (`ANTHROPIC_API_KEY` in the same file is optional — it
-turns on the AI-written executive summary and the AI performance/accessibility
-suggestions list. `GITHUB_OAUTH_CLIENT_ID` is also optional — it turns on `link-repo` for
-pulling theme code straight from a GitHub repo instead of the Shopify CLI. It's a GitHub
-OAuth App Client ID, not a secret — see [Adding a store](#adding-a-store) below for the
-one-time setup.)
-
-**1. Run the audit** — just point it at the storefront's URL:
+**1. Install the CLI.** Needs **Node 22+**. The package is published to Barrel's private GitHub
+Packages registry, so npm has to be told where to look and who you are. Four lines, one time:
 
 ```
-pnpm barrel-audit run https://client-store.com
-# — or the shorter alias, which is exactly the same command —
-pnpm run audit https://client-store.com
+gh auth refresh -h github.com -s read:packages         # only if your gh token lacks the scope
+npm config set @barrel:registry https://npm.pkg.github.com
+npm config set //npm.pkg.github.com/:_authToken "$(gh auth token)"
+npm install -g @barrel/site-audit-cli
 ```
 
-That's it. This single command scaffolds a `stores/<slug>/` folder for you (from the
-hostname), runs every analyzer (Lighthouse performance/accessibility/SEO, site health,
-live pixel/consent audit, and — if theme code is present — theme code + structure
-checks), and uploads the finished report straight to Vercel Blob storage.
+No `gh` on your machine? `brew install gh && gh auth login` first — or create a classic GitHub
+token with `read:packages` at https://github.com/settings/tokens and paste it in place of
+`$(gh auth token)`.
 
-If it's a brand-new store with no theme code yet and `GITHUB_OAUTH_CLIENT_ID` is set, the
-CLI pauses first to ask whether you want to connect a GitHub repo — say yes and, the first
-time, it'll show a one-time code and a github.com link to approve in your browser (no
-token to paste); after that it fetches your repos, lets you pick one (type to search), and
-clones it straight into `stores/<slug>/theme/` before the audit runs. See
-[`link-repo`](#adding-a-store) below to do this on its own, any time.
-
-**2. View it** — open https://barrel-site-audit.vercel.app, sign in with your Barrel Google
-account, and the report is already there, at the top of the list. No deploy step, no waiting — it's
-live the moment step 1 finishes. The CLI also prints the exact report ID/URL when it's
-done.
-
-**3. (Optional) add the theme's code for deeper analysis.** Step 1 alone gives you
-performance, SEO, accessibility, site health, and pixel/consent findings — no theme code
-needed. To also get Theme Code Quality and Theme Structure findings, get the theme's
-Liquid source into `stores/<slug>/theme/` — pull it via the Shopify CLI, clone it from
-GitHub, or just copy/paste the files in yourself (unzip a theme export, drag files in
-Finder, whatever's fastest) — then (re-)run the audit:
+**2. Give it its credentials.**
 
 ```
-pnpm barrel-audit pull-theme <slug> --store <slug>.myshopify.com   # first time only, if pulling via Shopify CLI
-# — or, if the theme lives in a GitHub repo instead —
-pnpm barrel-audit link-repo <slug>                                 # prompts you to pick the repo
-pnpm barrel-audit run <slug>
+barrel-audit setup
 ```
 
-(`<slug>` is whatever `run` printed/created in step 1 — usually the store's hostname
-with dots replaced by dashes, e.g. `client-store-com`.) Re-run `pnpm barrel-audit run
-<slug>` any time to refresh the report — every run is saved as new history, nothing gets
-overwritten.
+It asks for one required thing: the **Vercel Blob read/write token**, which is what lets your runs
+publish reports to the dashboard. Get it from the Vercel dashboard → the `barrel-site-audit`
+project → Storage → the Blob store → `.env.local` tab, or ask in `#barrel`. Setup checks the token
+against Blob storage *before* saving anything, so a typo fails here rather than several minutes
+into an audit.
 
-That covers the common case end-to-end. The rest of this README is reference detail on
-each piece.
+It then offers two optional keys, each of which just adds sections to the report:
+`ANTHROPIC_API_KEY` (the AI-written executive summary, the client-ready recommendations, the fix
+suggestions, the theme architecture read) and `GITHUB_OAUTH_CLIENT_ID` (`link-repo`, which clones a
+store's theme straight from GitHub). Press Enter to skip either.
+
+Everything lands in `~/.barrel-audit/.env`, mode 600 — and that directory is where store data and
+config live too, so nothing is ever written into the repo you're standing in.
+
+```
+barrel-audit setup --check       # re-test what's configured, change nothing
+barrel-audit setup               # re-run any time to replace a key
+```
+
+Re-running rewrites only the keys it manages and leaves the rest of the file (and your comments)
+alone.
+
+**That's the install.** `barrel-audit --version` confirms it; `npm install -g
+@barrel/site-audit-cli@latest` upgrades it later.
+
+## Run a report
+
+Two ways in, same result: a report published to
+[barrel-site-audit.vercel.app](https://barrel-site-audit.vercel.app) the moment the run finishes.
+No deploy step, no commit, nothing to upload by hand.
+
+### From the terminal
+
+Point it at the storefront's URL:
+
+```
+barrel-audit run https://client-store.com
+```
+
+That's the whole command. It scaffolds a store folder for you (named from the hostname), runs
+every analyzer — Lighthouse performance/accessibility/SEO, site health, the live pixel/consent
+audit, the UX pass, and, if theme code is present, the theme code and structure checks — and
+uploads the finished report. A full run takes several minutes; it prints the report ID and URL
+when it's done.
+
+If it's a brand-new store with no theme code and `GITHUB_OAUTH_CLIENT_ID` is set, it pauses to ask
+whether to connect a GitHub repo first. Say yes and, the first time, it shows a one-time code and
+a github.com link to approve in your browser (no token to paste); after that it fetches your repos,
+lets you type to search, and clones the one you pick before the audit runs.
+
+### From the portal
+
+If you'd rather drive it from the browser — or hand it to someone who doesn't live in a terminal —
+leave the local agent running instead:
+
+```
+barrel-audit serve
+```
+
+It prints a token. Open
+[barrel-site-audit.vercel.app/run](https://barrel-site-audit.vercel.app/run), paste the token once,
+fill in the store and options, and press Run. The browser talks to the agent on `127.0.0.1`
+directly, so the audit runs on your machine (where Chrome and the theme code are) while the
+deployed site drives it and streams the log. The agent is bound to localhost only and is not
+reachable from your network.
+
+### Then view it
+
+Open [barrel-site-audit.vercel.app](https://barrel-site-audit.vercel.app) and sign in with your
+Barrel Google account. The new report is already at the top of the list. To send it to a client,
+press **Share** on any report page for a private 30-day link that needs no login.
+
+### Optional: theme code, for the deeper sections
+
+The steps above already cover performance, SEO, accessibility, site health, UX and pixel/consent
+findings — no theme code needed. Theme Code Quality and Theme Structure need the Liquid source. If
+you already have the repo cloned, that's a flag:
+
+```
+barrel-audit run https://client-store.com --local-repo .
+```
+
+(Run from inside the theme checkout and it's detected automatically — the flag is only for
+pointing somewhere else.) Otherwise pull a managed copy:
+
+```
+barrel-audit pull-theme <slug> --store <slug>.myshopify.com   # via the Shopify CLI
+barrel-audit link-repo <slug>                                 # or clone from GitHub
+barrel-audit run <slug>
+```
+
+`<slug>` is what `run` printed in the step above — usually the hostname with dots replaced by
+dashes, e.g. `client-store-com`. Re-run `barrel-audit run <slug>` any time to refresh; every run
+is saved as new history and nothing is overwritten.
+
+That covers it end to end. The rest of this README is reference detail on each piece.
 
 ## How it fits together
 
 ```
-barrel-site-audit/
+barrel-site-audit/                 (this repo — only needed to work on the tool)
   cli/      the barrel-audit CLI — runs analyzers, writes report JSON
   shared/   report types + scoring helpers shared by the CLI (source of truth)
   web/      Next.js report site, deployed to Vercel, behind Barrel Labs SSO
-  stores/   one folder per client store: config.json + theme/ (theme code you drop in)
   tools/    the test harness and build gate (`pnpm check`) — see docs/testing.md
+
+~/.barrel-audit/                   (per-machine data, created by `barrel-audit setup`)
+  .env                    your credentials, mode 600
+  sites.yml               the Privacy Compliance registry, if you scan the fleet
+  stores/<slug>/          one folder per store: config.json + theme/ + any in-progress fix
 ```
+
+**Nothing a run produces is versioned anywhere.** Reports go to Blob storage; store folders,
+pulled theme code and your `.env` stay on the machine that made them and are gitignored in the
+checkout too, so a `stores/` full of client work can never be committed or deployed by accident.
+The shared copy of a store's `config.json` lives in Blob, not git — which is how the dashboard and
+your teammates see a store you created, and how `barrel-audit run <slug>` works on a machine that
+has never seen that store.
 
 Blob storage holds three separate namespaces, deliberately: `reports/` for site audits, `consent/`
 for fleet privacy scans, and `cro/` for CRO audits. Each has its own index, and a report from one
@@ -106,21 +173,29 @@ Blob storage on every request (the manifest read always bypasses the CDN cache),
 report is live on the site **the moment the CLI finishes** — no redeploy, no commit.
 Redeploying `web/` is only needed when the app's own code changes.
 
-## One-time setup
+## Working on the tool itself
 
-Requires **Node 22+** (`sitespeed.io`, used by the optional `--sitespeed` flag, hard-requires it).
+Only needed to change the CLI or the web app — running audits needs nothing but the global
+install above. Requires **Node 22+** (`sitespeed.io`, used by the optional `--sitespeed` flag,
+hard-requires it).
 
 ```
+git clone https://github.com/barrel/barrel-site-audit-tool-cli.git
+cd barrel-site-audit-tool-cli
 pnpm install
 pnpm --filter @barrel/site-audit-shared build   # CLI depends on this
 pnpm --filter @barrel/site-audit-cli build
+barrel-audit setup                              # writes .env at the repo root, not ~/.barrel-audit
 ```
 
-Copy `.env.example` to `.env` at the **repo root** and fill in a Blob read/write token
-(Vercel dashboard → Storage → your Blob store → `.env.local` tab). The CLI loads this file
-automatically. `BLOB_READ_WRITE_TOKEN` is required for `pnpm barrel-audit run` and `pnpm barrel-audit list`
-to reach Blob storage; `ANTHROPIC_API_KEY` is optional and enables the AI-written executive
-summary (skipped cleanly if unset).
+Inside a checkout the CLI switches its data root to the repo root, so `.env` and `stores/` live
+here instead of `~/.barrel-audit/` — deliberately, so working on the tool never disturbs the
+install you use for real client work. Both are gitignored.
+
+`pnpm barrel-audit <args>` runs **your local build** (`cli/dist`) rather than the globally
+installed one; that's the only place the `pnpm` prefix is correct, and it works because this
+repo's root `package.json` defines the script. Everywhere else, call `barrel-audit` directly —
+see [Why there is no `pnpm` in front](#why-there-is-no-pnpm-in-front).
 
 The `web/` app needs these env vars (see `web/.env.example`):
 
@@ -193,11 +268,11 @@ request-access button instead of a wall.
 ## Adding a store
 
 ```
-pnpm barrel-audit init-store <slug> --url https://client-store.com --name "Client Name" [--shopify-domain <slug>.myshopify.com]
+barrel-audit init-store <slug> --url https://client-store.com --name "Client Name" [--shopify-domain <slug>.myshopify.com]
 ```
 
 This scaffolds `stores/<slug>/config.json` and `stores/<slug>/theme/`. You can also just
-run `pnpm barrel-audit run <url>` directly against a live URL — it auto-creates the store from
+run `barrel-audit run <url>` directly against a live URL — it auto-creates the store from
 the hostname.
 
 `stores/<slug>/theme/` is a plain folder — get theme code into it any of three ways:
@@ -205,7 +280,7 @@ the hostname.
 - **Pull it via the Shopify CLI:**
 
   ```
-  pnpm barrel-audit pull-theme <slug> --store <slug>.myshopify.com
+  barrel-audit pull-theme <slug> --store <slug>.myshopify.com
   ```
 
   (`--store` is only needed the first time — it's saved to `config.json`.) This opens a
@@ -214,7 +289,7 @@ the hostname.
 - **Clone it from a GitHub repo:**
 
   ```
-  pnpm barrel-audit link-repo <slug-or-url>
+  barrel-audit link-repo <slug-or-url>
   ```
 
   Like `run`, this accepts an existing store slug or a live URL directly (auto-creating
@@ -223,9 +298,9 @@ the hostname.
 
   Requires a one-time team setup: create a GitHub OAuth App (Settings → Developer
   settings → OAuth Apps → New OAuth App, at https://github.com/settings/developers),
-  enable **Device Flow** on it, and put its Client ID in `.env` as
-  `GITHUB_OAUTH_CLIENT_ID` (see `.env.example`) — no client secret needed, and the Client
-  ID isn't sensitive, so this is shared once across the team, not per-person.
+  enable **Device Flow** on it, and give its Client ID to `barrel-audit setup` (it's saved as
+  `GITHUB_OAUTH_CLIENT_ID`) — no client secret needed, and the Client ID isn't sensitive, so this
+  is one value shared across the team rather than per-person.
 
   The first time anyone runs `link-repo`, it prints a one-time code and a github.com link
   — open the link, enter the code, approve access, and you're done; the login is cached
@@ -240,13 +315,13 @@ the hostname.
 
 - **Or just copy/paste the files in yourself** — unzip a theme export, drag files in
   Finder, `cp -r` from a local checkout, whatever's fastest. No CLI step required; the
-  next `pnpm barrel-audit run <slug>` picks up whatever's in the folder.
+  next `barrel-audit run <slug>` picks up whatever's in the folder.
 
 - **Or point straight at a repo you already have cloned**, instead of copying anything
   into `theme/` at all:
 
   ```
-  pnpm barrel-audit run <slug-or-url> --local-repo /path/to/your/theme-checkout
+  barrel-audit run <slug-or-url> --local-repo /path/to/your/theme-checkout
   ```
 
   This is the option for a dev auditing (and fixing) their own working copy — see
@@ -261,7 +336,7 @@ Either way, `theme/` is gitignored — it's per-machine working state, not versi
 of copying it into `stores/<slug>/theme/`:
 
 ```
-pnpm barrel-audit run https://client-store.com --local-repo .
+barrel-audit run https://client-store.com --local-repo .
 ```
 
 The path is saved to that store's `config.json` (as `localThemeDir`), so later runs and
@@ -300,32 +375,12 @@ Nothing is committed or pushed automatically; review the diff with your own git 
 most conservative delivery option available — no branch, no PR, no chance of an
 AI-generated change reaching GitHub without a human in the loop first.
 
-## Installing the CLI outside this repo
+## Why there is no `pnpm` in front
 
-Day to day, `pnpm barrel-audit ...`/`pnpm run audit ...` from inside this checkout (as
-above) is the easiest way to run it. If you'd rather not clone `barrel-site-audit` at all
-— e.g. you just want `barrel-audit` available globally to run against your own theme
-repo — install the published package instead:
-
-```
-# one-time: point the @barrel scope at GitHub Packages and authenticate
-echo "@barrel:registry=https://npm.pkg.github.com" >> ~/.npmrc
-echo "//npm.pkg.github.com/:_authToken=$(gh auth token)" >> ~/.npmrc   # needs a token with read:packages
-
-npm install -g @barrel/site-audit-cli
-```
-
-From anywhere, that gives you the same `barrel-audit` command:
-
-```
-cd ~/code/some-client-theme-repo
-barrel-audit run https://client-store.com --local-repo .
-barrel-audit serve                                        # or drive it from the dashboard
-```
-
-Note there's no `pnpm` in front of these, and it matters more than it looks. `pnpm barrel-audit
-...` resolves the `barrel-audit` script from this repo's root `package.json`, so anywhere else it
-fails — and *how* it fails depends on where you are, which is what makes it confusing:
+Every command in this README is the bare `barrel-audit`, and that matters more than it looks.
+`pnpm barrel-audit ...` resolves the `barrel-audit` script from *this repo's* root
+`package.json`, so anywhere else it fails — and *how* it fails depends on where you are standing,
+which is what makes it confusing:
 
 - **In a folder with no `package.json`** you get `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`, which at
   least points at the real problem.
@@ -343,31 +398,34 @@ fails — and *how* it fails depends on where you are, which is what makes it co
   booleans. Nothing about that involves this tool, but every `pnpm barrel-audit ...` in that repo
   dies on it.
 
-So: call the global `barrel-audit` binary directly, with no `pnpm` in front. It doesn't depend on
-the theme's dependencies at all, so it's immune to the theme's install state. (There's also no
-`barrel-audit install` command; installing is the `npm install -g` step above.)
+So: call `barrel-audit` directly. The global binary doesn't touch the theme's dependencies at all,
+so it's immune to whatever state that install is in. (There's also no `barrel-audit install`
+command — installing is `npm install -g`, above.) The one exception is inside a
+`barrel-site-audit` checkout, where `pnpm barrel-audit ...` deliberately means "run my local
+build" — see [Working on the tool itself](#working-on-the-tool-itself).
 
-With no `barrel-site-audit` checkout on disk, config/store data lives in `~/.barrel-audit/`
-instead of `stores/` (created automatically), and env vars (`BLOB_READ_WRITE_TOKEN`,
-`ANTHROPIC_API_KEY`) load from `~/.barrel-audit/.env` if present, else the shell
-environment — create that file the same way you would `.env` at the repo root (see
-[One-time setup](#one-time-setup)).
+## Publishing a new CLI version
 
-**Publishing a new version** (maintainers): `shared` publishes first since `cli` depends
-on it.
+Maintainers only, and the step people forget: **most of Barrel runs the globally installed
+`barrel-audit`, so a CLI change that isn't published does not exist for them, however green
+`main` is.** That includes any new report section, since its data comes from a `cli/` analyzer
+even when it renders in `web/`. `shared` publishes first, because `cli` depends on it via
+`workspace:*` and a mismatch fails at runtime rather than at install.
 
 ```
 pnpm --filter @barrel/site-audit-shared build && pnpm --filter @barrel/site-audit-shared publish --no-git-checks
 pnpm --filter @barrel/site-audit-cli build && pnpm --filter @barrel/site-audit-cli publish --no-git-checks
 ```
 
-Requires the same `~/.npmrc` auth line as above, but with a token that has
-**`write:packages`** instead of (or in addition to) `read:packages`.
+Bump the version in each `package.json` first, and add an entry to `web/lib/release-notes.ts`.
+Publishing needs a token with **`write:packages`** (`gh auth refresh -h github.com -s
+write:packages,read:packages`), and it can't be undone. This project has no Vercel git
+integration, so pushing to `main` deploys nothing — a release is also a manual `pnpm web:deploy`.
 
 ## Running an audit
 
 ```
-pnpm barrel-audit run <slug-or-url>
+barrel-audit run <slug-or-url>
 ```
 
 Pass an existing store slug, or a live URL to auto-create a store from its hostname. This
@@ -592,7 +650,7 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   competitors at once (capped at 5 — each one runs a full local Chrome/Lighthouse/screenshot
   pass, so this bounds resource usage per run, not a third-party quota):
   ```
-  pnpm barrel-audit run <slug-or-url> --competitor https://competitor-a.com --competitor https://competitor-b.com
+  barrel-audit run <slug-or-url> --competitor https://competitor-a.com --competitor https://competitor-b.com
   ```
 - **Screenshots** — a full-page mobile screenshot of the homepage (and of each
   `--competitor` URL, when passed) is captured and stored in Vercel Blob, then shown
@@ -652,18 +710,22 @@ trigger bot-scoring.
 Other commands:
 
 ```
-pnpm barrel-audit list          # list stores and their past reports
-pnpm barrel-audit deploy        # deploy web/ to Vercel (preview)
-pnpm barrel-audit deploy --prod # deploy to production (no "--" before --prod — pnpm forwards
-                                 # a literal "--" into the CLI's argv here and Commander then
-                                 # drops --prod as a stray positional, silently deploying preview)
+barrel-audit setup         # write/repair this machine's credentials
+barrel-audit setup --check # test them without changing anything
+barrel-audit list          # list stores and their past reports
+barrel-audit deploy        # deploy web/ to Vercel (preview)
+barrel-audit deploy --prod # deploy to production
 ```
+
+(If you run these as `pnpm barrel-audit deploy --prod` from a checkout, don't put `--` before
+`--prod`: pnpm forwards a literal `--` into the CLI's argv and Commander then drops `--prod` as a
+stray positional, silently deploying preview.)
 
 ## The landing page
 
 A searchable, paginated (20/page) list of every report ever run, newest first, across
 all stores. Search matches store name, slug, or URL. Each report's detail page also
-links to other reports for the same store. `pnpm barrel-audit deploy` is only for
+links to other reports for the same store. `barrel-audit deploy` is only for
 shipping changes to the web app's own code (new sections, styling, etc.) — it's never
 needed just to publish a report.
 
@@ -684,7 +746,7 @@ and click **Run audit**. With **Theme code & structure** checked, the **Theme co
 is where you put the absolute path to a local theme checkout (the folder containing
 `layout/theme.liquid`) — it becomes `--local-repo` and is saved to the store, so it's entered once
 per store. Leave it blank to use whatever the store already has; leave it blank with nothing there
-and the run stops in its first second rather than producing a report with no code findings in it. It POSTs to `/api/run`, which spawns `pnpm barrel-audit run ...` as a
+and the run stops in its first second rather than producing a report with no code findings in it. It POSTs to `/api/run`, which spawns the checkout's own CLI build as a
 real local child process (args passed as an array, never through a shell, so nothing you type
 can inject extra flags) and streams the CLI's own stdout/stderr straight into the page as it
 runs; once it finishes, a "View report" link appears automatically.
@@ -731,8 +793,7 @@ Lighthouse/Chrome passes on one machine would fight over the same resources.
 ### Running it from the deployed dashboard
 
 ```
-pnpm barrel-audit serve [--port 5757]     # from inside this checkout
-barrel-audit serve [--port 5757]          # or anywhere, with the CLI installed globally
+barrel-audit serve [--port 5757]     # from any directory
 ```
 
 Starts a small local HTTP agent bound to `127.0.0.1` only (never your network) and prints a
@@ -772,9 +833,9 @@ It runs in two passes, split by what each one physically needs.
 
 ```bash
 # Pass 1 — needs a real browser, so it runs on your machine.
-pnpm barrel-audit cro https://client-store.com
-pnpm barrel-audit cro <slug> --competitor https://rival.com --competitor https://other.com
-pnpm barrel-audit cro <slug> --groups home,pdp --devices mobile --skip-competitors
+barrel-audit cro https://client-store.com
+barrel-audit cro <slug> --competitor https://rival.com --competitor https://other.com
+barrel-audit cro <slug> --groups home,pdp --devices mobile --skip-competitors
 ```
 
 That walks the nav, home, collection, product and cart page types at a phone width and a laptop
@@ -829,11 +890,12 @@ real — reject, accept, analytics-only, returning visitor — and asserts that 
 and start, rather than only checking that a banner exists.
 
 ```bash
-pnpm barrel-audit consent-scan                      # every active site in sites.yml
-pnpm barrel-audit consent-scan waterloo             # one registry entry, by slug
-pnpm barrel-audit consent-scan https://example.com  # ad hoc, not in the registry
-pnpm barrel-audit consent-scan --inventory          # which CMP is where — fast, presence only
-pnpm barrel-audit consent-scan --seed               # draft sites.yml from stores/
+barrel-audit consent-scan                      # every active site in sites.yml
+barrel-audit consent-scan waterloo             # one registry entry, by slug
+barrel-audit consent-scan https://example.com  # ad hoc, not in the registry
+barrel-audit consent-scan --inventory          # which CMP is where — fast, presence only
+barrel-audit consent-scan --seed               # draft sites.yml from stores/
+barrel-audit consent-scan cabot --no-tag-inventory   # skip the per-vendor table and its AI pass
 ```
 
 32 tests across 8 suites, run in five fresh incognito browser states plus a Global Privacy Control
@@ -848,7 +910,44 @@ terminal. It is derived from the stored scan, so archived reports show it withou
 its ratio counts only checks that reached a verdict — a site whose states were unreachable cannot
 present as a clean sweep.
 
-The list of sites to scan lives in `sites.yml` at the repo root — a reviewed file, seeded from
+### The cookie & script inventory
+
+Alongside the pass/fail suites, each scan produces a **vendor inventory** — the "take stock of
+everything that fires" deliverable, one row per vendor:
+
+| Column | Where it comes from |
+|---|---|
+| Vendor and purpose | The catalogue; a model writes the purpose for vendors not in it, and the row is labelled `inferred` |
+| How it loads | Hardcoded in the theme, injected by a named GTM container, or a Shopify web pixel — read from the CDP initiator chain and the document |
+| Cookies & storage | Cookies plus the localStorage/sessionStorage keys a cookie banner doesn't govern |
+| What the CMP says | The declared classification, read off the script tags the CMP gates (`osano/blocked`, `data-cookieconsent`, `optanon-category-*`, `data-cookieyes`) |
+| Classified correctly? | That declaration compared against observed behaviour |
+| Fires before / despite consent? | Which of the five states it transmitted in |
+| Severity, recommended fix | Graded from the behaviour; the fix wording is written by a model |
+
+Vendors are discovered from live traffic rather than matched against the tracker catalogue, so the
+uncatalogued ones — usually the majority on a real storefront, and the ones nobody has accounted
+for — appear too. It also reads Shopify's own **web pixel registry**, because `privacyPurposes` is
+the only place the platform records whether a pixel is gated on consent and an empty list means
+Shopify runs it whatever the visitor chose. No CMP setting can change that, so those get their own
+table.
+
+Every column except the purposes and the fix wording is a restatement of an observation. The model
+is never allowed to set a verdict: `classifiedCorrectly`, `firesBeforeConsent` and `severity` are
+computed from the capture, because those are the claims a client forwards to a vendor. When no
+ruleset could be read the classification column says so once, at the top, and reports nothing about
+the client's configuration — "we couldn't see it" and "they got it wrong" are different findings.
+
+The section ends with an ordered **fix plan** and, kept structurally separate, **compliant ways to
+collect more** — server-side tagging, Consent Mode v2 modelling, consented first-party identifiers.
+Those are not compliance fixes and the report says so; where one depends on a fix landing first it
+names the step.
+
+The per-site report offers the whole thing as an **Inventory CSV**, which is what actually gets it
+into the Google Sheet a client asks for.
+
+The list of sites to scan lives in `sites.yml` in the data root (`~/.barrel-audit/sites.yml`, or
+the repo root inside a checkout) — a reviewed file, seeded from
 `stores/` and hand-completed once. A theme repo almost never contains its own production domain,
 so that one pass is unavoidable; `--seed --from-repos` at least lists the repos it couldn't place.
 
