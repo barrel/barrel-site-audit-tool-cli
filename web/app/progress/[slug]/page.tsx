@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/format";
 import { SiteFavicon } from "@/components/SiteFavicon";
 import { ScoreSparkline } from "@/components/ScoreSparkline";
 import { DeltaBadge } from "@/components/DeltaBadge";
+import { compareScoredAreas } from "@/lib/shared";
 import { GradePill } from "@/components/ScoreBadge";
 import { BaselineButton } from "@/components/BaselineButton";
 
@@ -56,6 +57,10 @@ export default async function StoreProgressPage({ params }: { params: Promise<{ 
           {newestFirst.map((r) => {
             const delta = r.overallScore - group.baseline.overallScore;
             const isBaselineRow = r.id === group.baseline.id;
+            // Two overall scores are only subtractable when they averaged the same areas — see
+            // compareScoredAreas. A run with extra --skip flags is a different measurement, not a
+            // worse site.
+            const comparability = compareScoredAreas(r.scoredAreas, group.baseline.scoredAreas);
             return (
               <div key={r.id} className="flex items-center gap-4 px-5 py-3">
                 <div className="text-[11px] text-[#9A9A9A] shrink-0 tabular-nums w-40">{formatDate(r.createdAt)}</div>
@@ -67,7 +72,7 @@ export default async function StoreProgressPage({ params }: { params: Promise<{ 
                       Baseline
                     </span>
                   ) : (
-                    <DeltaBadge delta={delta} />
+                    <DeltaBadge delta={delta} comparability={comparability} />
                   )}
                 </div>
                 <BaselineButton slug={slug} id={r.id} isBaseline={Boolean(r.isBaseline)} />

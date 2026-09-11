@@ -1,5 +1,5 @@
 import { nanoid } from "nanoid";
-import { average, consentScreenshotBlobPath, reportBlobPath, type AiUsage, type Report, type StoreConfig } from "@barrel/site-audit-shared";
+import { consentScreenshotBlobPath, reportBlobPath, type AiUsage, type Report, type StoreConfig } from "@barrel/site-audit-shared";
 import { analyzeCode, themeDirHasContent } from "../analyzers/code.js";
 import { analyzePerformance } from "../analyzers/performance.js";
 import { analyzeAccessibility } from "../analyzers/accessibility.js";
@@ -28,6 +28,7 @@ import { normalizeAuditUrl } from "../url.js";
 import { appendToManifest } from "./manifest.js";
 import { finishRunRecord, runnerInfo, startRunRecord, updateRunStage } from "./run-record.js";
 import { createCoverageTracker, SLOW_ANALYZER_TIMEOUT_MS } from "./coverage.js";
+import { buildScoreBreakdown } from "./score.js";
 
 export interface RunOptions {
   skipCode?: boolean;
@@ -402,30 +403,10 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
         reason: "It is derived from the theme code, performance and theme structure sections, none of which ran.",
       };
 
-  const scores: number[] = [];
-  if (sections.code) scores.push(sections.code.score);
-  if (sections.themeStructure) scores.push(sections.themeStructure.score);
-  if (sections.performance) {
-    scores.push(
-      sections.performance.performance.score,
-      sections.performance.accessibility.score,
-      sections.performance.bestPractices.score,
-      sections.performance.seo.score,
-    );
-  }
-  if (sections.accessibility) scores.push(sections.accessibility.score);
-  if (sections.sitespeed) scores.push(sections.sitespeed.score);
-  if (sections.health) scores.push(sections.health.score);
-  if (sections.pixels) scores.push(sections.pixels.score);
-  // Skipped rather than counted as zero: a section we could not test should not drag the overall
-  // score down as if it had failed.
-  if (sections.consent && sections.consent.score !== null) scores.push(sections.consent.score);
-  if (sections.security && sections.security.score !== null) scores.push(sections.security.score);
-  if (sections.geoSeo) scores.push(sections.geoSeo.healthRating);
-  if (sections.agentReadiness) scores.push(sections.agentReadiness.score);
-  if (sections.ux) scores.push(sections.ux.score);
-
-  const overallScore = average(scores);
+  // One list, in score.ts, rather than a chain of pushes here — and it records what it averaged,
+  // so two reports can be told apart from two reports of the same thing.
+  const scoreBreakdown = buildScoreBreakdown(sections);
+  const overallScore = scoreBreakdown.score;
 
   const report: Report = {
     id,
@@ -435,6 +416,7 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
     createdAt: new Date().toISOString(),
     durationMs: Date.now() - start,
     overallScore,
+    scoreBreakdown,
     sections,
     coverage: track.coverage,
     runner: runnerInfo(),
@@ -512,6 +494,7 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
     storeUrl: store.url,
     createdAt: report.createdAt,
     overallScore,
+    scoredAreas: scoreBreakdown.contributors.map((c) => c.id),
     runner: report.runner,
   });
 

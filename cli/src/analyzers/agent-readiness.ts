@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { AgentReadinessSection, HealthCheckItem, HealthStatus, ThemeConcern } from "@barrel/site-audit-shared";
+import { CHECKLIST_WEIGHTS } from "@barrel/site-audit-shared";
 import {
   AI_CRAWLERS,
   collectSchemaNodes,
@@ -334,7 +335,7 @@ export async function analyzeAgentReadiness(url: string): Promise<AgentReadiness
     );
 
     const checks = [crawlerCheck, commerceDataCheck, skuSchemaCheck, policyCheck, sizeCheck, driftCheck];
-    const weights: Record<HealthStatus, number> = { pass: 100, warn: 55, fail: 0 };
+    const weights: Record<HealthStatus, number> = CHECKLIST_WEIGHTS;
     const score = Math.round(checks.reduce((sum, c) => sum + weights[c.status], 0) / checks.length);
 
     return {

@@ -1,4 +1,4 @@
-import { colorForScore, gradeForScore } from "@/lib/shared";
+import { COMPLIANCE_BAND_LABEL, colorForComplianceScore, colorForScore, complianceBand, gradeForScore } from "@/lib/shared";
 
 const SIZE_CONFIG = {
   sm: { box: 36, stroke: 3.5, text: "text-xs" },
@@ -49,6 +49,28 @@ export function GradePill({ score }: { score: number }) {
       style={{ backgroundColor: `${color}1A`, color }}
     >
       {grade}
+    </span>
+  );
+}
+
+/** The compliance counterpart to GradePill, for the consent and security scores.
+ *
+ * Those two do not use the A-F scale and never did — scoring.ts's complianceBand says so, and the
+ * fleet pages have always rendered them this way. Inside a report they were being run through
+ * GradePill anyway, so a consent score of 65 read "Healthy" on /consent and **D** on the report
+ * page: same number, same store, two verdicts. A compliance score is a weighted proportion of what
+ * could be confirmed rather than a percentage of a fixed total, and one unresolved blocker scales
+ * it into the bottom half by design — grading that on a curve built for Lighthouse turns an
+ * intended reading into a failing letter. */
+export function CompliancePill({ score }: { score: number }) {
+  const color = colorForComplianceScore(score);
+  return (
+    <span
+      className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+      style={{ backgroundColor: `${color}1A`, color }}
+      title="Compliance scores use their own scale — 60+ healthy, 30+ improving — not the A-F grade the Lighthouse-derived numbers use."
+    >
+      {COMPLIANCE_BAND_LABEL[complianceBand(score)]}
     </span>
   );
 }

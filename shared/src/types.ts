@@ -779,6 +779,39 @@ export type SectionKey = keyof ReportSections;
  * distinguish "this run predates coverage" from "this run forgot a section". */
 export type ReportCoverage = Partial<Record<SectionKey, SectionCoverage>>;
 
+/* ── Scoring ────────────────────────────────────────────────────────────────────────────────
+ * What the headline number was actually an average of.
+ */
+
+/** One scored area — the unit `overallScore` averages.
+ *
+ * `id` rather than a section key because the two are not one-to-one: the Lighthouse pass alone
+ * contributes four of them, so keying on `performance` would silently collapse four numbers into
+ * one and change the average. */
+export interface ScoreContributor {
+  id: string;
+  label: string;
+  section: SectionKey;
+  score: number;
+}
+
+/** Why `overallScore` alone is not enough.
+ *
+ * It is an average over whatever happened to produce a number: a run with four `--skip-*` flags
+ * averaged six values, a full run averaged thirteen, and both were stored as a bare integer with
+ * nothing recording the denominator. Baseline & Reporting then differenced one against the other
+ * as though they were the same measurement.
+ *
+ * Two reports are comparable when their contributor `id` sets match. That is a fact about the run,
+ * so it is recorded by the run rather than guessed at afterwards. */
+export interface ScoreBreakdown {
+  score: number;
+  contributors: ScoreContributor[];
+  /** Areas that would have counted had their section produced a number. Named rather than merely
+   * absent, so a reader can see what the score does not cover without knowing the full list. */
+  missing: Omit<ScoreContributor, "score">[];
+}
+
 export interface AiUsage {
   model: string;
   inputTokens: number;
@@ -806,7 +839,13 @@ export interface Report {
   storeUrl: string;
   createdAt: string;
   durationMs: number;
+  /** The headline number. Kept as a bare integer because every archived report, the manifest and
+   * the history dropdown are keyed off it; `scoreBreakdown` is what says whether two of them mean
+   * the same thing. */
   overallScore: number;
+  /** What `overallScore` was averaged from. Absent on reports written before it was recorded —
+   * and those cannot be safely compared to anything, which is the point. */
+  scoreBreakdown?: ScoreBreakdown;
   sections: ReportSections;
   /** What every analyzer did, including the ones that produced nothing. Absent on reports written
    * before coverage existed — and absent is not the same as empty: for those, nothing is known
@@ -825,6 +864,10 @@ export interface ManifestEntry {
   storeUrl: string;
   createdAt: string;
   overallScore: number;
+  /** The contributor ids `overallScore` was averaged from, so progress views can tell a
+   * like-for-like comparison from a misleading one without fetching every report blob. Absent on
+   * entries written before score breakdowns existed. */
+  scoredAreas?: string[];
   /** Marks this report as the reference point for progress tracking — at most one
    * per storeSlug, set/cleared from the web app, never touched by the CLI. */
   isBaseline?: boolean;

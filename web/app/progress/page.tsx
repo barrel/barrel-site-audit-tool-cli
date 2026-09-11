@@ -5,6 +5,7 @@ import { formatDate } from "@/lib/format";
 import { SiteFavicon } from "@/components/SiteFavicon";
 import { ScoreSparkline } from "@/components/ScoreSparkline";
 import { DeltaBadge } from "@/components/DeltaBadge";
+import { compareScoredAreas } from "@/lib/shared";
 import { GradePill } from "@/components/ScoreBadge";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ export default async function ProgressPage() {
             {groups.map((g) => {
               const latest = g.reports[g.reports.length - 1];
               const delta = latest.overallScore - g.baseline.overallScore;
+              const comparability = compareScoredAreas(latest.scoredAreas, g.baseline.scoredAreas);
               const hasExplicitBaseline = g.reports.some((r) => r.isBaseline);
               return (
                 <Link
@@ -64,7 +66,7 @@ export default async function ProgressPage() {
                   </div>
 
                   <GradePill score={latest.overallScore} />
-                  {g.reports.length > 1 && <DeltaBadge delta={delta} />}
+                  {g.reports.length > 1 && <DeltaBadge delta={delta} comparability={comparability} />}
                 </Link>
               );
             })}

@@ -9,6 +9,7 @@ import type {
   SeoOpportunity,
   SeoSection,
 } from "@barrel/site-audit-shared";
+import { CHECKLIST_WEIGHTS } from "@barrel/site-audit-shared";
 
 export async function safeFetch(url: string): Promise<Response | null> {
   try {
@@ -371,7 +372,7 @@ export async function analyzeGeoSeo(url: string): Promise<GeoSeoSection | null> 
           : `${origin}/products.json is not reachable.`,
       ),
     ];
-    const checkWeights: Record<HealthStatus, number> = { pass: 100, warn: 55, fail: 0 };
+    const checkWeights: Record<HealthStatus, number> = CHECKLIST_WEIGHTS;
     const geoChecksScore = checks.reduce((sum, c) => sum + checkWeights[c.status], 0) / checks.length;
 
     // --- Agentic commerce & AI-discoverability best-practices verdict table ---

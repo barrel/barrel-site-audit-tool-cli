@@ -12,7 +12,7 @@ import {
   runRecordBlobPath,
   storeConfigBlobPath,
 } from "../src/blob-paths.js";
-import { average, colorForScore, gradeForScore, complianceBand, colorForComplianceScore, COMPLIANCE_BAND_LABEL} from "../src/scoring.js";
+import { average, colorForScore, gradeForScore, complianceBand, colorForComplianceScore, COMPLIANCE_BAND_LABEL, CHECKLIST_WEIGHTS, compareScoredAreas} from "../src/scoring.js";
 
 describe("gradeForScore", () => {
   it("uses the documented cutoffs, inclusive at the boundary", () => {
@@ -125,5 +125,33 @@ describe("complianceBand — the compliance scores use their own scale", () => {
     for (const score of [0, 30, 60, 100]) {
       assert.ok(COMPLIANCE_BAND_LABEL[complianceBand(score)]);
     }
+  });
+});
+
+describe("compareScoredAreas", () => {
+  it("calls two runs comparable only when they scored the same areas", () => {
+    assert.equal(compareScoredAreas(["health", "ux"], ["ux", "health"]), "comparable", "order is not part of the set");
+    assert.equal(compareScoredAreas(["health", "ux"], ["health"]), "different");
+    assert.equal(compareScoredAreas(["health", "ux"], ["health", "axe"]), "different");
+  });
+
+  // Reports written before contributor sets existed carry no list. Refusing to compare all of the
+  // existing history would overstate how little is known, so this is a third answer rather than a
+  // "different".
+  it("says unknown when either side predates the record", () => {
+    assert.equal(compareScoredAreas(undefined, ["health"]), "unknown");
+    assert.equal(compareScoredAreas(["health"], undefined), "unknown");
+    assert.equal(compareScoredAreas(undefined, undefined), "unknown");
+  });
+});
+
+describe("CHECKLIST_WEIGHTS", () => {
+  // Four sections score pass/warn/fail checklists and are then averaged together. Health used 60
+  // while the other three used 55, so a warn was worth more in one quarter of the overall score
+  // than in the other three.
+  it("is one scale, with warn between fail and pass", () => {
+    assert.equal(CHECKLIST_WEIGHTS.pass, 100);
+    assert.equal(CHECKLIST_WEIGHTS.fail, 0);
+    assert.ok(CHECKLIST_WEIGHTS.warn > CHECKLIST_WEIGHTS.fail && CHECKLIST_WEIGHTS.warn < CHECKLIST_WEIGHTS.pass);
   });
 });

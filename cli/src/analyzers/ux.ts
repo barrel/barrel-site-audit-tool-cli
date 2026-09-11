@@ -1,5 +1,6 @@
 import * as chromeLauncher from "chrome-launcher";
 import type { AiUsage, HealthCheckItem, HealthStatus, UxOpportunity, UxSection } from "@barrel/site-audit-shared";
+import { CHECKLIST_WEIGHTS } from "@barrel/site-audit-shared";
 // The deterministic signal half of this analyzer now lives in cro/signals.ts, where the CRO
 // audit reads it too. Two copies of "what counts as a trust badge" would have drifted, and this
 // analyzer's two-page verdict has to agree with the CRO tool's sweep of the same storefront.
@@ -212,7 +213,7 @@ export async function analyzeUx(baseUrl: string): Promise<UxAnalysisResult | nul
 
       if (checks.length === 0) return null;
 
-      const checkWeights: Record<HealthStatus, number> = { pass: 100, warn: 55, fail: 0 };
+      const checkWeights: Record<HealthStatus, number> = CHECKLIST_WEIGHTS;
       const score = Math.round(checks.reduce((sum, c) => sum + checkWeights[c.status], 0) / checks.length);
 
       const signalsSummary = checks.map((c) => `- ${c.label}: ${c.status} — ${c.detail}`).join("\n");

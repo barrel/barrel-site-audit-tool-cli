@@ -700,6 +700,23 @@ export type SectionKey = keyof ReportSections;
  * for those, nothing is known about what ran. */
 export type ReportCoverage = Partial<Record<SectionKey, SectionCoverage>>;
 
+/** One scored area — the unit `overallScore` averages. `id` rather than a section key because the
+ * Lighthouse pass alone contributes four of them. */
+export interface ScoreContributor {
+  id: string;
+  label: string;
+  section: SectionKey;
+  score: number;
+}
+
+/** What the headline number was actually an average of. Two reports are comparable when their
+ * contributor `id` sets match — a fact about the run, recorded by the run. */
+export interface ScoreBreakdown {
+  score: number;
+  contributors: ScoreContributor[];
+  missing: Omit<ScoreContributor, "score">[];
+}
+
 export interface AiUsage {
   model: string;
   inputTokens: number;
@@ -716,6 +733,9 @@ export interface Report {
   createdAt: string;
   durationMs: number;
   overallScore: number;
+  /** What `overallScore` was averaged from. Absent on reports written before it was recorded —
+   * and those cannot be safely compared to anything, which is the point. */
+  scoreBreakdown?: ScoreBreakdown;
   sections: ReportSections;
   /** What every analyzer did, including the ones that produced nothing. Absent on reports written
    * before coverage existed. */
@@ -730,6 +750,10 @@ export interface ManifestEntry {
   storeUrl: string;
   createdAt: string;
   overallScore: number;
+  /** The contributor ids `overallScore` was averaged from, so progress views can tell a
+   * like-for-like comparison from a misleading one without fetching every report blob. Absent on
+   * entries written before score breakdowns existed. */
+  scoredAreas?: string[];
   /** Marks this report as the reference point for progress tracking — at most one
    * per storeSlug, set/cleared from the web app, never touched by the CLI. */
   isBaseline?: boolean;
@@ -1229,6 +1253,26 @@ export function colorForScore(score: number): string {
   if (score >= 70) return "#D97706"; // C
   if (score >= 50) return "#EA580C"; // D
   return "#B91C1C"; // F
+}
+
+export type ScoreComparability = "comparable" | "different" | "unknown";
+
+/** Whether two headline scores describe the same measurement.
+ *
+ * `overallScore` is an average over whichever areas produced a number, so a run made with
+ * `--skip-axe --skip-ux` and a full run of the same store are two different quantities that look
+ * like one. Differencing them — which Baseline & Reporting did — reports a change in coverage as a
+ * change in the site.
+ *
+ * `unknown` is a real third answer, not a failure. Reports written before contributor sets were
+ * recorded carry no list, and the honest thing is to show the delta while saying it is unverified:
+ * refusing to compare all of the existing history would be a different kind of lie about how much
+ * is known. */
+export function compareScoredAreas(a: string[] | undefined, b: string[] | undefined): ScoreComparability {
+  if (!a || !b) return "unknown";
+  if (a.length !== b.length) return "different";
+  const seen = new Set(a);
+  return b.every((id) => seen.has(id)) ? "comparable" : "different";
 }
 
 export type ComplianceBand = "at-risk" | "improving" | "healthy";

@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import type { HealthCheckItem, HealthSection, HealthStatus } from "@barrel/site-audit-shared";
+import { CHECKLIST_WEIGHTS } from "@barrel/site-audit-shared";
 import { extractSchemaTypes } from "./geo-seo.js";
 
 async function safeFetch(url: string, init?: RequestInit) {
@@ -195,7 +196,7 @@ export async function analyzeHealth(url: string): Promise<HealthSection> {
         ),
   );
 
-  const weights: Record<HealthStatus, number> = { pass: 100, warn: 60, fail: 0 };
+  const weights: Record<HealthStatus, number> = CHECKLIST_WEIGHTS;
   const score = Math.round(checks.reduce((sum, c) => sum + weights[c.status], 0) / checks.length);
 
   return { score, checks };

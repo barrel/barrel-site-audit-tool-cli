@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { GradePill } from "@/components/ScoreBadge";
+import { CompliancePill, GradePill } from "@/components/ScoreBadge";
 import { StatTile } from "@/components/StatTile";
 import { ReportSection } from "@/components/ReportSection";
 import { MeterGrid } from "@/components/MeterGrid";
@@ -917,7 +917,7 @@ export function buildReportSections(report: Report): SectionDef[] {
       label: "Privacy Compliance",
       category: "theme",
       render: (n) => (
-        <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={consent.score === null ? undefined : <GradePill score={consent.score} />}>
+        <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={consent.score === null ? undefined : <CompliancePill score={consent.score} />}>
           <ConsentAudit section={consent} />
         </ReportSection>
       ),
@@ -937,7 +937,7 @@ export function buildReportSections(report: Report): SectionDef[] {
           title="Security & Compliance"
           // No pill at all when the score is null, rather than a zero: too little was confirmed to
           // put a number on, and a 0 would read as a verdict on the site instead of on the scan.
-          action={security.score === null ? undefined : <GradePill score={security.score} />}
+          action={security.score === null ? undefined : <CompliancePill score={security.score} />}
         >
           <SecurityAudit section={security} />
         </ReportSection>
