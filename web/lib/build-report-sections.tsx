@@ -94,6 +94,19 @@ export const CATEGORY_LABELS: Record<ReportCategory, string> = {
  * (see ReportCategory). Shared by the Overview page, each category page, and the "All" page
  * (which just renders every section this returns, in order) — one source of truth for the
  * report's content so the pages can't drift out of sync with each other. */
+/** Stands in for the executive summary on a run made without one.
+ *
+ * It used to say the grade was "across the areas analyzed below", which was two claims and both
+ * could be wrong: the score averages whichever areas produced a number, not everything on the
+ * page, and several of those sections no longer render below it. */
+function fallbackOverview(report: Report): string {
+  const scored = report.scoreBreakdown?.contributors.length;
+  const total = scored === undefined ? undefined : scored + (report.scoreBreakdown?.missing.length ?? 0);
+  const coverage =
+    scored === undefined ? "the areas it measured" : `${scored} of the ${total} areas an audit can score`;
+  return `This audit produced an overall grade of ${report.overallScore}/100, averaged across ${coverage}. No executive summary was written for this run.`;
+}
+
 export function buildReportSections(report: Report): SectionDef[] {
   const { sections } = report;
 
@@ -138,8 +151,7 @@ export function buildReportSections(report: Report): SectionDef[] {
           <div className="flex flex-col lg:flex-row gap-8">
             <div className="max-w-[720px] flex-1">
               <p className="text-[15px] text-[#1A1A1A] leading-relaxed">
-                {sections.summary?.overview ??
-                  `This audit produced an overall grade of ${report.overallScore}/100 across the areas analyzed below.`}
+                {sections.summary?.overview ?? fallbackOverview(report)}
               </p>
               {sections.summary && sections.summary.keyFindings.length > 0 && (
                 <ul className="space-y-2 mt-4">
