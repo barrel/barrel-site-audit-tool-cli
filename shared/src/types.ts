@@ -227,6 +227,10 @@ export interface AnalyticsSection {
   transactions: number;
   conversionRate: number;
   revenue: number;
+  /** Revenue over orders. Deliberately **not** GA4's `averagePurchaseRevenue`, which is revenue
+   * per active user and is a different (smaller) number that nobody means by "average order
+   * value" — and which this section used to report, while the Data Analysis tab computed it
+   * correctly, so one report showed two AOVs for one store. */
   averageOrderValue: number;
   channels: AnalyticsBreakdownRow[];
   devices: AnalyticsBreakdownRow[];

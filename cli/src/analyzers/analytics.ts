@@ -43,7 +43,11 @@ export async function analyzeAnalytics(propertyId: string | undefined): Promise<
     const client = new BetaAnalyticsDataClient({ credentials });
 
     const property = `properties/${propertyId}`;
-    const dateRanges = [{ startDate: "28daysAgo", endDate: "today" }];
+    // Ends yesterday, not today. Today is a partial day whose sessions are counted in full while
+    // its purchases have mostly not happened yet, which drags every rate computed off it down —
+    // and the Data Analysis tab has always used this window, so including today here made the same
+    // store show two different session counts on two tabs of one report.
+    const dateRanges = [{ startDate: "28daysAgo", endDate: "yesterday" }];
 
     const [overview] = await client.runReport({
       property,
@@ -53,7 +57,6 @@ export async function analyzeAnalytics(propertyId: string | undefined): Promise<
         { name: "totalUsers" },
         { name: "transactions" },
         { name: "purchaseRevenue" },
-        { name: "averagePurchaseRevenue" },
       ],
     });
 
@@ -62,7 +65,11 @@ export async function analyzeAnalytics(propertyId: string | undefined): Promise<
     const totalUsers = metricValue(row, 1);
     const transactions = metricValue(row, 2);
     const revenue = metricValue(row, 3);
-    const averageOrderValue = metricValue(row, 4);
+    // Revenue over orders, not GA4's `averagePurchaseRevenue` — which is revenue per active user,
+    // a different and smaller number that nobody means by "average order value". The Data Analysis
+    // tab computed it this way already, so the report and the tab used to disagree about the same
+    // store's AOV.
+    const averageOrderValue = transactions > 0 ? Math.round((revenue / transactions) * 100) / 100 : 0;
     const conversionRate = sessions > 0 ? Math.round((transactions / sessions) * 10000) / 100 : 0;
 
     const [channelReport] = await client.runReport({
@@ -84,7 +91,7 @@ export async function analyzeAnalytics(propertyId: string | undefined): Promise<
 
     return {
       propertyId,
-      dateRangeLabel: "Last 28 days",
+      dateRangeLabel: "Last 28 complete days",
       sessions,
       totalUsers,
       transactions,
