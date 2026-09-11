@@ -586,7 +586,7 @@ function devFixSlide(report: Report): DeckSlide | null {
         cells: [item.scope, `${item.severity[0].toUpperCase()}${item.severity.slice(1)}`, item.effort],
       })),
     },
-    footnote: "The full list, with the fix for each one, is on the report's Dev To-Do tab.",
+    footnote: "The full list, with the fix for each one, is on the report's Developer tab.",
   };
 }
 

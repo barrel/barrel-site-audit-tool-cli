@@ -523,7 +523,7 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   blocks/app-block support, metafields, settings-schema quality), any other architectural concerns
   beyond raw lint errors, and the opportunities a file scan can't find (a pattern repeated across
   sections, render-blocking script loading, state that wants to be a metaobject) — it is told what
-  the scan already found and asked not to restate it. All of which feed the Roadmap/Dev To-Do list
+  the scan already found and asked not to restate it. All of which feed the Roadmap/Developer list
   like any other finding. Requires `ANTHROPIC_API_KEY`; skip with `--skip-theme-architecture`.
 - **Performance** — Lighthouse across the shopping journey: the CLI auto-discovers a
   Home, Collection (`/collections/all`), Product (via the store's public
@@ -535,12 +535,12 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   console errors logged during that homepage/mobile run (Lighthouse's own `errors-in-console`
   audit detail rows — network failures, CSP/MIME violations, uncaught JS exceptions), shown
   as their own "Console Errors" area in the **Trust & Privacy** section with the affected
-  file/line where available, each feeding the Roadmap/Dev To-Do list. Also captures Lighthouse's
+  file/line where available, each feeding the Roadmap/Developer list. Also captures Lighthouse's
   **Agentic Browsing** category (ships by default from `lighthouse@13.3+`, requires a recent
   enough local Chrome) — how well an AI browsing agent (not a search crawler) can navigate and
   act on the homepage: agent-facing accessibility-tree quality, WebMCP integration, layout
   stability, and an `llms.txt`. Scored as a pass/total fraction rather than 0-100 (Google's own
-  wording: "still under development and subject to change"), shown in Site Vitals as its own
+  wording: "still under development and subject to change"), shown in SEO/GEO/AEO as its own
   checklist and deliberately excluded from `overallScore`. Absent entirely on older/incompatible
   Chrome, or on reports run before this field existed.
 - **Accessibility (axe-core)** — a second, independent accessibility signal: an automated
@@ -549,7 +549,7 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   (keyboard traps, ARIA misuse on widgets that render after first paint, etc.). Reported
   alongside the Lighthouse accessibility score, plus a WCAG-category readiness checklist
   (axe's own `cat.*` taxonomy — one row per category) and every violation as an actionable
-  finding (rule, affected elements, WCAG guidance link) feeding the Roadmap/Dev To-Do list.
+  finding (rule, affected elements, WCAG guidance link) feeding the Roadmap/Developer list.
   Throttled the same way as the UX audit below (single browser session, sequential loads,
   randomized pause, normal desktop UA). Skip with `--skip-axe`.
 - **ADA Scope Checker** *(opt-in, needs a scope to check)* — verifies a client's own scoped
@@ -572,7 +572,7 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   are detected and reported as the finding rather than as a page full of unreachable controls,
   and a pass that runs out of key presses is reported as unfinished rather than as failures.
   Every item that isn't complete carries a developer-ready action naming the failing selectors,
-  and those items also flow into the Roadmap/Dev To-Do list. The section's grade is scope
+  and those items also flow into the Roadmap/Developer list. The section's grade is scope
   completion, not site quality, so it's deliberately excluded from `overallScore`.
 - **Sitespeed.io** *(opt-in, `--sitespeed`)* — a second, independent **performance** signal
   alongside Lighthouse: [sitespeed.io](https://www.sitespeed.io/) (Browsertime + its Coach
@@ -580,10 +580,10 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   score (0-100, plus Performance/Best Practice/Privacy sub-scores from Coach's own rule set —
   different from Lighthouse's), key timing metrics (TTFB, FCP, LCP, Total Blocking Time, CLS,
   full page load time, request count, page weight), and every sub-100 Coach rule as an
-  actionable finding feeding the Roadmap/Dev To-Do list. This is a separate CLI subprocess with
+  actionable finding feeding the Roadmap/Developer list. This is a separate CLI subprocess with
   its own browser automation — noticeably heavier/slower than the rest of the suite (expect it
   to roughly double a run's total time), which is why it's opt-in rather than on by default.
-  Shown in the Site Vitals page alongside the Lighthouse-based sections above.
+  Shown in the Site Performance page alongside the Lighthouse-based sections above.
 - **Site Health** — custom checks against the live URL: HTTPS, meta tags, canonical,
   structured data (parses the homepage's JSON-LD and reports the actual schema.org `@type`s
   found, e.g. "Found: Organization, WebSite, BreadcrumbList" — not just a block count), image
@@ -652,7 +652,7 @@ first load, so expect a slightly worse TTFB/load time than the same theme once a
   sampled catalog (e.g. "XL" vs "X-Large" vs "extra large" all used for the same size breaks
   agent-side SKU comparison); (6) price agreement between `/products.json` (the "feed") and each
   sampled product's own live Offer schema (the "site") — a mismatch here causes shopping-feed
-  disapprovals and agent mistrust. Every SKU/catalog issue found feeds the Roadmap/Dev To-Do
+  disapprovals and agent mistrust. Every SKU/catalog issue found feeds the Roadmap/Developer
   list like any other finding. On by default; skip with `--skip-agent-readiness`.
 - **UX & Conversion** — a focused review of one collection page and one product page (not a
   full-site crawl): deterministic checks (add-to-cart visibility, reviews/social proof, trust
@@ -1032,12 +1032,12 @@ run without extra setup. The flag (`isBaseline` on the manifest entry) is stored
 
 ## AI-suggested code fixes, gated behind review
 
-Dev To-Do items that point at a real theme file (Theme Check errors, file-grounded AI
+Developer-page items that point at a real theme file (Theme Check errors, file-grounded AI
 suggestions — anything with a `file` field, `web/lib/findings.ts`) get a **Suggest fix** button.
 This is a three-gate flow, never automatic and never bulk:
 
 1. **Pick one item.** Clicking "Suggest fix" is the only way anything happens — there's no
-   multi-select or "do this for everything" action anywhere in the Dev To-Do list.
+   multi-select or "do this for everything" action anywhere in the Developer list.
 2. **Review the diff.** This calls the local agent's `POST /suggest-fix` (needs
    `barrel-audit serve` running and connected, same as Run Audit — there's no server-side
    fallback here, since it needs real access to the theme checkout). It reads the actual current
@@ -1086,31 +1086,39 @@ dependency this CLI uses elsewhere (`cli/src/analyzers/code.ts`).
 ## Report pages
 
 Each report is split across multiple pages instead of one long scroll, with a sticky
-tab bar (Overview / Recommendations / Site Vitals / Theme Check / UX / SEO/GEO / ADA /
-Data Analysis / All / Dev To-Do) at `/reports/<slug>/<id>[/<page>]`:
+tab bar (Overview / Site Performance / Theme Check / UX / SEO/GEO/AEO / ADA /
+Data Analysis / All / Developer) at `/reports/<slug>/<id>[/<page>]`:
 
-- **Overview** (the default — `/reports/<slug>/<id>`) — Executive Summary, stat tiles,
-  Traffic & Revenue, Competitor Benchmark, and the Prioritized Roadmap (synthesized
+- **Overview** (the default — `/reports/<slug>/<id>`) — Priority Actions (the ranked
+  recommendation list, linking to the full case for each), Executive Summary, what the run did
+  and did not cover, stat tiles, Traffic & Revenue, Trust & Privacy, Privacy Compliance,
+  Security & Compliance, Competitor Benchmark, and the Prioritized Roadmap (synthesized
   across every section in the report, regardless of which page it's shown on).
-- **Recommendations** (`/recommendations`) — **the tab you present.** The 5-10 highest-impact
+- **Recommendations** (`/recommendations`) — **the page you present**, reached from Overview's
+  Priority Actions list rather than from the tab bar. The 5-10 highest-impact
   actions read across the whole report and ordered by how much each should move *conversion*,
   not by technical severity: related findings merged into one business-level action, anything
-  only a developer cares about left to the Dev To-Do. Each one gives the action, the area of the
+  only a developer cares about left to the Developer page. Each one gives the action, the area of the
   experience it moves, why it matters commercially, what we'd actually do, what to expect, and
   the specific audit figures behind it. Opens on what's already working, cited with real numbers.
   Written in an account manager's voice, and deliberately framed as building on the site rather
   than faulting it — we often built it. Expected impact stays directional; it never invents a
   percentage lift for the store. **Copy for deck** puts the whole set on the clipboard as
   markdown. Requires `ANTHROPIC_API_KEY`; skip with `--skip-recommendations`.
-- **Site Vitals** (`/vitals`) — Lighthouse Vitals, Performance findings, Sitespeed.io (if run
-  with `--sitespeed`), AI performance suggestions.
+- **Site Performance** (`/vitals` — the slug is unchanged so pasted links keep working) —
+  Lighthouse Vitals, Performance findings, Sitespeed.io (if run with `--sitespeed`), AI
+  performance suggestions.
 - **Theme Check** (`/theme`) — Theme & Codebase (what theme this is, what the codebase is made
   of, and its codebase opportunities), Theme Code Quality (incl. the Theme Architecture
   assessment — how the theme is built, Shopify platform-feature fit, other concerns), Theme
-  Structure, Best Practices Verdict, Trust & Privacy.
+  Structure, Best Practices Verdict. Trust & Privacy, Privacy Compliance and Security &
+  Compliance moved to Overview: they are exposure rather than code quality, and they are scored
+  on their own scale rather than the A-F one.
 - **UX** (`/ux`) — UX & Conversion.
-- **SEO/GEO** (`/seo-geo`) — Technical Health & SEO (with the full site-health
-  checklist tucked in a collapsible), SEO Opportunities, GEO, Agent Readiness.
+- **SEO/GEO/AEO** (`/seo-geo`) — Technical Health & SEO (with the full site-health
+  checklist tucked in a collapsible), SEO Opportunities, GEO, Agent Readiness, Agentic Browsing.
+  The last two are the AEO half: answer- and agent-engine readiness, kept together rather than
+  split between a Lighthouse category and an SEO page.
 - **ADA** (`/ada`) — the ADA Scope Checker first when a scope was supplied (the client's own
   scoped requirements as a verified checklist, with "Copy client update" / "Copy dev actions"
   buttons), then Accessibility: Lighthouse + axe-core scores, a WCAG readiness checklist,
@@ -1119,7 +1127,7 @@ Data Analysis / All / Dev To-Do) at `/reports/<slug>/<id>[/<page>]`:
   audit crossed with the store's own analytics; generated on demand from a button. See below.
 - **All** (`/all`) — every section above on one page, for anyone who wants the whole
   report at a glance or wants to Cmd+F/print it in one shot.
-- **Dev To-Do** (`/dev-todo`) — the complete, uncapped prioritized findings list (the
+- **Developer** (`/dev-todo` — slug unchanged) — the complete, uncapped prioritized findings list (the
   Overview Roadmap only shows the top 10) meant to be handed directly to a developer:
   every actionable finding, priority-ordered, with severity, **where it applies**
   (Homepage, Collection page, Product page, a specific theme file, or Site-wide for
@@ -1161,7 +1169,7 @@ All of these are generated from a single source of truth
 (`web/lib/build-report-sections.tsx`), so a section only ever needs to be written
 once — it's tagged with the category page it belongs on, and the All page just renders
 everything regardless of tag. `collectAllFindings()` in that same file is the shared
-finding-gathering step behind both the Overview Roadmap and the full Dev To-Do list, so
+finding-gathering step behind both the Overview Roadmap and the full Developer list, so
 the two can never drift out of sync with each other. (It lives in `web/lib/findings.ts` and is
 re-exported from `build-report-sections.tsx`, so the Data Analysis API route can reuse it
 without pulling in that file's React component tree.)

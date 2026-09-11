@@ -11,7 +11,6 @@ import { CATEGORY_LABELS } from "@/lib/build-report-sections";
  * an unconfigured one. */
 const TABS: Array<{ slug: string; label: string; gated?: "ga4" }> = [
   { slug: "", label: CATEGORY_LABELS.overview },
-  { slug: "recommendations", label: CATEGORY_LABELS.recommendations },
   { slug: "vitals", label: CATEGORY_LABELS.vitals },
   { slug: "theme", label: CATEGORY_LABELS.theme },
   { slug: "ux", label: CATEGORY_LABELS.ux },
@@ -19,12 +18,19 @@ const TABS: Array<{ slug: string; label: string; gated?: "ga4" }> = [
   { slug: "ada", label: CATEGORY_LABELS.ada },
   { slug: "data", label: CATEGORY_LABELS.data, gated: "ga4" },
   { slug: "all", label: "All" },
-  { slug: "dev-todo", label: "Dev To-Do" },
+  { slug: "dev-todo", label: "Developer" },
 ];
 
-/** Cross-page tabs (Overview / Recommendations / Site Vitals / Theme Check / UX / SEO/GEO / ADA /
- * Data Analysis / All) — distinct from ReportNav, which jumps to anchors within whichever of those pages is
- * currently open. */
+// Slugs are deliberately left as they are while the labels change — /vitals is now "Site
+// Performance" and /dev-todo is "Developer". A slug is a URL somebody may have pasted into a
+// ticket; the label is the only part anyone reads.
+
+/** Cross-page tabs (Overview / Site Performance / Theme Check / UX / SEO/GEO/AEO / ADA / Data
+ * Analysis / All / Developer) — distinct from ReportNav, which jumps to anchors within whichever
+ * of those pages is currently open.
+ *
+ * Recommendations is not among them: it is the one page written for the client rather than for
+ * whoever ran the audit, and it is reached from the list Overview now leads with. */
 export function CategoryNav({ slug, id, hasGa4 }: { slug: string; id: string; hasGa4: boolean }) {
   const pathname = usePathname();
   const base = `/reports/${slug}/${id}`;

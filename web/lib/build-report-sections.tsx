@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CompliancePill, GradePill } from "@/components/ScoreBadge";
 import { CoverageNote } from "@/components/CoverageNote";
+import { RecommendationList } from "@/components/RecommendationList";
 import { StatTile } from "@/components/StatTile";
 import { ReportSection } from "@/components/ReportSection";
 import { MeterGrid } from "@/components/MeterGrid";
@@ -63,16 +64,24 @@ export interface SectionDef {
   id: string;
   label: string;
   category: ReportCategory;
+  /** A condensed restatement of a section that also renders in full elsewhere. Overview carries
+   * one of these for the recommendations; the "All" page skips them, so a page that renders every
+   * section does not print the same content twice. */
+  summaryOnly?: boolean;
   render: (number: string) => React.ReactNode;
 }
 
 export const CATEGORY_LABELS: Record<ReportCategory, string> = {
   overview: "Overview",
+  // Reachable from Overview rather than from the tab strip: it is the one page written for the
+  // client rather than for whoever ran the audit, and Overview now leads with its list.
   recommendations: "Recommendations",
-  vitals: "Site Vitals",
+  vitals: "Site Performance",
   theme: "Theme Check",
   ux: "UX",
-  "seo-geo": "SEO/GEO",
+  // AEO — answer/agent engines — is why Agentic Browsing and Agent Readiness both live here
+  // rather than one being filed under a Lighthouse category and the other under SEO.
+  "seo-geo": "SEO/GEO/AEO",
   ada: "ADA",
   // Data Analysis is a category with no sections in this file: its content is generated on
   // demand from GA4 rather than produced by an audit run, so it lives entirely in its own page.
@@ -156,6 +165,36 @@ export function buildReportSections(report: Report): SectionDef[] {
       ),
     },
   ];
+
+  // Overview leads with the actions, not the measurements: what to do and in what order is the
+  // question a report is opened to answer. The full argument for each is one click away.
+  if (sections.recommendations && sections.recommendations.recommendations.length > 0) {
+    const list = sections.recommendations.recommendations;
+    sectionDefs.push({
+      id: "priority-actions",
+      label: "Priority Actions",
+      category: "overview",
+      summaryOnly: true,
+      render: (n) => (
+        <ReportSection
+          id="priority-actions"
+          number={n}
+          title="Priority Actions"
+          action={
+            <span className="text-sm text-[#6B6B6B]">
+              {list.length} action{list.length === 1 ? "" : "s"}
+            </span>
+          }
+        >
+          <p className="text-sm text-[#6B6B6B] mb-4 max-w-[720px]">
+            Ranked by how much each should move conversion, highest first. Effort is an estimate of
+            the work, not of the impact.
+          </p>
+          <RecommendationList recommendations={list} href={`/reports/${report.storeSlug}/${report.id}/recommendations`} />
+        </ReportSection>
+      ),
+    });
+  }
 
   // Right after the executive summary: on the "All" page and in a shared report — both of which
   // render every section in this order — the client-facing recommendations should be the first
@@ -296,7 +335,7 @@ export function buildReportSections(report: Report): SectionDef[] {
       sectionDefs.push({
         id: "agentic-browsing",
         label: "Agentic Browsing",
-        category: "vitals",
+        category: "seo-geo",
         render: (n) => (
           <ReportSection
             id="agentic-browsing"
@@ -857,7 +896,7 @@ export function buildReportSections(report: Report): SectionDef[] {
     sectionDefs.push({
       id: "trust",
       label: "Trust & Privacy",
-      category: "theme",
+      category: "overview",
       render: (n) => (
         <ReportSection id="trust" number={n} title="Trust & Privacy" action={<GradePill score={trustSectionScore} />}>
           {trustFindings.length === 0 ? (
@@ -917,7 +956,7 @@ export function buildReportSections(report: Report): SectionDef[] {
     sectionDefs.push({
       id: "consent-qa",
       label: "Privacy Compliance",
-      category: "theme",
+      category: "overview",
       render: (n) => (
         <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={consent.score === null ? undefined : <CompliancePill score={consent.score} />}>
           <ConsentAudit section={consent} />
@@ -931,7 +970,7 @@ export function buildReportSections(report: Report): SectionDef[] {
     sectionDefs.push({
       id: "security",
       label: "Security & Compliance",
-      category: "theme",
+      category: "overview",
       render: (n) => (
         <ReportSection
           id="security"

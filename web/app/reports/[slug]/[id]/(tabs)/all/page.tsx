@@ -14,7 +14,8 @@ export default async function AllSectionsPage({
   const report = await getReport(slug, id);
   if (!report) notFound();
 
-  const sectionDefs = buildReportSections(report);
+  // Everything except the condensed restatements Overview carries — see SectionDef.summaryOnly.
+  const sectionDefs = buildReportSections(report).filter((s) => !s.summaryOnly);
 
   return (
     <>

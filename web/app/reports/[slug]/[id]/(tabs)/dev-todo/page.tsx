@@ -22,7 +22,7 @@ export default async function DevTodoPage({
   const csvFilename = `dev-todo-${report.storeSlug}-${report.id}.csv`;
 
   return (
-    <ReportSection id="dev-todo" number="—" title="Dev To-Do">
+    <ReportSection id="dev-todo" number="—" title="Developer">
       <DevTodoList
         items={items}
         markdown={markdown}

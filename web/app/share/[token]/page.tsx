@@ -72,7 +72,9 @@ export default async function SharedReportPage({
     );
   }
 
-  const sectionDefs = buildReportSections(report);
+  // Same rule as the "All" page: skip Overview's condensed restatements so a shared report does
+  // not print the recommendations twice.
+  const sectionDefs = buildReportSections(report).filter((s) => !s.summaryOnly);
 
   return (
     <div className="min-h-screen bg-[#f9f8f6]">

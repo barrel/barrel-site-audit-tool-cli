@@ -56,7 +56,7 @@ export default async function ReposPage() {
           <p className="mt-2 text-sm text-[#6B6B6B] leading-relaxed max-w-[80ch]">
             Either way this is read access. Nothing here commits, pushes, branches or opens anything on
             GitHub. The one thing in this tool that writes to a repo is the &ldquo;Suggest fix&rdquo; pull request on a
-            report&apos;s Dev To-Do, which runs from your own machine and asks for confirmation at every step.
+            report&apos;s Developer tab, which runs from your own machine and asks for confirmation at every step.
           </p>
         </div>
 

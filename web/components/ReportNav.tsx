@@ -1,4 +1,4 @@
-// Not sticky — CategoryNav (Overview/Site Vitals/.../All) owns the persistent sticky nav role
+// Not sticky — CategoryNav (Overview/Site Performance/.../Developer) owns the persistent sticky nav role
 // above this; ReportNav is just a jump-to-anchor list for the sections on the current page.
 export function ReportNav({ sections }: { sections: { id: string; label: string }[] }) {
   return (

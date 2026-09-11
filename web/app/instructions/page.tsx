@@ -301,7 +301,7 @@ export default function InstructionsPage() {
             <strong className="font-semibold text-[#1A1A1A]">This is read-only.</strong> Connecting a repo lets
             this tool read the code. It never commits, pushes, creates a branch, or opens anything on GitHub. The
             only thing in this tool that ever writes to a repo is the &ldquo;Suggest fix&rdquo; button on a
-            report&apos;s Dev To-Do, which opens a pull request for a person to review and asks you to confirm at
+            report&apos;s Developer tab, which opens a pull request for a person to review and asks you to confirm at
             every step.
           </p>
         </section>
@@ -360,7 +360,7 @@ export default function InstructionsPage() {
             outstanding, no jargon or CSS selectors — and{" "}
             <span className="font-medium text-[#1A1A1A]">Copy dev actions</span> gives the
             developer version, with the failing elements and the fix for each. Outstanding scope
-            items also flow into the Dev To-Do list alongside everything else.
+            items also flow into the Developer tab alongside everything else.
           </p>
           <p className="text-sm text-[#6B6B6B]">
             From Terminal instead, put the scope in a text file and point at it — handy since it
@@ -482,7 +482,7 @@ export default function InstructionsPage() {
             next, ordered by how much each should move <b>conversion</b> rather than by how severe
             it is technically. A critical lint error no shopper can perceive ranks below a slow
             product page, several related technical findings become one business-level action, and
-            anything only a developer cares about stays on the Dev To-Do where it belongs.
+            anything only a developer cares about stays on the Developer tab where it belongs.
           </p>
           <p className="text-sm text-[#6B6B6B] mb-3">
             Each item is written to be said out loud in a client meeting: the action, the part of
@@ -630,7 +630,7 @@ export default function InstructionsPage() {
             Getting AI to draft an actual code fix
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-3">
-            On the Dev To-Do list, any item that points at a specific theme file shows a
+            On the Developer tab, any item that points at a specific theme file shows a
             "Suggest fix" button. Clicking it (needs the same local agent set up above) asks
             Claude to draft a fix for just that one item and shows you the change before anything
             happens — nothing is written or sent anywhere until you review it.
