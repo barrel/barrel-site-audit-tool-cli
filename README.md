@@ -785,7 +785,18 @@ and click **Run audit**. With **Theme code & structure** checked, the **Theme co
 is where you put the absolute path to a local theme checkout (the folder containing
 `layout/theme.liquid`) — it becomes `--local-repo` and is saved to the store, so it's entered once
 per store. Leave it blank to use whatever the store already has; leave it blank with nothing there
-and the run stops in its first second rather than producing a report with no code findings in it. It POSTs to `/api/run`, which spawns the checkout's own CLI build as a
+and the run stops in its first second rather than producing a report with no code findings in it.
+
+**Browse…** next to that field opens a folder picker for the machine running `barrel-audit serve`,
+so the path can be clicked rather than typed or dragged in from Finder. It has to work that way
+round: a browser never tells a page the absolute path of a folder you pick — a directory `<input>`
+hands back relative names only — and an absolute path is exactly what `--local-repo` needs. So the
+agent walks the filesystem (`GET /fs/browse`, token-gated like every other agent route, directory
+*names* only, nothing about the files inside) and the dashboard renders the listing. Folders that
+contain `layout/theme.liquid` are flagged **THEME** with a **Use** button, so the right checkout is
+recognisable without opening it, and the footer says plainly whether the folder you're standing in
+is a theme. The button is disabled until the local agent is connected, since it is the only part of
+this that can see your disk. It POSTs to `/api/run`, which spawns the checkout's own CLI build as a
 real local child process (args passed as an array, never through a shell, so nothing you type
 can inject extra flags) and streams the CLI's own stdout/stderr straight into the page as it
 runs; once it finishes, a "View report" link appears automatically.

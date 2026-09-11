@@ -12,6 +12,16 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.40",
+    date: "2026-09-11",
+    title: "Browse for the theme folder",
+    notes: [
+      "**The Run Audit page's \"Theme code location\" field now has a Browse\u2026 button, so the path can be clicked instead of typed.** It opens a folder picker for *your own machine* \u2014 the one running `barrel-audit serve` \u2014 starting wherever the field already points, or your home folder if it's empty. Up, Home, a clickable breadcrumb, and a path box you can still paste into. Picking a folder fills the field with its absolute path, which is what the run needs.",
+      "**Folders that actually hold a theme are marked.** Anything containing `layout/theme.liquid` is flagged **THEME** in the list with its own **Use** button, so in a folder of forty client repos the right checkout is recognisable without opening each one \u2014 and the footer says plainly whether the folder you are standing in is a theme, before you commit to it.",
+      "**Why it works this way:** a browser never tells a web page where a folder you picked actually lives \u2014 a directory file input hands back relative names and nothing else \u2014 and an absolute path is exactly what the audit needs. So the walking happens on your machine, through the local agent (`GET /fs/browse`), and the dashboard just renders what comes back. It is read-only and token-gated like every other agent route, and returns directory *names* only \u2014 never file contents, never anything about the files inside. Dot-folders are left out. The button stays disabled until the local agent is connected, since it is the only part of this that can see your disk.",
+    ],
+  },
+  {
     version: "1.39",
     date: "2026-09-10",
     title: "Connect a GitHub repo, read-only",

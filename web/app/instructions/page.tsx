@@ -409,8 +409,11 @@ export default function InstructionsPage() {
             If you leave "Theme code &amp; structure" checked, the audit needs the theme's actual
             source code. Put the folder path in the "Theme code location" box — the folder that
             contains <span className="font-mono text-[#1A1A1A]">layout/theme.liquid</span>, e.g.{" "}
-            <span className="font-mono text-[#1A1A1A]">/Users/you/code/client-theme</span>. It's
-            remembered for that store, so you only enter it once. If it's left blank and the store
+            <span className="font-mono text-[#1A1A1A]">/Users/you/code/client-theme</span>. You don't
+            have to know that path by heart: with the local agent connected, "Browse…" next to the box
+            opens a folder picker for your own machine, and marks every folder that actually holds a
+            theme, so you can click your way to it. It's remembered for that store, so you only enter
+            it once. If it's left blank and the store
             has no code saved from before, the run stops immediately and tells you — rather than
             spending ten minutes and handing back a report that quietly has no code findings in it.
             Auditing a prospect whose code you don't have? Untick that box.

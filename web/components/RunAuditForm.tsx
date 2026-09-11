@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { BarrelFactTicker } from "./BarrelFactTicker";
+import { FolderPicker } from "./FolderPicker";
 import { useLocalAgent, DEFAULT_AGENT_PORT } from "@/lib/use-local-agent";
 import { parseAdaScope } from "@/lib/shared";
 
@@ -289,6 +290,9 @@ export function RunAuditForm({ stores = [], local = true }: { stores?: StoreGa4[
   const [competitors, setCompetitors] = useState<string[]>([]);
   const [adaScope, setAdaScope] = useState("");
   const [localRepo, setLocalRepo] = useState("");
+  // Browsing needs the local agent — it is the only thing in this picture that can see the
+  // machine's filesystem — so the button is offered exactly when the agent is connected.
+  const [browsing, setBrowsing] = useState(false);
   const [status, setStatus] = useState<"idle" | "running" | "done" | "error" | "stopped">("idle");
   const [log, setLog] = useState("");
   // Pulled out of the stream separately from `log` so the failure can headline the modal instead of
@@ -682,20 +686,53 @@ export function RunAuditForm({ stores = [], local = true }: { stores?: StoreGa4[
           <h3 className="text-sm font-semibold text-[#1A1A1A] mb-1.5">Theme code location</h3>
           <p className="text-xs text-[#9A9A9A] mb-3">
             Absolute path to a local theme checkout to review — the folder containing{" "}
-            <code className="bg-[#fafafa] px-1 rounded">layout/theme.liquid</code>. Saved to the store, so
+            <code className="bg-[#fafafa] px-1 rounded">layout/theme.liquid</code>. Type it, or hit
+            &ldquo;Browse…&rdquo; to pick it from the machine running the local agent. Saved to the store, so
             later runs and &ldquo;Suggest fix&rdquo; reuse it without re-entering it. Leave blank to use
             whatever this store already has (a path saved earlier, or a theme pulled into its own folder)
             — if there&apos;s nothing there, the run stops right away instead of producing a report with no
             code findings in it.
           </p>
-          <input
-            type="text"
-            value={localRepo}
-            onChange={(e) => setLocalRepo(e.target.value)}
-            disabled={running}
-            placeholder="/Users/you/code/client-theme"
-            className="w-full rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm text-[#1A1A1A] font-mono placeholder:text-[#9A9A9A] placeholder:font-sans focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/10 focus:border-[#1A1A1A] disabled:opacity-60"
-          />
+          <div className="flex items-start gap-2">
+            <input
+              type="text"
+              value={localRepo}
+              onChange={(e) => setLocalRepo(e.target.value)}
+              disabled={running}
+              placeholder="/Users/you/code/client-theme"
+              className="flex-1 min-w-0 rounded-lg border border-[#E5E5E5] px-3 py-2 text-sm text-[#1A1A1A] font-mono placeholder:text-[#9A9A9A] placeholder:font-sans focus:outline-none focus:ring-2 focus:ring-[#1A1A1A]/10 focus:border-[#1A1A1A] disabled:opacity-60"
+            />
+            <button
+              type="button"
+              disabled={running || !canRunViaAgent}
+              onClick={() => setBrowsing(true)}
+              title={
+                canRunViaAgent
+                  ? "Browse this machine for the theme folder"
+                  : "Connect the local agent above — it's what can see your folders."
+              }
+              className="shrink-0 text-sm font-medium text-[#1A1A1A] border border-[#E5E5E5] rounded-lg px-3.5 py-2 hover:bg-[#fafafa] transition-colors disabled:opacity-40"
+            >
+              Browse…
+            </button>
+          </div>
+          {!canRunViaAgent && (
+            <p className="text-xs text-[#9A9A9A] mt-2">
+              Connect the local agent above to browse for the folder instead of typing its path.
+            </p>
+          )}
+          {browsing && (
+            <FolderPicker
+              port={agent.port}
+              token={agent.token}
+              initialPath={localRepo.trim() || undefined}
+              onClose={() => setBrowsing(false)}
+              onSelect={(picked) => {
+                setLocalRepo(picked);
+                setBrowsing(false);
+              }}
+            />
+          )}
         </div>
       )}
 

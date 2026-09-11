@@ -8,6 +8,7 @@ import { cliInvocation, dataRoot, storeFixDir } from "../paths.js";
 import { buildCroArgs, buildRunArgs, buildRunEnv, type CroRunBody, type RunAuditBody } from "@barrel/site-audit-shared";
 import { resolveStore } from "../store.js";
 import { acquireThemeSource } from "../theme-source.js";
+import { browseDirectory } from "../fs-browse.js";
 import { getGithubUser, listGithubOrgs, searchGithubRepos } from "../github.js";
 import { suggestFix, type SuggestFixParams } from "../analyzers/ai-fix.js";
 import {
@@ -278,6 +279,30 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
      * getGithubToken() is never called without checking the cache first — its fallback is the
      * device flow, which would print a one-time code into a log nobody is watching and hang the
      * request until it expired. */
+    /* Backs the "Browse…" button on the Run Audit page's theme-code field. A browser cannot tell
+     * a web page where a folder it picked actually lives — a directory <input> yields relative
+     * names only — and an absolute path is what --local-repo needs, so the walking happens on the
+     * machine that has the folders. Read-only, directory names only, and token-gated like every
+     * other route here. */
+    if (req.method === "GET" && req.url?.startsWith("/fs/browse")) {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
+        return;
+      }
+
+      const params = new URL(req.url, "http://127.0.0.1").searchParams;
+      try {
+        const listing = browseDirectory(params.get("path") ?? undefined);
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(listing));
+      } catch (err: any) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end(
+          JSON.stringify({ error: err?.message ?? String(err) }),
+        );
+      }
+      return;
+    }
+
     if (req.method === "GET" && (req.url === "/github/status" || req.url?.startsWith("/github/repos"))) {
       const auth = req.headers.authorization;
       if (auth !== `Bearer ${token}`) {
