@@ -26,10 +26,78 @@ export interface Finding {
   file?: string;
   /** 1-based line number within `file`, when known (Theme Check offenses only). */
   line?: number;
+  /** Set only on findings that can legitimately be reported twice by two different analyzers, and
+   * equal between them when they mean the same thing. Everything without one passes through the
+   * merge untouched, which keeps the blast radius to the overlap that actually exists. */
+  dedupeKey?: string;
+  /** Which analyzers reported this. Worth showing once two of them agree: "Lighthouse and
+   * axe-core" is a stronger claim than either alone, and it explains why a count changed. */
+  sources?: string[];
 }
 
-function severityFromScore(score: number | null): FindingSeverity {
-  if (score === null) return "medium";
+const SEVERITY_ORDER: FindingSeverity[] = ["good", "low", "medium", "high", "critical"];
+
+function worstOf(a: FindingSeverity, b: FindingSeverity): FindingSeverity {
+  return SEVERITY_ORDER.indexOf(a) >= SEVERITY_ORDER.indexOf(b) ? a : b;
+}
+
+/** "Home page" + "Collection page" + "Product page" → "Home, Collection and Product pages". */
+function mergeScopes(scopes: string[]): string | undefined {
+  const pages = [...new Set(scopes.filter(Boolean))];
+  if (pages.length === 0) return undefined;
+  if (pages.length === 1) return pages[0];
+  const bare = pages.map((s) => s.replace(/ pages?$/, ""));
+  if (bare.length > 4) return `${bare.length} pages`;
+  return `${bare.slice(0, -1).join(", ")} and ${bare[bare.length - 1]} pages`;
+}
+
+/** Collapses the same defect reported by more than one analyzer, and the same rule reported once
+ * per page, into one finding.
+ *
+ * Lighthouse's accessibility category *is* axe-core: both were collected, so a missing image alt
+ * was one finding called `a11y-image-alt` and another called `axe-Home-image-alt-0`. axe then
+ * emitted its own copy for every journey page it saw the rule fail on. Nothing deduped any of it,
+ * so every "N issues" a client read — the roadmap, the Dev To-Do, its CSV export — counted the
+ * same defect up to five times.
+ *
+ * The merged finding keeps the worst severity reported, names every page it was seen on, and says
+ * which analyzers found it. */
+export function dedupeFindings(findings: Finding[]): Finding[] {
+  // Scopes are collected raw and formatted once at the end. Formatting on each merge would feed
+  // "Home and Collection pages" back in as a single scope and produce "Home and Collection and
+  // Product pages" on the next one.
+  const merged = new Map<string, { finding: Finding; scopes: string[] }>();
+  const out: Finding[] = [];
+
+  for (const finding of findings) {
+    if (!finding.dedupeKey) {
+      out.push(finding);
+      continue;
+    }
+
+    const existing = merged.get(finding.dedupeKey);
+    if (!existing) {
+      const copy = { ...finding };
+      merged.set(finding.dedupeKey, { finding: copy, scopes: finding.scope ? [finding.scope] : [] });
+      out.push(copy);
+      continue;
+    }
+
+    const target = existing.finding;
+    target.severity = worstOf(target.severity, finding.severity);
+    target.sources = [...new Set([...(target.sources ?? []), ...(finding.sources ?? [])])];
+    if (finding.scope) existing.scopes.push(finding.scope);
+    // The longer description is the one carrying the element counts and selectors.
+    if (finding.description.length > target.description.length) target.description = finding.description;
+    target.recommendation ??= finding.recommendation;
+  }
+
+  for (const { finding, scopes } of merged.values()) finding.scope = mergeScopes(scopes);
+
+  return out;
+}
+
+function severityFromScore(score: number): FindingSeverity {
   if (score < 0.3) return "critical";
   if (score < 0.5) return "high";
   if (score < 0.8) return "medium";
@@ -37,18 +105,26 @@ function severityFromScore(score: number | null): FindingSeverity {
 }
 
 export function lighthouseFindings(category: LighthouseCategoryResult, prefix: string): Finding[] {
-  return category.audits.map((audit) => {
-    const learnMoreUrl = extractMarkdownLinkUrl(audit.description);
-    return {
-      id: `${prefix}-${audit.id}`,
-      title: audit.title,
-      severity: severityFromScore(audit.score),
-      description: stripMarkdownLinks(audit.description),
-      displayValue: audit.displayValue,
-      scope: "Homepage",
-      recommendation: learnMoreUrl ? `Learn more: ${learnMoreUrl}` : undefined,
-    };
-  });
+  return category.audits
+    // A null score is Lighthouse saying the audit did not apply or could not run, not that the
+    // site failed it. It used to be scored "medium" and enter the roadmap as a real issue.
+    .filter((audit): audit is typeof audit & { score: number } => audit.score !== null)
+    .map((audit) => {
+      const learnMoreUrl = extractMarkdownLinkUrl(audit.description);
+      return {
+        id: `${prefix}-${audit.id}`,
+        // Lighthouse's accessibility category is axe-core under a different name, so its audit ids
+        // and axe's rule ids are the same vocabulary — which is what lets the two be merged.
+        dedupeKey: prefix === "a11y" ? `a11y:${audit.id}` : undefined,
+        sources: prefix === "a11y" ? ["Lighthouse"] : undefined,
+        title: audit.title,
+        severity: severityFromScore(audit.score),
+        description: stripMarkdownLinks(audit.description),
+        displayValue: audit.displayValue,
+        scope: "Homepage",
+        recommendation: learnMoreUrl ? `Learn more: ${learnMoreUrl}` : undefined,
+      };
+    });
 }
 
 export function healthFindings(checks: HealthCheckItem[]): Finding[] {
@@ -82,16 +158,30 @@ const AXE_IMPACT_SEVERITY: Record<AxeImpact, FindingSeverity> = {
   minor: "low",
 };
 
+/** The journey page's name as a scope, in the same words Lighthouse uses.
+ *
+ * Lighthouse reports its homepage findings as "Homepage" and axe calls the same page "Home", so a
+ * merged finding read "Homepage and Home pages" — one page presented as two. */
+function pageScope(page: string): string {
+  return page === "Home" ? "Homepage" : `${page} page`;
+}
+
 export function axeFindings(pages: AxePageResult[]): Finding[] {
   return pages.flatMap((p) =>
     p.violations.map((v, i) => {
       const targets = v.nodes.slice(0, 3).map((n) => n.target.join(" ")).join(", ");
       return {
         id: `axe-${p.page}-${v.id}-${i}`,
-        title: `${v.help} (${p.page})`,
+        // Same key as the matching Lighthouse accessibility audit, and the same across pages: one
+        // rule failing on four journey pages is one defect seen four times, not four defects.
+        dedupeKey: `a11y:${v.id}`,
+        sources: ["axe-core"],
+        // The page belongs in `scope`, not in the title — with it in both, the same rule read as a
+        // different finding on every page.
+        title: v.help,
         severity: v.impact ? AXE_IMPACT_SEVERITY[v.impact] : "medium",
         description: `${v.description} — ${v.nodeCount} element(s) affected${targets ? `: ${targets}` : ""}.`,
-        scope: `${p.page} page`,
+        scope: pageScope(p.page),
         recommendation: `Learn more: ${v.helpUrl}`,
       };
     }),
@@ -543,5 +633,5 @@ export function collectAllFindings(report: Report): Finding[] {
       });
     }
   }
-  return allFindings;
+  return dedupeFindings(allFindings);
 }
