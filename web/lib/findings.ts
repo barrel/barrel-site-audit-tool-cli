@@ -422,7 +422,10 @@ const CATEGORY_PREFIXES: [string, string][] = [
   ["perf-", "Performance"],
   ["a11y-", "Accessibility"],
   ["ada-scope-", "ADA Scope"],
-  ["axe-", "Accessibility (Axe)"],
+  // Same category as the Lighthouse accessibility audits, not a sibling of it: the two report the
+  // same rules and are merged into single findings, so the surviving id can be either. Two
+  // "Accessibility" groups in a backlog is an artifact of the id prefix, not a real distinction.
+  ["axe-", "Accessibility"],
   ["sitespeed-", "Performance (Sitespeed.io)"],
   ["seo-", "Technical & SEO"],
   ["health-", "Site Health"],
@@ -471,6 +474,44 @@ export function buildRoadmap(allFindings: Finding[], limit = 10): RoadmapItem[] 
 /** Every actionable finding across the whole report, priority-ordered — unlike
  * buildRoadmap (capped at 10, for the Overview page teaser), this is the full list meant
  * for handing off to a developer. */
+/** Lighthouse audits that are *measurements* rather than work.
+ *
+ * "First Contentful Paint" is an outcome; nobody can be assigned it. Its causes — duplicated
+ * JavaScript, a render-blocking script, an oversized hero image — are separate audits and those
+ * are the tickets. Leaving the metrics in the backlog put six unassignable rows at the very top of
+ * it, because a bad metric scores low and a low score sorts critical.
+ *
+ * They are not dropped from the report: they are the Site Performance page's entire subject. This
+ * only decides what belongs on a backlog. */
+const MEASUREMENT_AUDITS = new Set([
+  "first-contentful-paint",
+  "largest-contentful-paint",
+  "cumulative-layout-shift",
+  "total-blocking-time",
+  "speed-index",
+  "interactive",
+  "max-potential-fid",
+  "interaction-to-next-paint",
+  "first-meaningful-paint",
+  "server-response-time",
+]);
+
+export function isMeasurement(item: RoadmapItem): boolean {
+  const auditId = item.id.replace(/^(perf|a11y|seo|bp)-/, "");
+  return item.id !== auditId && MEASUREMENT_AUDITS.has(auditId);
+}
+
+/** Whether the item tells a developer what to change.
+ *
+ * A "How to fix" reading `Learn more: https://developer.chrome.com/…` is a citation, not
+ * remediation. Presenting it as one is how a backlog fills up with tickets whose first task is
+ * working out what the ticket is. */
+export function hasRemediation(item: RoadmapItem): boolean {
+  const recommendation = item.recommendation?.trim();
+  if (!recommendation) return false;
+  return !/^Learn more:\s*https?:\/\/\S+$/.test(recommendation);
+}
+
 export function buildDevTodo(allFindings: Finding[]): RoadmapItem[] {
   return buildRoadmap(allFindings, allFindings.length);
 }
