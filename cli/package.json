@@ -1,6 +1,6 @@
 {
   "name": "@barrel/site-audit-cli",
-  "version": "1.15.0",
+  "version": "1.16.0",
   "description": "CLI for auditing Shopify store code quality, performance, and site health",
   "type": "module",
   "repository": {
@@ -18,7 +18,7 @@
     "barrel-audit": "./dist/index.js"
   },
   "scripts": {
-    "build": "node scripts/verify-git-pr-safety.mjs && tsc -p tsconfig.json",
+    "build": "node scripts/verify-git-pr-safety.mjs && node scripts/verify-github-readonly.mjs && tsc -p tsconfig.json",
     "test": "tsx --test \"test/**/*.test.ts\"",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js"

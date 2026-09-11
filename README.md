@@ -128,7 +128,8 @@ pointing somewhere else.) Otherwise pull a managed copy:
 
 ```
 barrel-audit pull-theme <slug> --store <slug>.myshopify.com   # via the Shopify CLI
-barrel-audit link-repo <slug>                                 # or clone from GitHub
+barrel-audit link-repo <slug> --mode read                     # or read it from GitHub each run
+barrel-audit link-repo <slug> --mode pull                     # or clone a copy from GitHub
 barrel-audit run <slug>
 ```
 
@@ -286,32 +287,70 @@ the hostname.
   (`--store` is only needed the first time — it's saved to `config.json`.) This opens a
   browser to authenticate with Shopify if needed.
 
-- **Clone it from a GitHub repo:**
+- **Connect a GitHub repo** (read-only), either from the dashboard's **Theme Repos** page or
+  from the CLI:
 
   ```
-  barrel-audit link-repo <slug-or-url>
+  barrel-audit link-repo <slug-or-url>              # asks which mode you want
+  barrel-audit link-repo <slug-or-url> --mode read  # nothing kept on disk
+  barrel-audit link-repo <slug-or-url> --mode pull  # clone once into stores/<slug>/theme/
   ```
 
   Like `run`, this accepts an existing store slug or a live URL directly (auto-creating
   the store from its hostname if needed) — so you can point it straight at a storefront
   or preview URL without an `init-store`/`run` step first.
 
-  Requires a one-time team setup: create a GitHub OAuth App (Settings → Developer
-  settings → OAuth Apps → New OAuth App, at https://github.com/settings/developers),
-  enable **Device Flow** on it, and give its Client ID to `barrel-audit setup` (it's saved as
-  `GITHUB_OAUTH_CLIENT_ID`) — no client secret needed, and the Client ID isn't sensitive, so this
-  is one value shared across the team rather than per-person.
+  **Two modes, and the difference is where the code lives:**
 
-  The first time anyone runs `link-repo`, it prints a one-time code and a github.com link
-  — open the link, enter the code, approve access, and you're done; the login is cached
-  at `~/.config/barrel-audit/github-token.json` so it won't ask again on that machine
-  (pass `--relogin` to force a fresh login, e.g. after switching GitHub accounts). From
-  there it prompts you to search/select from your GitHub repos (type to filter) and
-  clones the pick straight into `stores/<slug>/theme/` — pass `--repo <owner/name>` to
-  skip the picker, and `--branch <branch>` to override the repo's default branch. If
-  `theme/` already has files in it, you'll be asked to confirm before it's cleared. `run`
-  on a brand-new store offers this same prompt inline, so you often won't need to call it
-  directly.
+  - `--mode read` records the connection and nothing else. Every audit downloads that branch
+    as it is at that moment into a temp directory, reads it, and deletes it. So each report
+    reflects the code as it is today, and no client code is left on your disk. This is the
+    default the interactive picker offers.
+  - `--mode pull` clones once into `stores/<slug>/theme/` (stripping the nested `.git`, so the
+    copy can never be pushed from) and later audits read that snapshot until you pull again.
+    Right when you want the code on disk to read yourself, or to audit offline. If `theme/`
+    already has files in it you'll be asked to confirm before it's cleared — `--force` skips
+    that.
+
+  **Both modes are read-only.** Nothing in the connector commits, pushes, branches or opens
+  anything on GitHub; a build-time check (`cli/scripts/verify-github-readonly.mjs`) fails
+  `pnpm build` if a write call is ever added to one of its modules. The one sanctioned write
+  path in this tool is the human-gated "Suggest fix" pull request described further down.
+
+  **Finding the repo.** The picker searches GitHub's search API on each keystroke rather than
+  filtering a downloaded list, so it works on an org with thousands of repositories; `--org
+  <name>` narrows it, and `--repo <owner/name>` skips the picker entirely. To browse without
+  connecting anything:
+
+  ```
+  barrel-audit repos <query> --org <name>    # search; --json to script it
+  barrel-audit repos --orgs                  # which orgs your login can see
+  ```
+
+  **Where the theme sits inside the repo** is worked out at connect time from the repo's file
+  tree (one request, no checkout): the connector looks for `layout/theme.liquid` and records
+  the path to it as `themeSubdir`, so a repo that keeps its theme in `theme/` or `src/` works
+  without any extra flag. A repo with no theme in it still connects, but with a warning — the
+  alternative is a report whose Theme Code section is simply missing, which reads as "nothing
+  to flag" rather than "never looked".
+
+  **Signing in.** Requires a one-time team setup: create a GitHub OAuth App (Settings →
+  Developer settings → OAuth Apps → New OAuth App, at https://github.com/settings/developers),
+  enable **Device Flow** on it, and give its Client ID to `barrel-audit setup` (it's saved as
+  `GITHUB_OAUTH_CLIENT_ID`) — no client secret needed, and the Client ID isn't sensitive, so
+  this is one value shared across the team rather than per-person. For the dashboard's own
+  picker, the same value has to be set as an environment variable on the Vercel project.
+
+  The first time anyone runs `link-repo`, it prints a one-time code and a github.com link —
+  open the link, enter the code, approve access, and you're done; the login is cached at
+  `~/.config/barrel-audit/github-token.json` so it won't ask again on that machine (pass
+  `--relogin` to force a fresh login, e.g. after switching GitHub accounts).
+  `barrel-audit link-repo --login` signs in and stops without touching a store, which is
+  what a machine needs before it can serve an audit nobody is watching: the device code has
+  to be typed by a person, so a run started from the dashboard cannot do it mid-audit.
+
+  `run` on a brand-new store offers this same connect prompt inline, so you often won't need
+  to call `link-repo` directly.
 
 - **Or just copy/paste the files in yourself** — unzip a theme export, drag files in
   Finder, `cp -r` from a local checkout, whatever's fastest. No CLI step required; the

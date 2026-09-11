@@ -41,9 +41,12 @@ function command(name, cmd, cmdArgs, options) {
 
 const steps = [];
 
-// The static guard on git-pr.ts runs first and cheaply: it is the one check whose failure means
-// "this build could push something it must never push", and it costs milliseconds.
+// The two static guards run first and cheaply: they are the checks whose failure means "this
+// build could write to a client's repository in a way it must never", and they cost milliseconds.
+// git-pr.ts is the one module allowed to push a branch and open a PR, and must never merge;
+// the GitHub connector modules must never write at all.
 steps.push(await command("git-pr safety", process.execPath, ["cli/scripts/verify-git-pr-safety.mjs"]));
+steps.push(await command("github read-only", process.execPath, ["cli/scripts/verify-github-readonly.mjs"]));
 
 steps.push(
   await timed("format", async () => {

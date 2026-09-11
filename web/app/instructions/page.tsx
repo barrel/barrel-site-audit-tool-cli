@@ -255,23 +255,54 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
-            Optional: pulling the theme code from GitHub instead
+            Optional: use the theme code from a GitHub repo instead
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-3">
-            If the client's theme code lives in a GitHub repo rather than a live Shopify store,
-            this pulls it in the same way — no Shopify login needed. Works with a store slug
-            from an earlier step, or you can paste the storefront URL directly, same as step 2:
+            If the client&apos;s theme code lives in a GitHub repo rather than a live Shopify store,
+            you can point the audit at the repo — no Shopify login needed. The easiest way is the{" "}
+            <a href="/repos" className="text-[#2563EB] hover:underline">
+              Theme Repos
+            </a>{" "}
+            page: connect GitHub, search for the repo, pick a branch, done. No terminal involved.
           </p>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            You&apos;ll be asked one question there — <strong className="font-semibold text-[#1A1A1A]">how</strong>{" "}
+            audits should read it:
+          </p>
+          <ul className="text-sm text-[#6B6B6B] list-disc pl-5 space-y-1.5 mb-3">
+            <li>
+              <strong className="font-semibold text-[#1A1A1A]">Read it from GitHub each run</strong> — nothing is
+              kept. Every audit downloads that branch as it is right then, reads it, and deletes it. Pick this
+              unless you have a reason not to: each report reflects today&apos;s code, and no client code sits on
+              your laptop.
+            </li>
+            <li>
+              <strong className="font-semibold text-[#1A1A1A]">Pull a copy to my machine</strong> — downloads it
+              once into your own folder, and later audits read that copy until you pull again. Pick this if you
+              want the code on your computer to look at, or you need to run an audit offline. This one needs the
+              helper (<span className="font-mono text-[#1A1A1A]">barrel-audit serve</span>) running.
+            </li>
+          </ul>
+          <p className="text-sm text-[#6B6B6B] mb-3">Or from a terminal, if you prefer:</p>
           <Code>barrel-audit link-repo &lt;slug-or-url&gt;</Code>
           <p className="text-sm text-[#6B6B6B] mt-3">
-            The first time you run this, it shows a short code and a github.com link — open the
-            link, type in the code, and click Approve. After that, you won&apos;t be asked
-            again on this computer. Then you&apos;ll be asked to pick from your GitHub repos
-            (type a few letters to search). This needs one shared GitHub app ID, which{" "}
-            <span className="font-mono text-[#1A1A1A]">barrel-audit setup</span> asks for as its
-            last (optional) question — ask in Slack{" "}
-            <span className="font-mono text-[#1A1A1A]">#barrel</span> for it if you skipped that,
-            then re-run setup. Then run step 2 again.
+            It asks which of the two modes you want, then lets you search your repos by typing a few letters. It
+            searches GitHub itself rather than a downloaded list, so it finds a repo however many the org has.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mt-3">
+            The first time — in the browser or the terminal — you&apos;ll see a short code and a github.com link:
+            open the link, type in the code, click Approve. After that you won&apos;t be asked again (in the
+            terminal, on that computer; in the browser, in that browser). This needs one shared GitHub app ID,
+            which <span className="font-mono text-[#1A1A1A]">barrel-audit setup</span> asks for as its last
+            (optional) question — ask in Slack <span className="font-mono text-[#1A1A1A]">#barrel</span> for it
+            if you skipped that, then re-run setup.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mt-3">
+            <strong className="font-semibold text-[#1A1A1A]">This is read-only.</strong> Connecting a repo lets
+            this tool read the code. It never commits, pushes, creates a branch, or opens anything on GitHub. The
+            only thing in this tool that ever writes to a repo is the &ldquo;Suggest fix&rdquo; button on a
+            report&apos;s Dev To-Do, which opens a pull request for a person to review and asks you to confirm at
+            every step.
           </p>
         </section>
 

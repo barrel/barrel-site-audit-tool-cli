@@ -3,7 +3,7 @@ import { join, relative, resolve } from "node:path";
 import chalk from "chalk";
 import ora from "ora";
 import { confirm } from "@inquirer/prompts";
-import { gradeForScore, parseAdaScope, type StoreConfig } from "@barrel/site-audit-shared";
+import { gradeForScore, parseAdaScope, type Report, type StoreConfig } from "@barrel/site-audit-shared";
 import { cliInvocation, dataRoot, storeConfigPath, storeThemeDir } from "../paths.js";
 import {
   findThemeRoot,
@@ -16,6 +16,7 @@ import {
 import { ensureLocalStoreConfig } from "../store-sync.js";
 import { runAudit, type RunOptions } from "../report/generate.js";
 import { installBrowserCleanup } from "../shutdown.js";
+import { acquireThemeSource, describeRemoteThemeSource, themeSourceIsRemote } from "../theme-source.js";
 import { linkRepoInteractive } from "./link-repo.js";
 
 export interface RunCommandArgs extends RunOptions {
@@ -32,12 +33,19 @@ export interface RunCommandArgs extends RunOptions {
   adaScopeFile?: string;
 }
 
+// `outputPath` itself lives on RunOptions (see report/generate.ts) — it is the audit's behaviour,
+// not the command's.
+
 /** Everything a run needs from the environment, checked up front. A full audit is several
  * minutes of Lighthouse, sitespeed and live-browser passes, so discovering a missing token at
  * the closing upload step throws all of that away — the most expensive possible moment to find
  * out. Anything knowable at second zero gets reported at second zero. */
 function preflightEnv(args: RunCommandArgs): void {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  // --output writes the report to a local file and publishes nothing, so it is the one mode that
+  // genuinely does not need a Blob token — and requiring one would make the probe that measures
+  // this tool against itself impossible to run on a machine that has no write access to client
+  // reports, which is exactly the machine you would want to run it on.
+  if (!args.outputPath && !process.env.BLOB_READ_WRITE_TOKEN) {
     throw new Error(
       `BLOB_READ_WRITE_TOKEN is not set, so the finished report could not be uploaded.\n` +
         `Run \`barrel-audit setup\` first — it writes the token to ${dataRoot()}/.env and checks it.\n\n` +
@@ -95,13 +103,14 @@ function notAThemeError(dir: string, subject: string, fallbackHelp: string, slug
   );
 }
 
-/** The three ways to give a store some code to review, plus the two ways to run without it. */
+/** The four ways to give a store some code to review, plus the two ways to run without it. */
 function themeCodeHelp(store: StoreConfig): string {
   return (
     `\n\nEither point the audit at some code:` +
     `\n  ${cliInvocation()} run ${store.slug} --local-repo <path to your theme checkout>` +
-    `\n  ${cliInvocation()} link-repo ${store.slug}      (clone from GitHub into ${storeThemeDir(store.slug)})` +
-    `\n  ${cliInvocation()} pull-theme ${store.slug}     (pull the live theme from Shopify)` +
+    `\n  ${cliInvocation()} link-repo ${store.slug} --mode read   (read a GitHub repo on every run, nothing kept on disk)` +
+    `\n  ${cliInvocation()} link-repo ${store.slug} --mode pull   (clone from GitHub into ${storeThemeDir(store.slug)})` +
+    `\n  ${cliInvocation()} pull-theme ${store.slug}              (pull the live theme from Shopify)` +
     `\n\nOr run without it:` +
     `\n  ${cliInvocation()} run ${store.slug} --skip-code` +
     `\n  In the dashboard, untick "Theme code & structure" under "What to run".`
@@ -114,6 +123,11 @@ function themeCodeHelp(store: StoreConfig): string {
  * looked", and is indistinguishable from a clean bill of health to whoever opens the report. Stop
  * before the several-minute Lighthouse/browser passes and say exactly how to resolve it. */
 function preflightThemeCode(store: StoreConfig): void {
+  // A `"read"` GitHub connection has nothing on disk yet by design — the code is downloaded a few
+  // lines further into the run. There is a real check to make here (does that ref still contain a
+  // theme?) and it can only be made by the fetch itself, which fails loudly on its own.
+  if (themeSourceIsRemote(store)) return;
+
   const themeDir = resolveThemeDir(store);
   const help = themeCodeHelp(store);
 
@@ -196,7 +210,7 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
   // erroring with "No store found" for a store that plainly exists.
   await ensureLocalStoreConfig(args.slug);
 
-  const store = resolveStore(args.slug);
+  let store = resolveStore(args.slug);
 
   if (args.localRepo) {
     const absPath = resolve(process.cwd(), args.localRepo);
@@ -234,15 +248,23 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
     }
   }
 
-  const hasTheme = themeDirHasContent(resolveThemeDir(store));
+  // A `"read"` connection counts as having theme code even though stores/<slug>/theme/ is empty:
+  // the code arrives when the run fetches it. Without this the prompt below would offer to
+  // connect a repo to a store that already has one connected.
+  const hasTheme = themeSourceIsRemote(store) || themeDirHasContent(resolveThemeDir(store));
   if (!hasTheme && !store.localThemeDir && !args.skipGithub && process.stdin.isTTY) {
     const wantsLink = await confirm({
-      message: `No theme code found for ${store.name} yet. Connect a GitHub repo now to clone into stores/${store.slug}/theme/?`,
+      message: `No theme code found for ${store.name} yet. Connect a GitHub repo now?`,
       default: Boolean(process.env.GITHUB_OAUTH_CLIENT_ID),
     });
     if (wantsLink) {
       try {
+        // force: there is nothing in theme/ to overwrite, so the confirmation would be noise. The
+        // repo *and* the mode are still both asked for.
         await linkRepoInteractive(store, { force: true });
+        // Re-read: linkRepoInteractive writes config.json (the connection, and for a "read"
+        // connection the theme subdir it discovered), and this run needs to read from it.
+        store = resolveStore(store.slug);
       } catch (err: any) {
         console.log(chalk.yellow(`  Skipping GitHub connect: ${err?.message ?? err}\n`));
       }
@@ -257,25 +279,43 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
 
   console.log(chalk.bold(`\nRunning audit for ${store.name} (${store.url})\n`));
 
+  // For a `"read"` GitHub connection this downloads the branch into a temp directory. Acquired
+  // before the spinner starts so its own progress lines aren't swallowed, and released in the
+  // `finally` below so the client's code doesn't outlive the run — a signal is handled separately,
+  // in shutdown.ts, since it skips `finally` entirely.
+  if (themeSourceIsRemote(store) && !args.skipCode) console.log(describeRemoteThemeSource(store));
+  const themeSource = args.skipCode ? null : await acquireThemeSource(store);
+  if (themeSource?.ephemeral) console.log(chalk.gray(`  Downloaded to ${themeSource.dir}\n`));
+
   const spinner = ora().start();
-  const report = await runAudit(
-    store,
-    { ...args, adaScope },
-    {
-      onStage: (stage) => {
-        spinner.text = stage;
-        // ora only ever renders spinner.text when stdout is a TTY — piped/non-interactive
-        // callers (the web dashboard's /api/run and `barrel-audit serve`) would otherwise see
-        // total silence between "Running audit for..." and the final summary. Print an explicit
-        // line in that case so those consumers get live per-stage progress too.
-        if (!process.stdout.isTTY) console.log(`→ ${stage}`);
+  try {
+    const report = await runAudit(
+      store,
+      { ...args, adaScope, themeDir: themeSource?.dir },
+      {
+        onStage: (stage) => {
+          spinner.text = stage;
+          // ora only ever renders spinner.text when stdout is a TTY — piped/non-interactive
+          // callers (the web dashboard's /api/run and `barrel-audit serve`) would otherwise see
+          // total silence between "Running audit for..." and the final summary. Print an explicit
+          // line in that case so those consumers get live per-stage progress too.
+          if (!process.stdout.isTTY) console.log(`→ ${stage}`);
+        },
       },
-    },
-  ).catch((err) => {
-    spinner.fail(String(err?.message ?? err));
-    throw err;
-  });
-  spinner.succeed("Audit complete");
+    ).catch((err) => {
+      spinner.fail(String(err?.message ?? err));
+      throw err;
+    });
+    spinner.succeed("Audit complete");
+    reportRunSummary(store, args, report);
+  } finally {
+    themeSource?.release();
+  }
+}
+
+/** Everything the CLI prints once a run has finished. Split out of runCommand only so the
+ * try/finally that owns the temp checkout above stays readable. */
+function reportRunSummary(store: StoreConfig, args: RunCommandArgs, report: Report): void {
 
   console.log();
   console.log(chalk.bold(`Overall score: ${report.overallScore} (${gradeForScore(report.overallScore)})`));
@@ -392,6 +432,11 @@ export async function runCommand(args: RunCommandArgs): Promise<void> {
     );
   }
   console.log();
+  if (args.outputPath) {
+    console.log(chalk.gray(`Report written to ${args.outputPath} — nothing was published.`));
+    console.log(chalk.gray(`No report blob, no manifest entry, no entry in this store's history.`));
+    return;
+  }
   console.log(chalk.gray(`Report uploaded to Vercel Blob (reports/${store.slug}/${report.id}.json).`));
   console.log(chalk.gray(`It's already live on the report site — no deploy needed.`));
 }

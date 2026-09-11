@@ -1,4 +1,5 @@
 import { killAll } from "chrome-launcher";
+import { cleanupAllRepoCheckouts } from "./github-checkout.js";
 
 const SHOW_CURSOR = "\u001B[?25h";
 
@@ -27,6 +28,10 @@ export function installBrowserCleanup(): void {
     // without this an interactive Ctrl+C leaves the terminal with an invisible cursor.
     if (process.stdout.isTTY) process.stdout.write(SHOW_CURSOR);
     const failures = killAll();
+    // A `"read"`-mode GitHub connection unpacks the client's theme into a temp directory for the
+    // duration of the run. The whole point of that mode is that no copy is left behind, so a
+    // signal must delete it too — the `finally` that normally would is skipped by definition.
+    cleanupAllRepoCheckouts();
     console.log(
       `\nStopped (${signal}) — closed the headless browsers this run opened.` +
         (failures.length > 0 ? ` ${failures.length} may not have exited cleanly.` : ""),

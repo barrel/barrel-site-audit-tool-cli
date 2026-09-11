@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 import chalk from "chalk";
 import { cliInvocation, dataRoot, storeFixDir } from "../paths.js";
 import { buildCroArgs, buildRunArgs, buildRunEnv, type CroRunBody, type RunAuditBody } from "@barrel/site-audit-shared";
-import { resolveStore, resolveThemeDir } from "../store.js";
+import { resolveStore } from "../store.js";
+import { acquireThemeSource } from "../theme-source.js";
+import { getGithubUser, listGithubOrgs, searchGithubRepos } from "../github.js";
 import { suggestFix, type SuggestFixParams } from "../analyzers/ai-fix.js";
 import {
   applyFixAndOpenPr,
@@ -266,6 +268,94 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
       return;
     }
 
+    /* ── GitHub connector ──────────────────────────────────────────────────────────────────
+     *
+     * The dashboard has its own GitHub login (its own device flow, its own cookie) and does its
+     * own searching, so it does not need the agent to browse repos. These exist for the two
+     * things only a machine with the CLI on it can do: report which GitHub login *this* machine
+     * has cached, and pull a copy of a repo down to it.
+     *
+     * getGithubToken() is never called without checking the cache first — its fallback is the
+     * device flow, which would print a one-time code into a log nobody is watching and hang the
+     * request until it expired. */
+    if (req.method === "GET" && (req.url === "/github/status" || req.url?.startsWith("/github/repos"))) {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
+        return;
+      }
+
+      if (!(await hasCachedValidGithubToken())) {
+        res.writeHead(409, { "Content-Type": "application/json" }).end(
+          JSON.stringify({
+            connected: false,
+            error:
+              `This machine has no GitHub login cached. Run \`${cliInvocation()} link-repo --login\` in a ` +
+              `terminal once to sign in, then try again.`,
+          }),
+        );
+        return;
+      }
+
+      try {
+        const githubToken = await getGithubToken();
+        if (req.url === "/github/status") {
+          const [user, orgs] = await Promise.all([getGithubUser(githubToken), listGithubOrgs(githubToken).catch(() => [])]);
+          res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ connected: true, user, orgs }));
+          return;
+        }
+
+        const params = new URL(req.url!, "http://127.0.0.1").searchParams;
+        const repos = await searchGithubRepos(githubToken, {
+          query: params.get("q") ?? undefined,
+          org: params.get("org") ?? undefined,
+          limit: Number.parseInt(params.get("limit") ?? "50", 10) || 50,
+          includeArchived: params.get("archived") === "1",
+        });
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ connected: true, repos }));
+      } catch (err: any) {
+        res.writeHead(502, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+      }
+      return;
+    }
+
+    /* Pull a repo down to this machine — the one connector action that has to happen here rather
+     * than in the browser, since "on disk" means this disk. Streamed like a run, because a big
+     * theme repo takes long enough that a silent request looks broken. */
+    if (req.method === "POST" && req.url === "/github/pull") {
+      const auth = req.headers.authorization;
+      if (auth !== `Bearer ${token}`) {
+        res.writeHead(401, { "Content-Type": "text/plain" }).end("Invalid or missing token.");
+        return;
+      }
+
+      let body: { slug?: string; repo?: string; branch?: string };
+      try {
+        body = await readJsonBody(req);
+        if (!body?.slug || !body?.repo) throw new Error("Missing slug or repo.");
+        // The same shape check the CLI would do, made here so a malformed value never reaches argv.
+        if (!/^[\w.-]+\/[\w.-]+$/.test(body.repo)) throw new Error(`"${body.repo}" is not an owner/repo pair.`);
+        if (body.branch && !/^[\w./-]+$/.test(body.branch)) throw new Error(`"${body.branch}" is not a valid branch name.`);
+      } catch (err: any) {
+        res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
+        return;
+      }
+
+      // streamCommand owns the single-flight slot, so a pull started mid-audit would overwrite
+      // the record of the run in progress and let the next Stop hit the wrong child.
+      if (activeRun) {
+        res
+          .writeHead(409, { "Content-Type": "application/json" })
+          .end(JSON.stringify({ error: `Busy: ${activeRun.target} is still running. Wait for it to finish, then pull.` }));
+        return;
+      }
+
+      const args = ["link-repo", body.slug, "--repo", body.repo, "--mode", "pull", "--force"];
+      if (body.branch) args.push("--branch", body.branch);
+      await streamCommand(req, res, { target: `${body.repo} → ${body.slug}`, args, env: {}, doneMarker: "__BARREL_PULL_DONE__" });
+      return;
+    }
+
     if (req.method === "POST" && req.url === "/suggest-fix") {
       const auth = req.headers.authorization;
       if (auth !== `Bearer ${token}`) {
@@ -284,16 +374,24 @@ export async function serveCommand(opts: ServeOptions): Promise<void> {
 
       try {
         const config = resolveStore(body.slug);
-        const result = await suggestFix(resolveThemeDir(config), {
-          file: body.file,
-          line: body.line,
-          title: body.title,
-          description: body.description,
-          recommendation: body.recommendation,
-        });
-        res
-          .writeHead(200, { "Content-Type": "application/json" })
-          .end(JSON.stringify({ ...result, isLocalRepo: Boolean(config.localThemeDir) }));
+        // acquireThemeSource, not resolveThemeDir: a store whose GitHub connection is in "read"
+        // mode has nothing on disk to draft a fix against, so the file has to be fetched — and
+        // then deleted again, which is what the `finally` is for.
+        const themeSource = await acquireThemeSource(config);
+        try {
+          const result = await suggestFix(themeSource.dir, {
+            file: body.file,
+            line: body.line,
+            title: body.title,
+            description: body.description,
+            recommendation: body.recommendation,
+          });
+          res
+            .writeHead(200, { "Content-Type": "application/json" })
+            .end(JSON.stringify({ ...result, isLocalRepo: Boolean(config.localThemeDir) }));
+        } finally {
+          themeSource.release();
+        }
       } catch (err: any) {
         res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ error: err?.message ?? String(err) }));
       }

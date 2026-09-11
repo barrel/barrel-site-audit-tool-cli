@@ -39,3 +39,7 @@ test-results/
 # lighthouse / chrome tmp
 .lighthouseci/
 *.tsbuildinfo
+
+# Sandbox-probe output: reports produced by tools/sandbox-probe to compare a cloud run against a
+# local one. Client audit data, and regenerable — same reasoning as stores/ and test-results/.
+probe-out/

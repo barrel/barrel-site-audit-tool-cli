@@ -7,7 +7,8 @@ import { runCommand } from "./commands/run.js";
 import { listCommand } from "./commands/list.js";
 import { deployCommand } from "./commands/deploy.js";
 import { pullThemeCommand } from "./commands/pull-theme.js";
-import { linkRepoCommand } from "./commands/link-repo.js";
+import { githubLoginCommand, linkRepoCommand } from "./commands/link-repo.js";
+import { reposCommand } from "./commands/repos.js";
 import { serveCommand } from "./commands/serve.js";
 import { setupCommand } from "./commands/setup.js";
 import { consentScanCommand } from "./commands/consent-scan.js";
@@ -97,21 +98,60 @@ program
   });
 
 program
-  .command("link-repo <slug-or-url>")
+  .command("repos [query]")
   .description(
-    "Connect a GitHub repo and clone it into stores/<slug>/theme — an alternative to pull-theme for stores " +
-      "whose theme code lives in GitHub rather than (or in addition to) a live Shopify theme. Pass an existing " +
-      "store slug, or a live URL to auto-create a store from its hostname, same as `run`. Signs in via GitHub's " +
-      "OAuth device flow (a one-time code + browser approval, no token to paste) the first time, then reuses " +
-      "the cached login. Prompts you to pick a repo interactively unless --repo is given. Requires " +
-      "GITHUB_OAUTH_CLIENT_ID in .env.",
+    "Search the GitHub repositories this login can see, without linking anything. Searches " +
+      "GitHub-side rather than filtering a downloaded list, so it finds a repo on an instance with " +
+      "thousands of them. Pass --org to narrow it to one organization, --orgs to list the " +
+      "organizations you're in, or --json for a scriptable list. Read-only. Requires " +
+      "GITHUB_OAUTH_CLIENT_ID in .env (see `barrel-audit setup`).",
   )
-  .option("--repo <owner/name>", "Skip the interactive picker and clone this repo directly")
-  .option("--branch <branch>", "Branch to clone (defaults to the repo's default branch)")
-  .option("--relogin", "Discard the cached GitHub login and re-authenticate before continuing")
-  .action(async (slug: string, opts: { repo?: string; branch?: string; relogin?: boolean }) => {
+  .option("--org <name>", "Only repositories in this GitHub organization")
+  .option("--limit <n>", "How many results to show (1-100, default 30)")
+  .option("--archived", "Include archived repositories (excluded by default)")
+  .option("--orgs", "List the organizations this login can see, instead of repositories")
+  .option("--json", "Print JSON instead of a table")
+  .action(async (query: string | undefined, opts: { org?: string; limit?: string; archived?: boolean; orgs?: boolean; json?: boolean }) => {
     try {
-      await linkRepoCommand({ slug, repo: opts.repo, branch: opts.branch, relogin: opts.relogin });
+      await reposCommand({ query, ...opts });
+    } catch (err: any) {
+      console.error(chalk.red(`\n${err?.message ?? err}`));
+      process.exitCode = 1;
+    }
+  });
+
+program
+  .command("link-repo [slug-or-url]")
+  .description(
+    "Connect a GitHub repo to a store, read-only — an alternative to pull-theme for stores whose theme code " +
+      "lives in GitHub rather than (or in addition to) a live Shopify theme. Pass an existing store slug, or a " +
+      "live URL to auto-create a store from its hostname, same as `run`. Two modes: --mode read (nothing is " +
+      "kept on disk; every audit downloads the branch, reads it and deletes it) or --mode pull (clone once " +
+      "into stores/<slug>/theme). You're asked which if you don't say. Signs in via GitHub's OAuth device " +
+      "flow (a one-time code + browser approval, no token to paste) the first time, then reuses the cached " +
+      "login; the repo picker searches GitHub-side, so it works on an instance with thousands of repos. " +
+      "Nothing in either mode writes to the repository. Requires GITHUB_OAUTH_CLIENT_ID in .env.",
+  )
+  .option("--repo <owner/name>", "Skip the interactive picker and connect this repo directly")
+  .option("--branch <branch>", "Branch to read (defaults to the repo's default branch)")
+  .option("--mode <pull|read>", "read = re-read from GitHub every run, nothing on disk; pull = clone once into theme/")
+  .option("--org <name>", "Limit the repo picker's search to one GitHub organization")
+  .option("--force", "Don't ask before replacing existing files in stores/<slug>/theme (--mode pull only)")
+  .option("--login", "Just sign in to GitHub (or check who you're signed in as) and stop — no store needed")
+  .option("--relogin", "Discard the cached GitHub login and re-authenticate before continuing")
+  .action(async (slug: string | undefined, opts: { repo?: string; branch?: string; mode?: string; org?: string; force?: boolean; login?: boolean; relogin?: boolean }) => {
+    try {
+      if (opts.login) {
+        await githubLoginCommand({ relogin: opts.relogin });
+        return;
+      }
+      if (!slug) {
+        throw new Error(
+          "link-repo needs a store slug or a live URL — e.g. `link-repo mystore` or `link-repo https://mystore.com`.\n" +
+            "  To sign in to GitHub without touching a store, run `link-repo --login`.",
+        );
+      }
+      await linkRepoCommand({ slug, repo: opts.repo, branch: opts.branch, mode: opts.mode, org: opts.org, force: opts.force, relogin: opts.relogin });
     } catch (err: any) {
       console.error(chalk.red(`\n${err?.message ?? err}`));
       process.exitCode = 1;
@@ -180,6 +220,13 @@ program
       "multi-line, bulleted scope. Takes precedence over --ada-scope.",
   )
   .option(
+    "--output <path>",
+    "Write the finished report to this file and publish nothing — no report blob, no manifest " +
+      "entry, nothing added to the store's history. For comparing what two machines produce for " +
+      "the same storefront without writing into a client's real report history. Also the one mode " +
+      "that needs no BLOB_READ_WRITE_TOKEN.",
+  )
+  .option(
     "--local-repo <path>",
     "Read theme code from an existing local git checkout instead of stores/<slug>/theme/ — for " +
       "auditing (and, via \"Suggest fix\", editing in place) a repo you already have cloned. Saved " +
@@ -216,6 +263,7 @@ program
         adaScope?: string;
         adaScopeFile?: string;
         localRepo?: string;
+        output?: string;
         competitor: string[];
       },
     ) => {
@@ -243,6 +291,7 @@ program
           adaScope: opts.adaScope,
           adaScopeFile: opts.adaScopeFile,
           localRepo: opts.localRepo,
+          outputPath: opts.output,
           competitorUrls: opts.competitor,
         });
       } catch (err: any) {

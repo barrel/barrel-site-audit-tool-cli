@@ -60,6 +60,17 @@ export interface RunOptions {
    * signal. Off by default — it's a separate heavy CLI subprocess with its own browser
    * automation, noticeably slower than the rest of the suite. */
   sitespeed?: boolean;
+  /** Where to read theme code from, when the caller has already resolved (and possibly fetched)
+   * it. Set by `run` for a store whose GitHub connection is in `"read"` mode: the code lives in a
+   * temp directory that only exists for the length of the run, so resolveThemeDir()'s answer —
+   * stores/<slug>/theme/, which is deliberately empty for such a store — would be wrong.
+   * Omitted everywhere else, and resolveThemeDir() stays the default. */
+  themeDir?: string;
+  /** Write the finished report to this local path and publish nothing: no report blob, no
+   * manifest entry, no run record. For measuring the tool against itself — comparing what two
+   * different machines produce for the same storefront — where appending to a client's real
+   * report history would corrupt the very baseline the comparison is about. */
+  outputPath?: string;
 }
 
 // Real-browser iterations sitespeed.io runs per audit when --sitespeed is passed — enough for
@@ -113,7 +124,7 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
   };
 
   const sections: Report["sections"] = {};
-  const themeDir = resolveThemeDir(store);
+  const themeDir = options.themeDir ?? resolveThemeDir(store);
   const hasTheme = themeDirHasContent(themeDir);
   let aiUsage: AiUsage | undefined;
   // Every analyzer below fetches/renders this instead of store.url directly — store.url (used
@@ -371,6 +382,18 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
   }
 
   report.aiUsage = aiUsage;
+
+  // --output: keep the report entirely local. Deliberately before the upload rather than a flag
+  // inside it, so there is no ordering in which a probe run can half-publish.
+  if (options.outputPath) {
+    hooks.onStage?.(`Writing report to ${options.outputPath}`);
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const { dirname } = await import("node:path");
+    mkdirSync(dirname(options.outputPath), { recursive: true });
+    writeFileSync(options.outputPath, JSON.stringify(report, null, 2));
+    await finishRunRecord({ status: "succeeded", overallScore });
+    return report;
+  }
 
   hooks.onStage?.("Uploading report to Vercel Blob");
   await writeBlobJson(reportBlobPath(store.slug, id), report);

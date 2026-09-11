@@ -1099,6 +1099,13 @@ export interface StoreConfig {
   ga4PropertyId?: string;
   githubRepo?: string;
   githubBranch?: string;
+  /** How a run gets theme code out of `githubRepo`: `"pull"` cloned it once into
+   * stores/<slug>/theme/, `"read"` keeps nothing on disk and re-reads the branch every run.
+   * Absent on connections made before the field existed — treat those as `"pull"`. Both modes
+   * are read-only; see the CLI's StoreConfig for the full note. */
+  githubMode?: "pull" | "read";
+  githubConnectedAt?: string;
+  githubConnectedBy?: string;
   themeSubdir?: string;
   /** Step 0 of a CRO audit — the intake. On the store rather than on a CRO report because it
    * describes the client and not one audit of them. Each report copies the brief it was run

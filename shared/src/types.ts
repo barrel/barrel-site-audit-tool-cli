@@ -779,10 +779,26 @@ export interface StoreConfig {
    * Requires the service account in GOOGLE_SERVICE_ACCOUNT_KEY to be a Viewer on the property —
    * see docs/ga4-setup.md. */
   ga4PropertyId?: string;
-  /** "owner/repo" of the GitHub repo last cloned into theme/ via `link-repo`, for reference. */
+  /** "owner/repo" of the GitHub repo connected to this store via `link-repo` (or the dashboard's
+   * repo picker). Whether a copy of it exists on disk depends on `githubMode`. */
   githubRepo?: string;
-  /** Branch last cloned via `link-repo` — omitted when the repo's default branch was used. */
+  /** Branch the connection reads — omitted when the repo's default branch is used. */
   githubBranch?: string;
+  /** How a run gets this store's theme code out of `githubRepo`:
+   *  - `"pull"` (the default, and what every connection made before this field existed did) —
+   *    the repo was cloned once into `stores/<slug>/theme/`. A snapshot: it is whatever the repo
+   *    looked like the day it was pulled, until someone pulls it again.
+   *  - `"read"` — nothing is kept on disk. Each run downloads the ref's tarball to a temp
+   *    directory, reads it, and deletes it, so every audit sees the branch as it is right now.
+   *
+   * Both are read-only: the connector never writes to the repo in either mode. The one sanctioned
+   * write path in this tool is still the separately-gated "Suggest fix" PR flow in `git-pr.ts`. */
+  githubMode?: "pull" | "read";
+  /** Who connected the repo and when, in ISO form — recorded because a `"read"` connection leaves
+   * no artefact on disk to date, so without this there is nothing to say where the theme code in a
+   * report came from. */
+  githubConnectedAt?: string;
+  githubConnectedBy?: string;
   /** Path *within* the repo to the Shopify theme root, for repos that keep the theme one level
    * down (theme/, src/, dist/). Omitted when the theme sits at the repo root. Only a cloud run
    * needs this recorded: a local run finds the theme root by walking up from where you are. */

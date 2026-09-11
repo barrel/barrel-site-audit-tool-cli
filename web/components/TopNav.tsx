@@ -26,6 +26,7 @@ const DESTINATIONS: Array<NavDestination & { adminOnly?: boolean }> = [
   { href: "/cro", label: "CRO Audits" },
   { href: "/consent", label: "Privacy Compliance", adminOnly: true },
   { href: "/progress", label: "Baseline & Reporting" },
+  { href: "/repos", label: "Theme Repos" },
   { href: "/instructions", label: "CLI Instructions" },
 ];
 
