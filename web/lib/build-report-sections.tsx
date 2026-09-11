@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CompliancePill, GradePill } from "@/components/ScoreBadge";
+import { CoverageNote } from "@/components/CoverageNote";
 import { StatTile } from "@/components/StatTile";
 import { ReportSection } from "@/components/ReportSection";
 import { MeterGrid } from "@/components/MeterGrid";
@@ -141,6 +142,7 @@ export function buildReportSections(report: Report): SectionDef[] {
                   ))}
                 </ul>
               )}
+              <CoverageNote report={report} />
             </div>
             <div className="grid grid-cols-2 gap-3 lg:w-[320px] shrink-0 lg:self-start">
               {stats.slice(0, 4).map((s) => (

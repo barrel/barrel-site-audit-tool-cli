@@ -184,27 +184,62 @@ function proseSlides(slide: Omit<DeckSlide, "bullets">, text: string): DeckSlide
 
 /* ── The scorecard ──────────────────────────────────────────────────────────────────────────── */
 
-/** Every area this run actually scored, in the order a client recognises them.
+/** The scored areas shown as gauges, in the order a client recognises them.
  *
- * Exported and consumed by build-report-sections.tsx as well, which is where this list used to
- * live: the Overview page's stat tiles and the deck's scorecard slide are the same claim about the
- * same run, and two copies of it would eventually disagree about whether a null security score
- * counts. */
+ * Deliberately a subset: the overall score averages thirteen areas and thirteen gauges is not a
+ * slide. What it must never be is a *different* set — a gauge for an area that contributed nothing
+ * to the number beside it. So the ids come from the run's own contributor list, and anything not
+ * in it simply has no gauge.
+ *
+ * Security is gone from here. It is no longer one of the averaged areas (see
+ * cli/src/report/score.ts), and a compliance score never belonged on a grid footnoted "Graded A to
+ * F" — consent and security surface on the exposure slide, on their own scale.
+ *
+ * Exported and consumed by build-report-sections.tsx as well: the Overview page's stat tiles and
+ * the deck's scorecard slide are the same claim about the same run. */
+const SCORECARD_ORDER: { id: string; label: string }[] = [
+  { id: "lighthousePerformance", label: "Performance" },
+  { id: "health", label: "Site Health" },
+  { id: "geoSeo", label: "SEO & GEO Health" },
+  { id: "pixels", label: "Trust & Privacy" },
+  { id: "themeStructure", label: "Theme Structure" },
+  { id: "code", label: "Theme Code" },
+];
+
 export function reportScorecard(report: Report): DeckScore[] {
-  const { sections } = report;
   const scores: DeckScore[] = [{ label: "Overall Score", score: report.overallScore }];
+
+  const contributors = report.scoreBreakdown?.contributors;
+  if (contributors) {
+    for (const { id, label } of SCORECARD_ORDER) {
+      const contributor = contributors.find((c) => c.id === id);
+      if (contributor) scores.push({ label, score: contributor.score });
+    }
+    return scores;
+  }
+
+  // Reports archived before score breakdowns existed. Read straight off the sections, as this
+  // always did — including security, because on those runs it genuinely was part of the average.
+  const { sections } = report;
   if (sections.performance) scores.push({ label: "Performance", score: sections.performance.performance.score });
   if (sections.health) scores.push({ label: "Site Health", score: sections.health.score });
   if (sections.geoSeo) scores.push({ label: "SEO & GEO Health", score: sections.geoSeo.healthRating });
   if (sections.pixels) scores.push({ label: "Trust & Privacy", score: sections.pixels.score });
-  // Only when there is a real number: a null score means too little was confirmed to rank, and a
-  // stat tile has nowhere to say that.
   if (sections.security && sections.security.score !== null) {
     scores.push({ label: "Security", score: sections.security.score });
   }
   if (sections.themeStructure) scores.push({ label: "Theme Structure", score: sections.themeStructure.score });
   if (sections.code) scores.push({ label: "Theme Code", score: sections.code.score });
   return scores;
+}
+
+/** How many areas the overall score actually averaged — not how many gauges fit on a slide.
+ *
+ * The deck used to say "across the N areas it measured" with N taken from the scorecard length,
+ * which showed eight of the then-fourteen. The client could not reconcile the gauges with the
+ * headline number because the sentence was describing the gauges. */
+export function scoredAreaCount(report: Report): number {
+  return report.scoreBreakdown?.contributors.length ?? reportScorecard(report).length - 1;
 }
 
 /* ── Slide builders ─────────────────────────────────────────────────────────────────────────── */
@@ -231,13 +266,29 @@ function coverSlide(report: Report): DeckSlide {
  * Its own slide, separate from the scorecard it used to share: a real overview runs to a paragraph
  * and change, seven gauges take two rows, and a 16:9 page holds one of those two. */
 function standingSlides(report: Report): DeckSlide[] {
-  const areas = reportScorecard(report).length - 1;
+  const areas = scoredAreaCount(report);
   const prose =
     report.sections.recommendations?.headline ??
     report.sections.summary?.overview ??
     `This audit scored ${report.storeName} ${report.overallScore} out of 100 overall, across the ${areas} area${areas === 1 ? "" : "s"} it measured.`;
 
   return proseSlides({ id: "standing", eyebrow: "Where things stand", title: "The storefront today" }, prose);
+}
+
+/** The gauges are a subset and the score is an average — so the footnote has to say which, or a
+ * client counts six dials and wonders where the seventh area went.
+ *
+ * A section that could not be measured is named as a count rather than a list: this is the slide a
+ * client photographs, and "three areas could not be measured" is the part they need to ask about. */
+function scorecardFootnote(report: Report): string {
+  const grading = "Graded A to F on a 100-point scale: A is 90 and above, C is 70, anything under 50 is an F.";
+  const breakdown = report.scoreBreakdown;
+  if (!breakdown) return grading;
+
+  const failed = Object.values(report.coverage ?? {}).filter((entry) => entry.status === "failed").length;
+  const scored = `The overall score averages ${breakdown.contributors.length} scored area${breakdown.contributors.length === 1 ? "" : "s"}.`;
+  const gap = failed > 0 ? ` ${failed} more could not be measured on this run.` : "";
+  return `${scored}${gap} ${grading}`;
 }
 
 /** Every score the run produced, as gauges.
@@ -251,7 +302,7 @@ function scorecardSlide(report: Report): DeckSlide {
     title: "How the storefront scores",
     bullets: [],
     scores: reportScorecard(report),
-    footnote: "Graded A to F on a 100-point scale: A is 90 and above, C is 70, anything under 50 is an F.",
+    footnote: scorecardFootnote(report),
   };
 }
 
