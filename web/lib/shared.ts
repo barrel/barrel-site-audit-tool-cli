@@ -33,6 +33,9 @@ export interface LighthouseAudit {
 export interface LighthouseCategoryResult {
   score: number;
   audits: LighthouseAudit[];
+  /** How many audits in this category failed in total, before `audits` was capped — so a count
+   * shown to a reader is not a floor presented as a total. */
+  failingAudits?: number;
 }
 
 export interface VitalMetric {
@@ -672,6 +675,31 @@ export interface ReportSections {
   recommendations?: RecommendationsSection;
 }
 
+/** Why a section is or is not in `ReportSections` — see shared/src/types.ts for the full
+ * reasoning. `skipped` and `not-applicable` stay apart on purpose: "you passed --skip-axe" and
+ * "this store has no GA4 property linked" lead a reader to different actions. */
+export type SectionStatus = "ran" | "skipped" | "not-applicable" | "failed";
+
+export interface SectionTruncation {
+  kept: number;
+  found: number;
+  what: string;
+}
+
+export interface SectionCoverage {
+  status: SectionStatus;
+  startedAt?: string;
+  finishedAt?: string;
+  reason?: string;
+  truncated?: SectionTruncation;
+}
+
+export type SectionKey = keyof ReportSections;
+
+/** Partial only so reports written before coverage existed still typecheck — absent is not empty:
+ * for those, nothing is known about what ran. */
+export type ReportCoverage = Partial<Record<SectionKey, SectionCoverage>>;
+
 export interface AiUsage {
   model: string;
   inputTokens: number;
@@ -689,6 +717,9 @@ export interface Report {
   durationMs: number;
   overallScore: number;
   sections: ReportSections;
+  /** What every analyzer did, including the ones that produced nothing. Absent on reports written
+   * before coverage existed. */
+  coverage?: ReportCoverage;
   aiUsage?: AiUsage;
 }
 

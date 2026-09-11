@@ -32,6 +32,12 @@ export interface LighthouseAudit {
 export interface LighthouseCategoryResult {
   score: number;
   audits: LighthouseAudit[];
+  /** How many audits in this category failed in total, before `audits` was capped.
+   *
+   * Without it the report states a floor as though it were a total: `audits` keeps only the worst
+   * few, so "12 issues" on a category with sixty failures is true of the list and false of the
+   * site. Absent on reports written before the count was kept. */
+  failingAudits?: number;
 }
 
 export interface VitalMetric {
@@ -711,6 +717,68 @@ export interface ReportSections {
   recommendations?: RecommendationsSection;
 }
 
+/* ── Coverage ───────────────────────────────────────────────────────────────────────────────
+ * What the run actually attempted, and what became of each attempt.
+ */
+
+/** Why a section is or is not in `ReportSections`.
+ *
+ * The conflation this exists to end: a section that was skipped, a section that crashed, and a
+ * section that ran and found nothing are *byte-identical* in `sections` — all three are an absent
+ * key. That is the same misread 1.23 fixed inside Privacy Compliance ("untested no longer looks
+ * like clean"), and it is worse one level up, because `overallScore` is an average over whichever
+ * sections happened to produce a number, with nothing recording which those were.
+ *
+ * `skipped` and `not-applicable` are kept apart deliberately: "you passed --skip-axe" and "this
+ * store has no GA4 property linked" lead a reader to different actions, and rounding them
+ * together throws away the only one they can do something about. */
+export type SectionStatus =
+  /** The analyzer ran to completion. Its absence from `sections` then means it found nothing to
+   * report, which is the only case where absence may be read as good news. */
+  | "ran"
+  /** The operator asked for it not to run — a `--skip-*` flag, or an opt-in never opted into. */
+  | "skipped"
+  /** It could not run for want of an input nobody withheld on purpose: no theme code, no GA4
+   * property, no ADA scope pasted, no competitors given. */
+  | "not-applicable"
+  /** It ran and threw, or exceeded its time budget. A coverage gap, not a clean result. */
+  | "failed";
+
+/** A cap the analyzer applied to its own output.
+ *
+ * Several analyzers keep only the worst N of what they found (15 Lighthouse audits per category,
+ * 12 signals per AI prompt). Without this the report states a floor as though it were a total,
+ * which is the same class of untruth as presenting a coverage gap as a pass. */
+export interface SectionTruncation {
+  /** How many made it into the section. */
+  kept: number;
+  /** How many there actually were. */
+  found: number;
+  /** What is being counted, for a sentence like "showing 15 of 63 failing audits". */
+  what: string;
+}
+
+export interface SectionCoverage {
+  status: SectionStatus;
+  /** Bounds this analyzer's own work. `Report.createdAt` is one timestamp stamped after every
+   * analyzer finished, so on a twenty-minute run it describes none of them: the Lighthouse pass
+   * and the consent pass can be a quarter of an hour apart and both read as the same instant. */
+  startedAt?: string;
+  finishedAt?: string;
+  /** Stated plainly enough to show a reader. Always present for every status but `ran`. */
+  reason?: string;
+  truncated?: SectionTruncation;
+}
+
+/** Keyed off `ReportSections` itself, so a section added there without a coverage entry is a type
+ * error rather than a silent gap in the record. */
+export type SectionKey = keyof ReportSections;
+
+/** Partial only so reports written before coverage existed still typecheck. A run that records
+ * coverage records it for every key — asserted by test rather than by the type, which cannot
+ * distinguish "this run predates coverage" from "this run forgot a section". */
+export type ReportCoverage = Partial<Record<SectionKey, SectionCoverage>>;
+
 export interface AiUsage {
   model: string;
   inputTokens: number;
@@ -740,6 +808,10 @@ export interface Report {
   durationMs: number;
   overallScore: number;
   sections: ReportSections;
+  /** What every analyzer did, including the ones that produced nothing. Absent on reports written
+   * before coverage existed — and absent is not the same as empty: for those, nothing is known
+   * about what ran, which is exactly the state this field exists to end. */
+  coverage?: ReportCoverage;
   /** Claude token usage for the AI-generated executive summary, if one was produced. */
   aiUsage?: AiUsage;
   /** Absent on reports produced before cloud runs existed — treat those as local. */

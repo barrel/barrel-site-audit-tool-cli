@@ -27,6 +27,7 @@ import { writeBlobJson, writeBlobBinary } from "../blob.js";
 import { normalizeAuditUrl } from "../url.js";
 import { appendToManifest } from "./manifest.js";
 import { finishRunRecord, runnerInfo, startRunRecord, updateRunStage } from "./run-record.js";
+import { createCoverageTracker, SLOW_ANALYZER_TIMEOUT_MS } from "./coverage.js";
 
 export interface RunOptions {
   skipCode?: boolean;
@@ -124,6 +125,10 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
   };
 
   const sections: Report["sections"] = {};
+  // Written for every section, including the ones that never run — see SectionStatus. Nothing in
+  // here changes what an analyzer does; it records what became of it, which is the difference
+  // between a report that found nothing and a report that did not look.
+  const track = createCoverageTracker();
   const themeDir = options.themeDir ?? resolveThemeDir(store);
   const hasTheme = themeDirHasContent(themeDir);
   let aiUsage: AiUsage | undefined;
@@ -131,62 +136,96 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
   // for storeUrl below and in the manifest) stays exactly what was configured.
   const auditUrl = normalizeAuditUrl(store.url);
 
-  if (!options.skipCode) {
-    if (hasTheme) {
-      hooks.onStage?.("Linting theme code (theme-check)");
-      sections.code = (await analyzeCode(themeDir)) ?? undefined;
-      hooks.onStage?.("Analyzing theme structure (orphaned files, page-builder apps)");
-      sections.themeStructure = (await analyzeThemeStructure(themeDir)) ?? undefined;
-      hooks.onStage?.("Profiling the theme (identity, stack, codebase opportunities)");
-      sections.themeProfile = analyzeThemeProfile(themeDir) ?? undefined;
+  const THEME_SECTIONS = ["code", "themeStructure", "themeProfile", "themeArchitecture"] as const;
+  if (options.skipCode) {
+    for (const key of THEME_SECTIONS) track.skipped(key, "--skip-code was passed.");
+  } else if (!hasTheme) {
+    hooks.onStage?.(`No theme code found at stores/${store.slug}/theme — skipping code analysis`);
+    for (const key of THEME_SECTIONS) {
+      track.notApplicable(key, "No theme code was available to this run, so nothing could be read.");
+    }
+  } else {
+    hooks.onStage?.("Linting theme code (theme-check)");
+    sections.code = await track.run("code", () => analyzeCode(themeDir));
+    hooks.onStage?.("Analyzing theme structure (orphaned files, page-builder apps)");
+    sections.themeStructure = await track.run("themeStructure", () => analyzeThemeStructure(themeDir));
+    hooks.onStage?.("Profiling the theme (identity, stack, codebase opportunities)");
+    sections.themeProfile = await track.run("themeProfile", () => analyzeThemeProfile(themeDir));
 
-      if (!options.skipThemeArchitecture) {
-        hooks.onStage?.("Assessing theme architecture & Shopify platform fit (Claude)");
-        const themeArchitectureResult = await generateThemeArchitecture(
-          themeDir,
-          sections.code,
-          sections.themeStructure,
-          sections.themeProfile,
-        ).catch(() => null);
-        if (themeArchitectureResult) {
-          sections.themeArchitecture = themeArchitectureResult.section;
-          aiUsage = addUsage(aiUsage, themeArchitectureResult.usage);
-        }
-      }
+    if (options.skipThemeArchitecture) {
+      track.skipped("themeArchitecture", "--skip-theme-architecture was passed.");
+    } else if (!process.env.ANTHROPIC_API_KEY) {
+      track.notApplicable("themeArchitecture", "ANTHROPIC_API_KEY is not set, so the AI assessment could not run.");
     } else {
-      hooks.onStage?.(`No theme code found at stores/${store.slug}/theme — skipping code analysis`);
+      hooks.onStage?.("Assessing theme architecture & Shopify platform fit (Claude)");
+      const themeArchitectureResult = await track.run("themeArchitecture", () =>
+        generateThemeArchitecture(themeDir, sections.code, sections.themeStructure, sections.themeProfile),
+      );
+      if (themeArchitectureResult) {
+        sections.themeArchitecture = themeArchitectureResult.section;
+        aiUsage = addUsage(aiUsage, themeArchitectureResult.usage);
+      }
     }
   }
 
-  if (!options.skipPerformance) {
+  if (options.skipPerformance) {
+    track.skipped("performance", "--skip-performance was passed.");
+  } else {
     hooks.onStage?.("Discovering journey pages (Home/Collection/Product/Cart)");
-    sections.performance = await analyzePerformance(auditUrl, { onStage: hooks.onStage });
+    // Was the one unguarded analyzer in the run: analyzePerformance throws when the homepage
+    // Lighthouse pass returns nothing, which destroyed a twenty-minute audit that had already
+    // completed ten other sections. It now costs this section and nothing else.
+    sections.performance = await track.run("performance", () => analyzePerformance(auditUrl, { onStage: hooks.onStage }));
+
+    // Each Lighthouse category keeps only its worst failures. Summed across the four so the
+    // section carries one honest "showing N of M" rather than four separate silent caps.
+    if (sections.performance) {
+      const categories = [
+        sections.performance.performance,
+        sections.performance.accessibility,
+        sections.performance.bestPractices,
+        sections.performance.seo,
+      ];
+      const kept = categories.reduce((sum, c) => sum + c.audits.length, 0);
+      const found = categories.reduce((sum, c) => sum + (c.failingAudits ?? c.audits.length), 0);
+      if (found > kept) track.truncated("performance", { kept, found, what: "failing Lighthouse audits" });
+    }
   }
 
-  if (!options.skipAxe) {
+  if (options.skipAxe) {
+    track.skipped("accessibility", "--skip-axe was passed.");
+  } else {
     hooks.onStage?.("Scanning for accessibility violations (axe-core)");
-    sections.accessibility = (await analyzeAccessibility(auditUrl)) ?? undefined;
+    sections.accessibility = await track.run("accessibility", () => analyzeAccessibility(auditUrl));
   }
 
   // After both Lighthouse and axe, since it verifies the client's scope against whatever those
   // two actually measured (plus its own live keyboard/focus probe). Deliberately absent from the
   // `scores` list below: it measures delivery against one client's contract, not site quality.
-  if (options.adaScope?.trim()) {
+  if (!options.adaScope?.trim()) {
+    track.notApplicable("adaScope", "No ADA scope was given for this store, so there was nothing to verify against.");
+  } else {
     hooks.onStage?.("Checking the client's ADA scope against axe-core, Lighthouse & a live keyboard probe");
-    const adaScopeResult = await analyzeAdaScope(
-      options.adaScope,
-      { auditUrl, accessibility: sections.accessibility, performance: sections.performance },
-      { onStage: hooks.onStage },
-    ).catch(() => null);
+    const adaScopeResult = await track.run("adaScope", () =>
+      analyzeAdaScope(
+        options.adaScope!,
+        { auditUrl, accessibility: sections.accessibility, performance: sections.performance },
+        { onStage: hooks.onStage },
+      ),
+    );
     if (adaScopeResult) {
       sections.adaScope = adaScopeResult.section;
       aiUsage = addUsage(aiUsage, adaScopeResult.usage);
     }
   }
 
-  if (options.sitespeed) {
+  if (!options.sitespeed) {
+    track.skipped("sitespeed", "sitespeed.io is opt-in and --sitespeed was not passed.");
+  } else {
     hooks.onStage?.(`Running sitespeed.io (${SITESPEED_RUNS} real-browser iterations, this is slow)`);
-    sections.sitespeed = (await analyzeSitespeed(auditUrl, SITESPEED_RUNS)) ?? undefined;
+    sections.sitespeed = await track.run("sitespeed", () => analyzeSitespeed(auditUrl, SITESPEED_RUNS), {
+      timeoutMs: SLOW_ANALYZER_TIMEOUT_MS,
+    });
   }
 
   if (!options.skipScreenshots && sections.performance) {
@@ -198,48 +237,66 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
     }
   }
 
-  if (!options.skipHealth) {
+  if (options.skipHealth) {
+    track.skipped("health", "--skip-health was passed.");
+  } else {
     hooks.onStage?.("Running storefront health checks");
-    sections.health = await analyzeHealth(auditUrl);
+    sections.health = await track.run("health", () => analyzeHealth(auditUrl));
   }
 
-  if (!options.skipPixels) {
+  if (options.skipPixels) {
+    track.skipped("pixels", "--skip-pixels was passed.");
+  } else {
     hooks.onStage?.("Detecting marketing pixels (live browser)");
-    sections.pixels = await analyzePixels(auditUrl);
+    sections.pixels = await track.run("pixels", () => analyzePixels(auditUrl));
   }
 
-  if (!options.skipConsent) {
+  if (options.skipConsent) {
+    track.skipped("consent", "--skip-consent was passed.");
+  } else {
     hooks.onStage?.("Privacy Compliance: driving the banner (5 browser states)");
     // Never fatal to the run: a site that bot-walls headless Chrome should still produce a
     // report for every other section rather than losing the lot.
-    sections.consent =
-      (await analyzeConsent(auditUrl, {
+    sections.consent = await track.run("consent", () =>
+      analyzeConsent(auditUrl, {
         onStage: hooks.onStage,
+        onAiUsage: (usage) => {
+          aiUsage = addUsage(aiUsage, usage);
+        },
         uploadScreenshot: (state, image) =>
           writeBlobBinary(consentScreenshotBlobPath(store.slug, id, state), image, "image/jpeg"),
-      }).catch(() => null)) ?? undefined;
+      }),
+    );
   }
 
-  if (!options.skipSecurity) {
+  if (options.skipSecurity) {
+    track.skipped("security", "--skip-security was passed.");
+  } else {
     hooks.onStage?.("Security & Compliance: headers, transport, cookies, exposed paths, script supply chain");
     // Never fatal to the run, for the same reason as consent: a host that rate-limits or blocks
     // the probe requests should cost this one section, not the whole report.
-    sections.security = (await analyzeSecurity(auditUrl, { onStage: hooks.onStage }).catch(() => null)) ?? undefined;
+    sections.security = await track.run("security", () => analyzeSecurity(auditUrl, { onStage: hooks.onStage }));
   }
 
-  if (!options.skipGeoSeo) {
+  if (options.skipGeoSeo) {
+    track.skipped("geoSeo", "--skip-geo-seo was passed.");
+  } else {
     hooks.onStage?.("Auditing SEO opportunities & AI/agentic-commerce readiness (GEO)");
-    sections.geoSeo = (await analyzeGeoSeo(auditUrl)) ?? undefined;
+    sections.geoSeo = await track.run("geoSeo", () => analyzeGeoSeo(auditUrl));
   }
 
-  if (!options.skipAgentReadiness) {
+  if (options.skipAgentReadiness) {
+    track.skipped("agentReadiness", "--skip-agent-readiness was passed.");
+  } else {
     hooks.onStage?.("Auditing agent readiness (per-SKU schema, hydration, policy data, feed drift)");
-    sections.agentReadiness = (await analyzeAgentReadiness(auditUrl)) ?? undefined;
+    sections.agentReadiness = await track.run("agentReadiness", () => analyzeAgentReadiness(auditUrl));
   }
 
-  if (!options.skipUx) {
+  if (options.skipUx) {
+    track.skipped("ux", "--skip-ux was passed.");
+  } else {
     hooks.onStage?.("Auditing UX & conversion (one collection page + one product page, throttled)");
-    const uxResult = await analyzeUx(auditUrl).catch(() => null);
+    const uxResult = await track.run("ux", () => analyzeUx(auditUrl));
     if (uxResult) {
       if (!options.skipScreenshots) {
         if (uxResult.screenshots.collection) {
@@ -264,12 +321,18 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
     }
   }
 
-  if (!options.skipAnalytics && store.ga4PropertyId) {
+  if (options.skipAnalytics) {
+    track.skipped("analytics", "--skip-analytics was passed.");
+  } else if (!store.ga4PropertyId) {
+    track.notApplicable("analytics", "This store has no GA4 property linked, so there was no traffic data to read.");
+  } else {
     hooks.onStage?.("Pulling traffic & revenue from Google Analytics");
-    sections.analytics = (await analyzeAnalytics(store.ga4PropertyId)) ?? undefined;
+    sections.analytics = await track.run("analytics", () => analyzeAnalytics(store.ga4PropertyId!));
   }
 
-  if (options.competitorUrls?.length) {
+  if (!options.competitorUrls?.length) {
+    track.notApplicable("competitors", "No competitor URLs were given for this run.");
+  } else {
     const competitorUrls = options.competitorUrls.slice(0, MAX_COMPETITORS);
     if (options.competitorUrls.length > MAX_COMPETITORS) {
       hooks.onStage?.(
@@ -278,10 +341,14 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
     }
 
     const competitors = [];
+    let failedCompetitors = 0;
     for (const competitorUrl of competitorUrls) {
       hooks.onStage?.(`Benchmarking competitor: ${competitorUrl}`);
       const result = await analyzeCompetitor(competitorUrl).catch(() => null);
-      if (!result) continue;
+      if (!result) {
+        failedCompetitors++;
+        continue;
+      }
 
       if (!options.skipScreenshots) {
         hooks.onStage?.(`Capturing competitor screenshot: ${competitorUrl}`);
@@ -298,9 +365,29 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
 
       competitors.push(result);
     }
-    if (competitors.length > 0) sections.competitors = { competitors };
+    if (competitors.length > 0) {
+      sections.competitors = { competitors };
+      track.coverage.competitors = { status: "ran" };
+      // Benchmarking three competitors and reporting on one is a different claim from benchmarking
+      // one, and the section itself cannot tell them apart — it only holds what succeeded.
+      if (failedCompetitors > 0) {
+        track.truncated("competitors", {
+          kept: competitors.length,
+          found: competitorUrls.length,
+          what: "competitors benchmarked",
+        });
+      }
+    } else {
+      track.coverage.competitors = {
+        status: "failed",
+        reason: `None of the ${competitorUrls.length} competitor URL(s) could be benchmarked.`,
+      };
+    }
   }
 
+  // A derivation, not a measurement: it restates what code, performance and themeStructure already
+  // found, so it is "not applicable" exactly when all three are missing rather than a failure of
+  // its own.
   sections.bestPractices =
     deriveBestPractices({
       code: sections.code,
@@ -308,6 +395,12 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
       themeStructure: sections.themeStructure,
       themeDir: hasTheme ? themeDir : undefined,
     }) ?? undefined;
+  track.coverage.bestPractices = sections.bestPractices
+    ? { status: "ran" }
+    : {
+        status: "not-applicable",
+        reason: "It is derived from the theme code, performance and theme structure sections, none of which ran.",
+      };
 
   const scores: number[] = [];
   if (sections.code) scores.push(sections.code.score);
@@ -343,13 +436,19 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
     durationMs: Date.now() - start,
     overallScore,
     sections,
+    coverage: track.coverage,
     runner: runnerInfo(),
   };
 
-  if (!options.skipAiSuggestions) {
+  if (options.skipAiSuggestions) {
+    track.skipped("aiSuggestions", "--skip-ai-suggestions was passed.");
+  } else if (!process.env.ANTHROPIC_API_KEY) {
+    hooks.onStage?.("ANTHROPIC_API_KEY not set — skipping AI suggestions");
+    track.notApplicable("aiSuggestions", "ANTHROPIC_API_KEY is not set, so no AI suggestions could be written.");
+  } else {
     hooks.onStage?.("Generating AI performance & accessibility suggestions (Claude)");
-    const aiSuggestionsResult = await generateAiSuggestions(sections.performance, hasTheme ? themeDir : undefined).catch(
-      () => null,
+    const aiSuggestionsResult = await track.run("aiSuggestions", () =>
+      generateAiSuggestions(sections.performance, hasTheme ? themeDir : undefined),
     );
     if (aiSuggestionsResult) {
       report.sections.aiSuggestions = aiSuggestionsResult.section;
@@ -357,27 +456,35 @@ export async function runAudit(store: StoreConfig, options: RunOptions, callerHo
     }
   }
 
-  if (!options.skipSummary) {
+  if (options.skipSummary) {
+    track.skipped("summary", "--skip-summary was passed.");
+  } else if (!process.env.ANTHROPIC_API_KEY) {
+    // Checked before the call rather than inferred from its failure: "no key" and "the call
+    // failed" were previously the same `null`, so a genuine API error printed nothing at all.
+    hooks.onStage?.("ANTHROPIC_API_KEY not set — skipping executive summary");
+    track.notApplicable("summary", "ANTHROPIC_API_KEY is not set, so no executive summary could be written.");
+  } else {
     hooks.onStage?.("Writing executive summary (Claude)");
-    const result = await generateSummary(report).catch(() => null);
+    const result = await track.run("summary", () => generateSummary(report));
     if (result) {
       report.sections.summary = result.summary;
       aiUsage = addUsage(aiUsage, result.usage);
-    } else if (!process.env.ANTHROPIC_API_KEY) {
-      hooks.onStage?.("ANTHROPIC_API_KEY not set — skipping executive summary");
     }
   }
 
   // Last, deliberately: it reads every other section including the executive summary above, so it
   // has to run once they are all final.
-  if (!options.skipRecommendations) {
+  if (options.skipRecommendations) {
+    track.skipped("recommendations", "--skip-recommendations was passed.");
+  } else if (!process.env.ANTHROPIC_API_KEY) {
+    hooks.onStage?.("ANTHROPIC_API_KEY not set — skipping client-ready recommendations");
+    track.notApplicable("recommendations", "ANTHROPIC_API_KEY is not set, so no recommendations could be written.");
+  } else {
     hooks.onStage?.("Writing client-ready recommendations (Claude)");
-    const recommendationsResult = await generateRecommendations(report).catch(() => null);
+    const recommendationsResult = await track.run("recommendations", () => generateRecommendations(report));
     if (recommendationsResult) {
       report.sections.recommendations = recommendationsResult.section;
       aiUsage = addUsage(aiUsage, recommendationsResult.usage);
-    } else if (!process.env.ANTHROPIC_API_KEY) {
-      hooks.onStage?.("ANTHROPIC_API_KEY not set — skipping client-ready recommendations");
     }
   }
 

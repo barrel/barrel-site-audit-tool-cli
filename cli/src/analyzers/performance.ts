@@ -15,6 +15,11 @@ import { discoverJourneyPages } from "./journey.js";
 
 const MAX_CONSOLE_ERRORS = 20;
 
+/** Only the worst failures per category are carried into the report — sixty of them is a wall
+ * nobody reads. The count before this cap is kept alongside them (LighthouseCategoryResult.
+ * failingAudits), so the report can say "the worst 15 of 63" rather than implying there were 15. */
+const MAX_AUDITS_PER_CATEGORY = 15;
+
 function extractConsoleErrors(lhr: any): ConsoleErrorItem[] {
   const items = lhr.audits?.["errors-in-console"]?.details?.items ?? [];
   return items.slice(0, MAX_CONSOLE_ERRORS).map((item: any) => ({
@@ -27,7 +32,7 @@ function extractConsoleErrors(lhr: any): ConsoleErrorItem[] {
 
 function buildCategory(lhr: any, categoryId: string): LighthouseCategoryResult {
   const category = lhr.categories[categoryId];
-  const audits: LighthouseAudit[] = (category?.auditRefs ?? [])
+  const failing: LighthouseAudit[] = (category?.auditRefs ?? [])
     .map((ref: any) => lhr.audits[ref.id])
     .filter((audit: any) => audit && audit.score !== null && audit.score < 1)
     .map((audit: any) => ({
@@ -37,12 +42,12 @@ function buildCategory(lhr: any, categoryId: string): LighthouseCategoryResult {
       score: audit.score,
       displayValue: audit.displayValue,
     }))
-    .sort((a: LighthouseAudit, b: LighthouseAudit) => (a.score ?? 1) - (b.score ?? 1))
-    .slice(0, 15);
+    .sort((a: LighthouseAudit, b: LighthouseAudit) => (a.score ?? 1) - (b.score ?? 1));
 
   return {
     score: Math.round((category?.score ?? 0) * 100),
-    audits,
+    audits: failing.slice(0, MAX_AUDITS_PER_CATEGORY),
+    failingAudits: failing.length,
   };
 }
 
