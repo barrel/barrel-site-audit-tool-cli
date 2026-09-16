@@ -950,7 +950,7 @@ barrel-audit consent-scan cabot --no-tag-inventory   # skip the per-vendor table
 
 32 tests across 8 suites, run in five fresh incognito browser states plus a Global Privacy Control
 probe. Results land on **/consent** in the dashboard (worst sites first) and, for a single site,
-as a **Privacy Compliance** section in its normal report. The command exits non-zero on any
+as the **Privacy Compliance** section on its normal report's Privacy & Compliance page. The command exits non-zero on any
 blocker-severity failure, so it can gate CI unchanged.
 
 Both report views carry a **What's working** pass list alongside the findings: every confirmed
@@ -1087,13 +1087,13 @@ dependency this CLI uses elsewhere (`cli/src/analyzers/code.ts`).
 
 Each report is split across multiple pages instead of one long scroll, with a sticky
 tab bar (Overview / Site Performance / Theme Check / UX / SEO/GEO/AEO / ADA /
-Data Analysis / All / Developer) at `/reports/<slug>/<id>[/<page>]`:
+Privacy & Compliance / Data Analysis / All / Developer) at `/reports/<slug>/<id>[/<page>]`:
 
 - **Overview** (the default — `/reports/<slug>/<id>`) — Priority Actions (the ranked
   recommendation list, linking to the full case for each), Executive Summary, what the run did
-  and did not cover, stat tiles, Traffic & Revenue, Trust & Privacy, Privacy Compliance,
-  Security & Compliance, Competitor Benchmark, and the Prioritized Roadmap (synthesized
-  across every section in the report, regardless of which page it's shown on).
+  and did not cover, stat tiles, Traffic & Revenue, Competitor Benchmark, and the Prioritized
+  Roadmap (synthesized across every section in the report, regardless of which page it's shown
+  on).
 - **Recommendations** (`/recommendations`) — **the page you present**, reached from Overview's
   Priority Actions list rather than from the tab bar. The 5-10 highest-impact
   actions read across the whole report and ordered by how much each should move *conversion*,
@@ -1112,8 +1112,8 @@ Data Analysis / All / Developer) at `/reports/<slug>/<id>[/<page>]`:
   of, and its codebase opportunities), Theme Code Quality (incl. the Theme Architecture
   assessment — how the theme is built, Shopify platform-feature fit, other concerns), Theme
   Structure, Best Practices Verdict. Trust & Privacy, Privacy Compliance and Security &
-  Compliance moved to Overview: they are exposure rather than code quality, and they are scored
-  on their own scale rather than the A-F one.
+  Compliance are not here: they are exposure rather than code quality, and they are scored
+  on their own scale rather than the A-F one. They have their own page — see below.
 - **UX** (`/ux`) — UX & Conversion.
 - **SEO/GEO/AEO** (`/seo-geo`) — Technical Health & SEO (with the full site-health
   checklist tucked in a collapsible), SEO Opportunities, GEO, Agent Readiness, Agentic Browsing.
@@ -1123,6 +1123,15 @@ Data Analysis / All / Developer) at `/reports/<slug>/<id>[/<page>]`:
   scoped requirements as a verified checklist, with "Copy client update" / "Copy dev actions"
   buttons), then Accessibility: Lighthouse + axe-core scores, a WCAG readiness checklist,
   Lighthouse findings, axe violations (actionable items), and AI accessibility suggestions.
+- **Privacy & Compliance** (`/privacy`) — Privacy Compliance (the behavioural consent suite and
+  the cookie & script inventory), Security & Compliance (headers, transport, cookie flags,
+  exposed paths, script supply chain), and Trust & Privacy (Lighthouse best-practices findings,
+  console errors, and the marketing-pixel detail). One subject — what the storefront exposes to a
+  visitor and to the network — on one page, and the one page a client is most likely to forward
+  on its own. The three were at the bottom of Overview until 1.42, where a reader had to scroll
+  past the roadmap to find them. Note this is the *store's own* compliance section in its audit;
+  the admin-only **Privacy Compliance** item in the top nav is the fleet-wide scan across every
+  site in `sites.yml`.
 - **Data Analysis** (`/data`) — *only present when the store has a GA4 property linked.* The
   audit crossed with the store's own analytics; generated on demand from a button. See below.
 - **All** (`/all`) — every section above on one page, for anyone who wants the whole

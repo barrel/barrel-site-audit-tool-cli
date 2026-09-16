@@ -12,6 +12,16 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.42",
+    date: "2026-09-16",
+    title: "Privacy & Compliance gets its own page",
+    notes: [
+      "**Privacy Compliance, Security & Compliance and Trust & Privacy are now a tab of their own**, between ADA and Data Analysis, in that order. They were the last three sections of Overview \u2014 below the roadmap, which is where readers stop. They are one subject: what the storefront exposes to a visitor and to the network, scored on the compliance scale rather than the A-F one. And it is the page most likely to be forwarded on its own, to a client's legal or security people, which is an odd thing to make someone scroll to.",
+      "Overview keeps everything that was above them: Priority Actions, the executive summary, what the run covered, the stat tiles, Traffic & Revenue, the competitor benchmark and the roadmap \u2014 which still synthesizes across every section in the report, including the three that moved. Nothing about the scans changed, no re-run is needed, and reports archived long before today open on the new tab.",
+      "Worth keeping straight: the **Privacy Compliance** item in the top navigation is still the admin-only fleet scan across every site in `sites.yml`. The new tab is a single store's own compliance section inside its audit report, and it is open to everyone who can sign in, like the rest of a report.",
+    ],
+  },
+  {
     version: "1.41",
     date: "2026-09-11",
     title: "A report that can't say more than it measured",

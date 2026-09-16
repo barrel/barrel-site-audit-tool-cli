@@ -58,6 +58,7 @@ export type ReportCategory =
   | "ux"
   | "seo-geo"
   | "ada"
+  | "privacy"
   | "data";
 
 export interface SectionDef {
@@ -83,6 +84,11 @@ export const CATEGORY_LABELS: Record<ReportCategory, string> = {
   // rather than one being filed under a Lighthouse category and the other under SEO.
   "seo-geo": "SEO/GEO/AEO",
   ada: "ADA",
+  // Everything about what the storefront exposes rather than how it is built: what the site is
+  // running, whether consent actually gates it, and what the transport and headers give away.
+  // Its three sections are scored on a compliance scale rather than the A-F one, which is the
+  // other reason they are not mixed in with the Lighthouse-derived pages.
+  privacy: "Privacy & Compliance",
   // Data Analysis is a category with no sections in this file: its content is generated on
   // demand from GA4 rather than produced by an audit run, so it lives entirely in its own page.
   // It is declared here anyway so the tab strip reads its label from the same place as every
@@ -900,6 +906,44 @@ export function buildReportSections(report: Report): SectionDef[] {
     });
   }
 
+  // The Privacy & Compliance page, in the order it reads: what consent actually does, what
+  // the transport and headers expose, then the trust findings and the pixel detail behind
+  // them. Privacy Compliance leads because it is the section a client opens the page for.
+  if (sections.consent) {
+    const consent = sections.consent;
+    sectionDefs.push({
+      id: "consent-qa",
+      label: "Privacy Compliance",
+      category: "privacy",
+      render: (n) => (
+        <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={consent.score === null ? undefined : <CompliancePill score={consent.score} />}>
+          <ConsentAudit section={consent} />
+        </ReportSection>
+      ),
+    });
+  }
+
+  if (sections.security) {
+    const security = sections.security;
+    sectionDefs.push({
+      id: "security",
+      label: "Security & Compliance",
+      category: "privacy",
+      render: (n) => (
+        <ReportSection
+          id="security"
+          number={n}
+          title="Security & Compliance"
+          // No pill at all when the score is null, rather than a zero: too little was confirmed to
+          // put a number on, and a 0 would read as a verdict on the site instead of on the scan.
+          action={security.score === null ? undefined : <CompliancePill score={security.score} />}
+        >
+          <SecurityAudit section={security} />
+        </ReportSection>
+      ),
+    });
+  }
+
   if (sections.performance || sections.pixels) {
     const trustScores = [sections.performance?.bestPractices.score, sections.pixels?.score].filter(
       (s): s is number => s !== undefined,
@@ -908,7 +952,7 @@ export function buildReportSections(report: Report): SectionDef[] {
     sectionDefs.push({
       id: "trust",
       label: "Trust & Privacy",
-      category: "overview",
+      category: "privacy",
       render: (n) => (
         <ReportSection id="trust" number={n} title="Trust & Privacy" action={<GradePill score={trustSectionScore} />}>
           {trustFindings.length === 0 ? (
@@ -958,41 +1002,6 @@ export function buildReportSections(report: Report): SectionDef[] {
               />
             </div>
           )}
-        </ReportSection>
-      ),
-    });
-  }
-
-  if (sections.consent) {
-    const consent = sections.consent;
-    sectionDefs.push({
-      id: "consent-qa",
-      label: "Privacy Compliance",
-      category: "overview",
-      render: (n) => (
-        <ReportSection id="consent-qa" number={n} title="Privacy Compliance" action={consent.score === null ? undefined : <CompliancePill score={consent.score} />}>
-          <ConsentAudit section={consent} />
-        </ReportSection>
-      ),
-    });
-  }
-
-  if (sections.security) {
-    const security = sections.security;
-    sectionDefs.push({
-      id: "security",
-      label: "Security & Compliance",
-      category: "overview",
-      render: (n) => (
-        <ReportSection
-          id="security"
-          number={n}
-          title="Security & Compliance"
-          // No pill at all when the score is null, rather than a zero: too little was confirmed to
-          // put a number on, and a 0 would read as a verdict on the site instead of on the scan.
-          action={security.score === null ? undefined : <CompliancePill score={security.score} />}
-        >
-          <SecurityAudit section={security} />
         </ReportSection>
       ),
     });

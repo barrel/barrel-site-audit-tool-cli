@@ -534,6 +534,29 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            Privacy &amp; Compliance is its own tab now
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Every report has a{" "}
+            <span className="font-medium text-[#1A1A1A]">Privacy &amp; Compliance</span> tab, between
+            ADA and Data Analysis. It holds the three sections that used to sit at the bottom of
+            Overview: <b>Privacy Compliance</b> (the consent scan and the cookie &amp; script
+            inventory), <b>Security &amp; Compliance</b> (headers, transport, cookie flags, exposed
+            paths, script supply chain) and <b>Trust &amp; Privacy</b> (the Lighthouse
+            best-practices findings, the console errors, and the marketing-pixel detail).
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            They belong together: all three answer what the storefront exposes to a visitor and to
+            the network, and all three are scored on the compliance scale rather than the A-F one.
+            On Overview they were below the roadmap, which is the part of a report people stop
+            reading at — and this is usually the page a client forwards to their own legal or
+            security people on its own. Nothing about the scan changed, and reports you ran before
+            today show the new tab without a re-run.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Privacy Compliance takes inventory of every cookie and script
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-3">
@@ -761,9 +784,11 @@ export default function InstructionsPage() {
                 Where did Privacy Compliance go?
               </div>
               <div className="text-[#6B6B6B]">
-                That tab is limited to Barrel Labs admins — it is a live list of where client sites
-                are setting tracking cookies before consent. Everything else, including every
-                store's audit report, is open to everyone who can sign in.
+                The <b>Privacy Compliance</b> item in this tool&rsquo;s own navigation — the
+                fleet-wide list of where client sites are setting tracking cookies before consent —
+                is limited to Barrel Labs admins. A single store&rsquo;s compliance section is not:
+                it is on that report&rsquo;s <b>Privacy &amp; Compliance</b> tab, and every report,
+                like everything else here, is open to everyone who can sign in.
               </div>
             </div>
             <div>

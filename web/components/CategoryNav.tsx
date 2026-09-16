@@ -16,6 +16,7 @@ const TABS: Array<{ slug: string; label: string; gated?: "ga4" }> = [
   { slug: "ux", label: CATEGORY_LABELS.ux },
   { slug: "seo-geo", label: CATEGORY_LABELS["seo-geo"] },
   { slug: "ada", label: CATEGORY_LABELS.ada },
+  { slug: "privacy", label: CATEGORY_LABELS.privacy },
   { slug: "data", label: CATEGORY_LABELS.data, gated: "ga4" },
   { slug: "all", label: "All" },
   { slug: "dev-todo", label: "Developer" },
@@ -25,9 +26,9 @@ const TABS: Array<{ slug: string; label: string; gated?: "ga4" }> = [
 // Performance" and /dev-todo is "Developer". A slug is a URL somebody may have pasted into a
 // ticket; the label is the only part anyone reads.
 
-/** Cross-page tabs (Overview / Site Performance / Theme Check / UX / SEO/GEO/AEO / ADA / Data
- * Analysis / All / Developer) — distinct from ReportNav, which jumps to anchors within whichever
- * of those pages is currently open.
+/** Cross-page tabs (Overview / Site Performance / Theme Check / UX / SEO/GEO/AEO / ADA /
+ * Privacy & Compliance / Data Analysis / All / Developer) — distinct from ReportNav, which jumps
+ * to anchors within whichever of those pages is currently open.
  *
  * Recommendations is not among them: it is the one page written for the client rather than for
  * whoever ran the audit, and it is reached from the list Overview now leads with. */
