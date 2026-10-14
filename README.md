@@ -953,8 +953,7 @@ probe. Results land on **/consent** in the dashboard (worst sites first) and, fo
 as the **Privacy Compliance** section on its normal report's Privacy & Compliance page. The command exits non-zero on any
 blocker-severity failure, so it can gate CI unchanged.
 
-**One report for a whole scan.** *Shareable report* on the dashboard opens `/consent/scan/<id>`: summary
-(average/median score, band counts, sites with blockers), every site worst-first, a key decoding each
+**One report for a whole scan.** *Shareable report* on the dashboard opens `/consent/scan/<id>`: every site worst-first, a key decoding each
 failed test ID, a fix list grouped by failure, and a "How the score is calculated" section. *Print / Save
 as PDF* and *Download CSV* (`/consent/scan/<id>/csv`, one row per site) are on the same page. It is
 admin-gated like the rest of `/consent`.

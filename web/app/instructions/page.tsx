@@ -562,7 +562,7 @@ export default function InstructionsPage() {
           <p className="text-sm text-[#6B6B6B] mb-3">
             Running the bulk scan across every site produces one scan. Open it on the Privacy
             Compliance page and choose <b>Shareable report</b> for a single document covering all of
-            its sites: a summary, every site ranked worst first, what each failed test ID means, and
+            its sites: every site ranked worst first, what each failed test ID means, and
             the fixes grouped by failure. It also explains how the score is calculated — what each
             severity is worth, why untested results are left out, and why one blocker caps a site
             below 50.

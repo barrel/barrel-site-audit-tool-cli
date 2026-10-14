@@ -1,4 +1,4 @@
-import { sharedFixes, sortFleetRows, summarizeFleet } from "@/lib/consent-fleet";
+import { sharedFixes, sortFleetRows } from "@/lib/consent-fleet";
 import { formatDate } from "@/lib/format";
 import {
   COMPLIANCE_BAND_LABEL,
@@ -58,7 +58,6 @@ function SectionCard({ title, children, note }: { title: string; note?: string; 
  * external link, so what a recipient sees is exactly what was reviewed internally. */
 export function ConsentScanReport({ report }: { report: ConsentFleetReport }) {
   const rows = sortFleetRows(report.rows);
-  const summary = summarizeFleet(rows);
   const fixes = sharedFixes(rows, 1);
 
   // Every test ID that appears in the table, with its title — a shared PDF has no hover tooltips,
@@ -68,7 +67,6 @@ export function ConsentScanReport({ report }: { report: ConsentFleetReport }) {
   const keyRows = [...testKey.values()].sort((a, b) => a.id.localeCompare(b.id));
 
   const w = COMPLIANCE_SEVERITY_WEIGHT;
-  const bandOrder = ["healthy", "improving", "at-risk"] as const;
 
   return (
     <>
@@ -80,68 +78,6 @@ export function ConsentScanReport({ report }: { report: ConsentFleetReport }) {
             {report.totals.sites === 1 ? "" : "s"}
           </p>
         </header>
-
-        {/* ── Headline ─────────────────────────────────────────────────────────────────── */}
-        <SectionCard title="Summary">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-px bg-[#E5E5E5]">
-            {[
-              {
-                label: "Average score",
-                value: summary.averageScore === null ? "—" : String(summary.averageScore),
-                color: summary.averageScore === null ? undefined : colorForComplianceScore(summary.averageScore),
-                sub: summary.averageScore === null ? "no site could be scored" : `across ${summary.scored} scored site${summary.scored === 1 ? "" : "s"}`,
-              },
-              {
-                label: "Median score",
-                value: summary.medianScore === null ? "—" : String(summary.medianScore),
-                color: summary.medianScore === null ? undefined : colorForComplianceScore(summary.medianScore),
-                sub: "the typical site",
-              },
-              {
-                label: "Sites with blockers",
-                value: String(summary.sitesWithBlockers),
-                color: summary.sitesWithBlockers ? "#B91C1C" : "#10B981",
-                sub: `${summary.totalBlockers} blocker failure${summary.totalBlockers === 1 ? "" : "s"} in total`,
-              },
-              {
-                label: "Not scored",
-                value: String(summary.notScored),
-                color: undefined,
-                sub: "blocked or unreachable — see below",
-              },
-            ].map((s) => (
-              <div key={s.label} className="bg-white px-4 py-3">
-                <div className="text-2xl font-semibold tabular-nums" style={{ color: s.color ?? "#1A1A1A" }}>
-                  {s.value}
-                </div>
-                <div className="mt-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#6B6B6B]">{s.label}</div>
-                <div className="mt-0.5 text-[11px] text-[#9A9A9A]">{s.sub}</div>
-              </div>
-            ))}
-          </div>
-          <div className="px-5 py-4 border-t border-[#E5E5E5] space-y-2">
-            {bandOrder.map((b) => {
-              const n = summary.bands[b];
-              const pct = summary.scored ? (n / summary.scored) * 100 : 0;
-              const color = b === "healthy" ? "#10B981" : b === "improving" ? "#D97706" : "#B91C1C";
-              return (
-                <div key={b} className="flex items-center gap-3 text-xs">
-                  <span className="w-20 font-semibold text-[#1A1A1A]">{COMPLIANCE_BAND_LABEL[b]}</span>
-                  <div className="flex-1 h-2.5 bg-[#f0efed] rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: color, printColorAdjust: "exact" }} />
-                  </div>
-                  <span className="w-24 text-right tabular-nums text-[#6B6B6B]">
-                    {n} site{n === 1 ? "" : "s"}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          <div className="px-5 pb-4 text-xs text-[#6B6B6B]">
-            {report.totals.ok} clean · {report.totals.issues} with issues · {report.totals.blocked} blocked (could not be tested) ·{" "}
-            {report.totals.errored} unreachable
-          </div>
-        </SectionCard>
 
         {/* ── How the score is made ─────────────────────────────────────────────────── */}
         <SectionCard
