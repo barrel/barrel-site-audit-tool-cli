@@ -12,6 +12,26 @@ export interface ReleaseNote {
 // both the in-app "release notes" page and that version number.
 export const RELEASE_NOTES: ReleaseNote[] = [
   {
+    version: "1.44",
+    date: "2026-10-14",
+    title: "One report for a whole privacy scan, shareable behind a password",
+    notes: [
+      "**Every Privacy Compliance scan now has a single report covering all of its sites.** Open a scan on the dashboard and choose *Shareable report*: a summary (average and median score, how many sites are healthy, improving or at risk, how many have blockers), every site ranked worst first, a plain-English key for each failed test ID, and a fix list grouped by failure so one problem across twenty sites reads as one piece of work.",
+      "**It explains how the score is made.** What is tested, what each severity is worth (blocker 10, error 4, warning 1, info 0.5), the formula, why untested and not-applicable results are left out rather than half-credited, the blocker rule that caps a site below 50, when a site shows n/s instead of a number, and a worked example. The figures printed come from the same constants the scanner uses, so they cannot drift.",
+      "**Print / Save as PDF** gives a document with no app chrome, and **Download CSV** gives one row per site for a spreadsheet.",
+      "**Share it outside Barrel with a protected link.** On the report, *Create protected link*: list the emails allowed in, choose a password and an expiry (7, 30 or 90 days). The recipient opens the link, enters their email and your password, and sees the same report, view only. Both must match; a wrong email and a wrong password look identical, five failures lock the link for 15 minutes, and you can revoke it at any time with immediate effect. The password is stored only as a salted hash, so send it to them separately from the link.",
+    ],
+  },
+  {
+    version: "1.43",
+    date: "2026-10-09",
+    title: "Older privacy scans, and a site list you can copy",
+    notes: [
+      "**The Privacy Compliance page now has a Scan history you can page through.** It used to show only the eight most recent scans as small date chips, so anything older was unreachable even though the last 200 are kept. Scans are listed newest first, ten to a page, with their region, site count and how many had issues; open one and the table below is that run.",
+      "**Copy site list** sits beside the scan's date and copies every site in the scan you are viewing, one per line as client name, a tab, then the URL. It pastes straight into a spreadsheet, and works the same on an older scan as on the latest.",
+    ],
+  },
+  {
     version: "1.42",
     date: "2026-09-16",
     title: "Privacy & Compliance gets its own page",

@@ -1311,6 +1311,23 @@ export const COMPLIANCE_BAND_LABEL: Record<ComplianceBand, string> = {
   "at-risk": "At risk",
 };
 
+/** The numbers behind a Privacy Compliance score. Held here, not inside the scanner, so the report
+ * that explains the score reads the same constants the scorer uses — an explanation typed out by
+ * hand is wrong the first time a weight is tuned. */
+export const COMPLIANCE_SEVERITY_WEIGHT: Readonly<Record<"blocker" | "error" | "warning" | "info", number>> = {
+  blocker: 10,
+  error: 4,
+  warning: 1,
+  info: 0.5,
+};
+
+/** Below this many confirmed (pass or fail) results there is nothing worth scoring. */
+export const COMPLIANCE_MIN_CONFIRMED = 5;
+
+/** What a site's raw score is multiplied by when any blocker-severity test failed, which is what
+ * keeps it under 50. */
+export const COMPLIANCE_BLOCKER_FACTOR = 0.49;
+
 // Mirrors parseAdaScope() from shared/src/ada-scope.ts, for the Run Audit form's live preview of
 // how a pasted scope will be split into items. Only the parser is duplicated here — the
 // requirement catalog and the verifiers stay in the CLI, which is what actually runs them.

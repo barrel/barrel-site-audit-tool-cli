@@ -240,7 +240,7 @@ Two consequences worth knowing:
 - **Revocation takes up to 8 hours.** When the cookie expires the app silently re-authorizes
   through Labs, which is invisible to anyone whose Labs sign-in is still live. Shorten
   `SESSION_TTL_SECONDS` in `web/lib/labs-auth.ts` if that window is too long.
-- **Privacy Compliance is admins only.** `/consent`, `/consent/<site>`, `/consent/run` and
+- **Privacy Compliance is admins only.** `/consent`, `/consent/<site>`, `/consent/run`, `/consent/scan/<id>` and
   `/api/consent-run` require a Labs `admin` role — it is a live list of where client sites are
   setting tracking cookies before consent, which is a legal-exposure record about our clients
   rather than a to-do list. The nav link is omitted for members, middleware rewrites the routes
@@ -952,6 +952,23 @@ barrel-audit consent-scan cabot --no-tag-inventory   # skip the per-vendor table
 probe. Results land on **/consent** in the dashboard (worst sites first) and, for a single site,
 as the **Privacy Compliance** section on its normal report's Privacy & Compliance page. The command exits non-zero on any
 blocker-severity failure, so it can gate CI unchanged.
+
+**One report for a whole scan.** *Shareable report* on the dashboard opens `/consent/scan/<id>`: summary
+(average/median score, band counts, sites with blockers), every site worst-first, a key decoding each
+failed test ID, a fix list grouped by failure, and a "How the score is calculated" section. *Print / Save
+as PDF* and *Download CSV* (`/consent/scan/<id>/csv`, one row per site) are on the same page. It is
+admin-gated like the rest of `/consent`.
+
+**External sharing.** *Create protected link* on that page mints `/secure-report/<id>`, which is public in
+middleware but opens only for an email on the creator's list **and** the password they chose (scrypt-hashed,
+stored in Blob under `consent-shares/`; revocable, 7/30/90-day expiry, 5 failures lock it for 15 minutes,
+`noindex`). Every request re-reads the record, so revoke and expiry apply instantly. Logic is in
+`web/lib/consent-share.ts`. Limits: the lockout counter is a Blob read-modify-write, so it is best-effort
+under concurrent guessing; and the email check is an allowlist, not proof the visitor owns the address — the
+password is what actually gates, so share it over a different channel than the link. The weights and thresholds it prints are
+`COMPLIANCE_*` constants in `shared/src/scoring.ts` (mirrored into `web/lib/shared.ts`); the scorer in
+`cli/src/analyzers/consent/index.ts` keeps its own copy, and `cli/test/consent-score.test.ts` fails if the two
+disagree — change both together.
 
 Both report views carry a **What's working** pass list alongside the findings: every confirmed
 pass, grouped by what it means for a visitor rather than by suite letter, plus the tags proven to

@@ -557,6 +557,31 @@ export default function InstructionsPage() {
 
         <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
           <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
+            One report for a whole Privacy Compliance scan
+          </h3>
+          <p className="text-sm text-[#6B6B6B] mb-3">
+            Running the bulk scan across every site produces one scan. Open it on the Privacy
+            Compliance page and choose <b>Shareable report</b> for a single document covering all of
+            its sites: a summary, every site ranked worst first, what each failed test ID means, and
+            the fixes grouped by failure. It also explains how the score is calculated — what each
+            severity is worth, why untested results are left out, and why one blocker caps a site
+            below 50.
+          </p>
+          <p className="text-sm text-[#6B6B6B]">
+            Use <b>Print / Save as PDF</b> to hand it to someone, or <b>Download CSV</b> for one
+            spreadsheet row per site.
+          </p>
+          <p className="text-sm text-[#6B6B6B] mt-3">
+            To share it outside Barrel, use <b>Create protected link</b> on the report. Enter the
+            emails allowed to open it, set a password and pick an expiry. The recipient needs the
+            link, one of those emails <i>and</i> the password; five wrong tries lock it for 15
+            minutes, and <b>Revoke</b> cuts access straight away. Send the password by a different
+            route than the link.
+          </p>
+        </section>
+
+        <section className="bg-white border border-[#E5E5E5] rounded-lg px-6 py-6 mb-8">
+          <h3 className="text-lg font-semibold text-[#000000] tracking-tight mb-3">
             Privacy Compliance takes inventory of every cookie and script
           </h3>
           <p className="text-sm text-[#6B6B6B] mb-3">

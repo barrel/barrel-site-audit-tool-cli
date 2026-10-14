@@ -173,7 +173,7 @@ function readTools(claim: unknown): LabsTool[] {
  * Prefix match on a path segment boundary, so `/consent-something-else` is not caught by accident
  * and `/consent/<site>` is.
  */
-const ADMIN_ONLY_PREFIXES = ["/consent", "/api/consent-run"];
+const ADMIN_ONLY_PREFIXES = ["/consent", "/api/consent-run", "/api/consent-share"];
 
 export function isAdminOnlyPath(pathname: string): boolean {
   return ADMIN_ONLY_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));

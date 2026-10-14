@@ -9,7 +9,11 @@ import { SHARE_SCOPE_COOKIE_NAME, tokenScope, verifyShareToken } from "@/lib/sha
 
 /** Reachable with no Barrel Labs session at all.
  *
- * This list is deliberately down to one entry. /labs-error cannot be gated: it is where a failed
+ * This list is deliberately short. /secure-report is the password-gated external link to a Privacy
+ * Compliance scan: it has to open for someone with no Barrel account, so its protection is the
+ * email allowlist + password checked in web/lib/consent-share.ts, not the Labs session.
+ *
+ * Otherwise it is down to one entry. /labs-error cannot be gated: it is where a failed
  * handoff lands, so putting it behind the gate sends the browser straight back through the gate
  * that just failed, forever. /instructions and /release-notes were public under the old
  * shared-password login and are not any more — everything the app itself serves now needs a Barrel
@@ -18,7 +22,7 @@ import { SHARE_SCOPE_COOKIE_NAME, tokenScope, verifyShareToken } from "@/lib/sha
  * The two other ungated surfaces are handled by their own branches below rather than living here:
  * the SSO callback (which is the only route that can land a session) and /share/<token> client
  * report links (whose entire purpose is to open for someone with no Barrel account). */
-const PUBLIC_PATHS = ["/labs-error"];
+const PUBLIC_PATHS = ["/labs-error", "/secure-report", "/api/secure-report"];
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

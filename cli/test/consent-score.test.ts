@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ConsentSeverity, ConsentStateCapture, ConsentTestResult, ConsentTestStatus } from "@barrel/site-audit-shared";
+import {
+  COMPLIANCE_BLOCKER_FACTOR,
+  COMPLIANCE_MIN_CONFIRMED,
+  COMPLIANCE_SEVERITY_WEIGHT,
+} from "@barrel/site-audit-shared";
 import { attachScreenshots, scoreOf } from "../src/analyzers/consent/index.js";
 import { TEST_DEFS } from "../src/analyzers/consent/testcases.js";
 import { engineResult } from "./helpers/consent-fixtures.js";
@@ -16,6 +21,28 @@ function many(n: number, status: ConsentTestStatus, severity: ConsentSeverity = 
 const engine = engineResult();
 
 describe("scoreOf", () => {
+  it("agrees with the constants the scan-wide report prints as the method", () => {
+    // The Privacy Compliance scan report explains the score from these shared constants, while the
+    // scorer keeps its own copy so the CLI does not need a shared release to ship. This is the
+    // tripwire: tune one without the other and the report is describing a score nobody gets.
+    const mix: ConsentTestResult[] = [
+      result("pass", "blocker", "P1"),
+      result("pass", "error", "P2"),
+      result("pass", "warning", "P3"),
+      result("fail", "error", "F1"),
+      result("fail", "info", "F2"),
+    ];
+    const w = COMPLIANCE_SEVERITY_WEIGHT;
+    const expected = Math.round((100 * (w.blocker + w.error + w.warning)) / (w.blocker + 2 * w.error + w.warning + w.info));
+    assert.equal(scoreOf(mix, engine), expected);
+
+    const withBlockerFail = [...mix, result("fail", "blocker", "F3")];
+    const raw = (100 * (w.blocker + w.error + w.warning)) / (2 * w.blocker + 2 * w.error + w.warning + w.info);
+    assert.equal(scoreOf(withBlockerFail, engine), Math.round(raw * COMPLIANCE_BLOCKER_FACTOR));
+    assert.equal(many(COMPLIANCE_MIN_CONFIRMED - 1, "pass").length + 1, COMPLIANCE_MIN_CONFIRMED);
+    assert.equal(scoreOf(many(COMPLIANCE_MIN_CONFIRMED - 1, "pass"), engine), null);
+  });
+
   it("returns null below the confirmed-result threshold", () => {
     // A number computed from four results would be read as a verdict on the site rather than on
     // how little we managed to test.
