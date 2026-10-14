@@ -37,7 +37,7 @@ export default async function ConsentScanReportPage({ params }: { params: Promis
 
       <main className="max-w-[1100px] mx-auto px-6 lg:px-8 py-8 space-y-6 print:px-0 print:py-0 print:max-w-none">
         <ConsentShareManager scanId={report.id} />
-        <ConsentScanReport report={report} />
+        <ConsentScanReport report={report} siteHref={(slug) => `/consent/${slug}?scan=${report.id}`} />
       </main>
     </div>
   );

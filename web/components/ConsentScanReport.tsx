@@ -56,7 +56,14 @@ function SectionCard({ title, children, note }: { title: string; note?: string; 
 
 /** The whole scan report, with no app chrome. Rendered by the admin page and by the password-gated
  * external link, so what a recipient sees is exactly what was reviewed internally. */
-export function ConsentScanReport({ report }: { report: ConsentFleetReport }) {
+export function ConsentScanReport({
+  report,
+  siteHref,
+}: {
+  report: ConsentFleetReport;
+  /** Where a site's own report lives for this audience. Omitted, the names are not links. */
+  siteHref?: (slug: string) => string;
+}) {
   const rows = sortFleetRows(report.rows);
   const fixes = sharedFixes(rows, 1);
 
@@ -200,7 +207,7 @@ export function ConsentScanReport({ report }: { report: ConsentFleetReport }) {
             <table className="w-full text-xs border-collapse">
               <thead>
                 <tr className="bg-[#faf9f7] border-b border-[#E5E5E5] text-left">
-                  {["Site", "CMP", "Status", "Score", "Blockers", "Pass / fail", "Failed tests"].map((h) => (
+                  {["Site", "CMP", "Status", "Score", "Blockers", "Pass / fail", "Failed tests", ...(siteHref ? [""] : [])].map((h) => (
                     <th
                       key={h}
                       className={`px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-[#6B6B6B] whitespace-nowrap ${
@@ -218,7 +225,13 @@ export function ConsentScanReport({ report }: { report: ConsentFleetReport }) {
                   return (
                     <tr key={row.slug} className="align-top break-inside-avoid">
                       <td className="px-3 py-2 max-w-[260px]">
-                        <div className="font-semibold text-[#1A1A1A] truncate">{row.client}</div>
+                        {siteHref ? (
+                          <a href={siteHref(row.slug)} className="font-semibold text-[#1A1A1A] hover:underline truncate block">
+                            {row.client}
+                          </a>
+                        ) : (
+                          <div className="font-semibold text-[#1A1A1A] truncate">{row.client}</div>
+                        )}
                         <div className="text-[#6B6B6B] truncate">{row.url}</div>
                       </td>
                       <td className="px-3 py-2 font-mono text-[#6B6B6B] whitespace-nowrap">{row.cmp}</td>
@@ -267,6 +280,13 @@ export function ConsentScanReport({ report }: { report: ConsentFleetReport }) {
                           </div>
                         )}
                       </td>
+                      {siteHref && (
+                        <td className="px-3 py-2 whitespace-nowrap print:hidden">
+                          <a href={siteHref(row.slug)} className="font-semibold text-[#1A1A1A] hover:underline">
+                            Full report →
+                          </a>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

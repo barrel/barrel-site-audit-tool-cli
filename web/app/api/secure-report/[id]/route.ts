@@ -26,7 +26,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
-    path: `/secure-report/${id}`,
+    // Site root, not the page path: the same unlock also has to reach the screenshot route under
+    // /api/secure-report/<id>. The value is still bound to this one link by its signature.
+    path: "/",
     maxAge,
   });
   return res;

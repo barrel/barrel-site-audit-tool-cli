@@ -961,7 +961,7 @@ admin-gated like the rest of `/consent`.
 **External sharing.** *Create protected link* on that page mints `/secure-report/<id>`, which is public in
 middleware but opens only for an email on the creator's list **and** the password they chose (scrypt-hashed,
 stored in Blob under `consent-shares/`; revocable, 7/30/90-day expiry, 5 failures lock it for 15 minutes,
-`noindex`). Every request re-reads the record, so revoke and expiry apply instantly. Logic is in
+`noindex`). Each site in the table opens its full report at `/secure-report/<id>/site/<slug>`, with screenshots served by `/api/secure-report/<id>/screenshot/…`, which only serves that link's own scan. Both check `getUnlockedShare` (`web/lib/secure-report-access.ts`); new routes behind a secure link must too. Every request re-reads the record, so revoke and expiry apply instantly. Logic is in
 `web/lib/consent-share.ts`. Limits: the lockout counter is a Blob read-modify-write, so it is best-effort
 under concurrent guessing; and the email check is an allowlist, not proof the visitor owns the address — the
 password is what actually gates, so share it over a different channel than the link. The weights and thresholds it prints are

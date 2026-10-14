@@ -109,7 +109,7 @@ export default async function SecureReportPage({
           </span>
           <PrintButton />
         </div>
-        <ConsentScanReport report={report} />
+        <ConsentScanReport report={report} siteHref={(slug) => `/secure-report/${id}/site/${slug}`} />
       </main>
     </Shell>
   );
